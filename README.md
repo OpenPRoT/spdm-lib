@@ -1,8 +1,4 @@
-# OpenPRoT spdm-lib
+# spdm-lib
+This is a fork of spdm-lib from [Caliptra MCU](https://github.com/chipsalliance/caliptra-mcu-sw/tree/main/runtime/userspace/api/spdm-lib)
 
-This repository contains a standalone SPDM library implemented in Rust, used by the OpenPRoT project.
-
-## Technical Charter
-
-The OpenPRoT Technical Charter can be found at
-[<u>https://github.com/OpenPRoT/.github/blob/main/GOVERNANCE.md</u>](https://github.com/OpenPRoT/.github/blob/main/GOVERNANCE.md)
+Long term the goal is to mold this into a platform independent implementation of an SPDM Requester and Responder. Short term is to get it working in a way that can be used outside of Caliptra MCU, and refactor to relocate things that may hamper embedded operation.
