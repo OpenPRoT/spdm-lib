@@ -11,24 +11,30 @@ use crate::commands::{
 };
 use crate::error::*;
 use crate::measurements::common::SpdmMeasurements;
+use crate::platform::evidence::SpdmEvidence;
 use crate::protocol::algorithms::*;
 use crate::protocol::common::{ReqRespCode, SpdmMsgHdr};
 use crate::protocol::version::*;
 use crate::protocol::DeviceCapabilities;
 use crate::state::{ConnectionState, State};
 use crate::transcript::{TranscriptContext, TranscriptManager};
-use crate::transport::SpdmTransport;
+use crate::platform::transport::SpdmTransport;
+use crate::platform::hash::SpdmHash;
+use crate::platform::rng::SpdmRng;
 
 pub struct SpdmContext<'a> {
     transport: &'a mut dyn SpdmTransport,
+    pub(crate) hash: &'a mut dyn SpdmHash,
     pub(crate) supported_versions: &'a [SpdmVersion],
     pub(crate) state: State,
-    pub(crate) transcript_mgr: TranscriptManager,
+    pub(crate) transcript_mgr: TranscriptManager<'a>,
+    pub(crate) rng: &'a mut dyn SpdmRng,
     pub(crate) local_capabilities: DeviceCapabilities,
     pub(crate) local_algorithms: LocalDeviceAlgorithms<'a>,
     pub(crate) device_certs_store: &'a mut dyn SpdmCertStore,
     pub(crate) measurements: SpdmMeasurements,
     pub(crate) large_resp_context: LargeResponseCtx,
+    pub(crate) evidence: &'a dyn SpdmEvidence,
 }
 
 impl<'a> SpdmContext<'a> {
@@ -38,6 +44,11 @@ impl<'a> SpdmContext<'a> {
         local_capabilities: DeviceCapabilities,
         local_algorithms: LocalDeviceAlgorithms<'a>,
         device_certs_store: &'a mut dyn SpdmCertStore,
+        hash: &'a mut dyn SpdmHash,
+        m1: &'a mut dyn SpdmHash,
+        l1: &'a mut dyn SpdmHash,
+        rng: &'a mut dyn SpdmRng,
+        evidence: &'a dyn SpdmEvidence,
     ) -> SpdmResult<Self> {
         validate_supported_versions(supported_versions)?;
 
@@ -49,12 +60,15 @@ impl<'a> SpdmContext<'a> {
             supported_versions,
             transport: spdm_transport,
             state: State::new(),
-            transcript_mgr: TranscriptManager::new(),
+            transcript_mgr: TranscriptManager::new(m1, l1),
             local_capabilities,
             local_algorithms,
             device_certs_store,
             measurements: SpdmMeasurements::default(),
             large_resp_context: LargeResponseCtx::default(),
+            hash: hash,
+            rng: rng,
+            evidence: evidence,
         })
     }
 

@@ -18,9 +18,6 @@ pub mod context;
 // Spdm responder state
 pub mod state;
 
-// Transport layer handling
-pub mod transport;
-
 // Device certificate management
 pub mod cert_store;
 
@@ -32,3 +29,6 @@ pub mod measurements;
 
 // Chunking context for large messages
 pub mod chunk_ctx;
+
+// Platform-specific implementations
+pub mod platform;

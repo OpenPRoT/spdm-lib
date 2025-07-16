@@ -2,7 +2,6 @@
 
 use crate::error::{SpdmError, SpdmResult};
 use bitfield::bitfield;
-use libapi_caliptra::crypto::hash::HashAlgoType;
 use zerocopy::{FromBytes, Immutable, IntoBytes};
 
 pub const SHA384_HASH_SIZE: usize = 48;
@@ -313,17 +312,6 @@ impl TryFrom<u8> for BaseHashAlgoType {
             4 => Ok(BaseHashAlgoType::TpmAlgSha3_384),
             5 => Ok(BaseHashAlgoType::TpmAlgSha3_512),
             6 => Ok(BaseHashAlgoType::TpmAlgSm3_256),
-            _ => Err(SpdmError::InvalidParam),
-        }
-    }
-}
-
-impl TryFrom<BaseHashAlgoType> for HashAlgoType {
-    type Error = SpdmError;
-    fn try_from(value: BaseHashAlgoType) -> Result<HashAlgoType, SpdmError> {
-        match value {
-            BaseHashAlgoType::TpmAlgSha384 => Ok(HashAlgoType::SHA384),
-            BaseHashAlgoType::TpmAlgSha512 => Ok(HashAlgoType::SHA512),
             _ => Err(SpdmError::InvalidParam),
         }
     }

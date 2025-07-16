@@ -8,7 +8,6 @@ use crate::protocol::certs::{CertificateInfo, KeyUsageMask};
 use crate::protocol::SpdmCertChainHeader;
 use alloc::boxed::Box;
 use async_trait::async_trait;
-use libapi_caliptra::error::CaliptraApiError;
 
 pub const MAX_CERT_SLOTS_SUPPORTED: u8 = 2;
 pub const SPDM_CERT_CHAIN_METADATA_LEN: u16 =
@@ -22,7 +21,7 @@ pub enum CertStoreError {
     BufferTooSmall,
     InvalidOffset,
     CertReadError,
-    CaliptraApi(CaliptraApiError),
+    PlatformError,
 }
 pub type CertStoreResult<T> = Result<T, CertStoreError>;
 

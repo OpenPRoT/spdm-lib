@@ -4,12 +4,12 @@ use crate::cert_store::{cert_slot_mask, SpdmCertStore};
 use crate::codec::{Codec, CommonCodec, MessageBuf};
 use crate::commands::error_rsp::ErrorCode;
 use crate::context::SpdmContext;
-use crate::error::{CommandError, CommandResult};
+use crate::error::{PlatformError, CommandError, CommandResult};
 use crate::protocol::*;
 use crate::state::ConnectionState;
 use crate::transcript::TranscriptContext;
+use crate::platform::hash::{SpdmHash, SpdmHashAlgoType};
 use core::mem::size_of;
-use libapi_caliptra::crypto::hash::{HashAlgoType, HashContext};
 use zerocopy::{FromBytes, Immutable, IntoBytes};
 
 #[derive(IntoBytes, FromBytes, Immutable, Default)]
@@ -31,6 +31,7 @@ pub struct GetDigestsRespCommon {
 impl CommonCodec for GetDigestsRespCommon {}
 
 pub(crate) async fn compute_cert_chain_hash(
+    digest_fn: &mut dyn SpdmHash,
     slot_id: u8,
     cert_store: &mut dyn SpdmCertStore,
     asym_algo: AsymAlgo,
@@ -53,11 +54,11 @@ pub(crate) async fn compute_cert_chain_hash(
 
     // Length and reserved fields
     let header_bytes = header.as_bytes();
-    let mut hash_ctx = HashContext::new();
-    hash_ctx
-        .init(HashAlgoType::SHA384, Some(header_bytes))
+    
+    digest_fn
+        .init(SpdmHashAlgoType::SHA384, Some(header_bytes))
         .await
-        .map_err(|e| (false, CommandError::CaliptraApi(e)))?;
+        .map_err(|e| (false, CommandError::Platform(PlatformError::HashError(e))))?;
 
     // Root certificate hash
     let mut root_hash = [0u8; SHA384_HASH_SIZE];
@@ -66,10 +67,10 @@ pub(crate) async fn compute_cert_chain_hash(
         .root_cert_hash(slot_id, asym_algo, &mut root_hash)
         .await
         .map_err(|e| (false, CommandError::CertStore(e)))?;
-    hash_ctx
+    digest_fn
         .update(&root_hash)
         .await
-        .map_err(|e| (false, CommandError::CaliptraApi(e)))?;
+        .map_err(|e| (false, CommandError::Platform(PlatformError::HashError(e))))?;
 
     // Hash the certificate chain
     let mut cert_portion = [0u8; SPDM_MAX_CERT_CHAIN_PORTION_LEN as usize];
@@ -81,10 +82,10 @@ pub(crate) async fn compute_cert_chain_hash(
             .await
             .map_err(|e| (false, CommandError::CertStore(e)))?;
 
-        hash_ctx
+        digest_fn
             .update(&cert_portion[..bytes_read])
             .await
-            .map_err(|e| (false, CommandError::CaliptraApi(e)))?;
+            .map_err(|e| (false, CommandError::Platform(PlatformError::HashError(e))))?;
 
         offset += bytes_read;
 
@@ -93,13 +94,14 @@ pub(crate) async fn compute_cert_chain_hash(
             break;
         }
     }
-    hash_ctx
+    digest_fn
         .finalize(hash)
         .await
-        .map_err(|e| (false, CommandError::CaliptraApi(e)))
+        .map_err(|e| (false, CommandError::Platform(PlatformError::HashError(e))))
 }
 
 async fn encode_cert_chain_digest(
+    digest_fn: &mut dyn SpdmHash,
     slot_id: u8,
     cert_store: &mut dyn SpdmCertStore,
     asym_algo: AsymAlgo,
@@ -112,7 +114,7 @@ async fn encode_cert_chain_digest(
         .data_mut(SHA384_HASH_SIZE)
         .map_err(|_| (false, CommandError::BufferTooSmall))?;
 
-    compute_cert_chain_hash(slot_id, cert_store, asym_algo, cert_chain_digest_buf).await?;
+    compute_cert_chain_hash(digest_fn, slot_id, cert_store, asym_algo, cert_chain_digest_buf).await?;
 
     rsp.pull_data(SHA384_HASH_SIZE)
         .map_err(|_| (false, CommandError::BufferTooSmall))?;
@@ -161,7 +163,7 @@ async fn generate_digests_response<'a>(
     // Encode the certificate chain digests for each provisioned slot
     for slot_id in 0..slot_cnt {
         payload_len +=
-            encode_cert_chain_digest(slot_id as u8, ctx.device_certs_store, asym_algo, rsp)
+            encode_cert_chain_digest(ctx.hash, slot_id as u8, ctx.device_certs_store, asym_algo, rsp)
                 .await
                 .map_err(|_| ctx.generate_error_response(rsp, ErrorCode::Unspecified, 0, None))?;
     }
