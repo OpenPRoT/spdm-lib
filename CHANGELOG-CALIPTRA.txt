@@ -1,0 +1,138 @@
+commit 6c265012b0a0106472187054f764ad9733764a67
+Author: Parvathi Bhogaraju <bhogaraju.parvathi@gmail.com>
+Date:   Mon Jul 14 15:20:54 2025 -0700
+
+    pcr quote fix and spdm validator tool improvement (#264)
+    
+    Co-authored-by: Parvathi Bhogaraju <pbhogaraju@microsoft.com>
+
+commit 77224d19631c7e18895d1ec644aa78c74ff787eb
+Author: Christopher Swenson <chswenson@microsoft.com>
+Date:   Mon Jun 23 08:49:43 2025 -0700
+
+    Update caliptra-sw and caliptra-ss; SPDM updates (#232)
+    
+    This requires some small adaptation to the PCR quotes since those
+    commands were split.
+    
+    The recovery flow has changed slightly in Caliptra so that its device
+    status stays in state 3 (recovery mode) except when activating.
+
+commit 54a5caae154ebcac6215470504d21fba7bf2618a
+Author: Parvathi Bhogaraju <bhogaraju.parvathi@gmail.com>
+Date:   Mon Jun 9 09:42:09 2025 -0700
+
+    Add support for GET_MEASUREMENTS (#216)
+    
+    * Add support for CHALLENGE command
+    
+    * remove chunk get related code
+    
+    * update Caliptra SW commit
+    
+    * up the timeout for the spdm validator test
+    
+    * Update runtime/userspace/api/spdm-lib/src/codec.rs
+    
+    Co-authored-by: Christopher Swenson <chswenson@microsoft.com>
+    
+    * Address review comments
+    
+    * fix the rng test for the bigger buffer size
+    
+    * Address review comments
+    
+    * get_measurements and chunking support
+    
+    * get_measurements impl complete
+    
+    * comment other tests temporarily
+    
+    * add mctp retries and correct evidence
+    
+    * enable all tests
+    
+    * fix precheckin errors
+    
+    * change ram data size
+    
+    * comment streaming boot tests temporarily
+    
+    * adjust the time
+    
+    * final adjustments
+    
+    ---------
+    
+    Co-authored-by: Parvathi Bhogaraju <pbhogaraju@microsoft.com>
+    Co-authored-by: Christopher Swenson <chswenson@microsoft.com>
+
+commit b74645c974b5aa0dd3c6c26fab26afb629744e14
+Author: Christopher Swenson <chswenson@microsoft.com>
+Date:   Mon Jun 2 17:14:40 2025 -0700
+
+    hw/model: FPGA now mostly boots Caliptra (#211)
+    
+    There's a problem with the MCU -> Caliptra mailbox interface that we are
+    debugging, but this gets through most of the boot process.
+    
+    I updated `caliptra-sw` to point to the latest commit and did some
+    related cleanup (new Rust version so some clippy fixes were necessary).
+    
+    I also did some more cleanup of the FPGA model to use Tock registers
+    that were automatically generated from RDL and then did some manual
+    tuning.
+
+commit 3ad8813929f46d7af276028218882c5f51800447
+Author: Parvathi Bhogaraju <bhogaraju.parvathi@gmail.com>
+Date:   Sun Jun 1 17:03:21 2025 -0700
+
+    Add support for CHALLENGE command (#198)
+    
+    * Add support for CHALLENGE command
+    
+    ---------
+    
+    Co-authored-by: Parvathi Bhogaraju <pbhogaraju@microsoft.com>
+    Co-authored-by: Christopher Swenson <chswenson@microsoft.com>
+
+commit 4ffbd6b6a57e8f94b2addf80feffc3db962a170e
+Author: Parvathi Bhogaraju <bhogaraju.parvathi@gmail.com>
+Date:   Thu May 8 17:31:46 2025 -0700
+
+    Add cert store and rewrite GET_DIGESTS and GET_CERTIFICATE commands (#178)
+    
+    define cert-store trait and rewrite get_digsts and get_certs to use the trait methods
+    ---------
+    
+    Co-authored-by: Parvathi Bhogaraju <pbhogaraju@microsoft.com>
+
+commit 18a54e73aba7b6a94cc242b24b9bbb3be7ff0abe
+Author: xilingsun <150394362+helloxiling@users.noreply.github.com>
+Date:   Fri Apr 25 16:38:54 2025 -0700
+
+    Add support for PLDM firmware update initiator mode commands in pldm-lib (#166)
+    
+    * Add support for pldm fw update initiator mode in pldm-lib
+    
+    * Address review comments
+
+commit ceafb7026c36dd8d0cf2486bd2a652d4a4e8447a
+Author: Parvathi Bhogaraju <bhogaraju.parvathi@gmail.com>
+Date:   Fri Apr 25 11:22:02 2025 -0700
+
+    Make Transport genertic and remove thiserror dependency in SPDM (#172)
+    
+    Co-authored-by: Parvathi Bhogaraju <pbhogaraju@microsoft.com>
+
+commit 8dcf1526f3fef12485c0962ac1671ff9771651a4
+Author: Parvathi Bhogaraju <bhogaraju.parvathi@gmail.com>
+Date:   Wed Apr 23 17:12:56 2025 -0700
+
+    Restructure the MCU Runtime firmware folders (#169)
+    
+    * restructure runtime fw code folders
+    
+    ---------
+    
+    Co-authored-by: Parvathi Bhogaraju <pbhogaraju@microsoft.com>
