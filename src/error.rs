@@ -6,10 +6,12 @@ use crate::chunk_ctx::ChunkError;
 use crate::codec::CodecError;
 use crate::commands::error_rsp::ErrorCode;
 use crate::measurements::common::MeasurementsError;
+use crate::platform::rng::SpdmRngError;
 use crate::protocol::SignCtxError;
 use crate::transcript::TranscriptError;
-use crate::transport::TransportError;
-use libapi_caliptra::error::CaliptraApiError;
+use crate::platform::transport::TransportError;
+use crate::platform::hash::SpdmHashError;
+use crate::platform::evidence::SpdmEvidenceError;
 
 #[derive(Debug)]
 pub enum SpdmError {
@@ -21,12 +23,18 @@ pub enum SpdmError {
     BufferTooSmall,
     UnsupportedRequest,
     CertStore(CertStoreError),
-    CaliptraApi(CaliptraApiError),
 }
 
 pub type SpdmResult<T> = Result<T, SpdmError>;
 
 pub type CommandResult<T> = Result<T, (bool, CommandError)>;
+
+#[derive(Debug, PartialEq)]
+pub enum PlatformError {
+    HashError(SpdmHashError),
+    RngError(SpdmRngError),
+    EvidenceError(SpdmEvidenceError),
+}
 
 #[derive(Debug, PartialEq)]
 pub enum CommandError {
@@ -38,7 +46,7 @@ pub enum CommandError {
     InvalidChunkContext,
     Chunk(ChunkError),
     CertStore(CertStoreError),
-    CaliptraApi(CaliptraApiError),
+    Platform(PlatformError),
     Transcript(TranscriptError),
     Measurement(MeasurementsError),
 }

@@ -1,8 +1,9 @@
 // Licensed under the Apache-2.0 license
 use crate::measurements::freeform_manifest::FreeformManifest;
 use crate::protocol::{algorithms::AsymAlgo, MeasurementSpecification, SHA384_HASH_SIZE};
+use crate::platform::hash::{SpdmHash, SpdmHashError};
+use crate::platform::evidence::{SpdmEvidence, SpdmEvidenceError};
 use bitfield::bitfield;
-use libapi_caliptra::error::CaliptraApiError;
 use zerocopy::{FromBytes, Immutable, IntoBytes};
 
 pub const SPDM_MAX_MEASUREMENT_RECORD_SIZE: u32 = 0xFFFFFF;
@@ -18,7 +19,8 @@ pub enum MeasurementsError {
     InvalidOperation,
     InvalidSlotId,
     MeasurementSizeMismatch,
-    CaliptraApi(CaliptraApiError),
+    Hash(SpdmHashError),
+    Evidence(SpdmEvidenceError),
 }
 pub type MeasurementsResult<T> = Result<T, MeasurementsError>;
 
@@ -63,6 +65,7 @@ impl SpdmMeasurements {
     /// The size of the measurement block.
     pub(crate) async fn measurement_block_size(
         &mut self,
+        evidence: &dyn SpdmEvidence,
         asym_algo: AsymAlgo,
         index: u8,
         raw_bit_stream: bool,
@@ -74,7 +77,7 @@ impl SpdmMeasurements {
         match self {
             SpdmMeasurements::FreeformManifest(manifest) => {
                 manifest
-                    .measurement_block_size(asym_algo, index, raw_bit_stream)
+                    .measurement_block_size(evidence, asym_algo, index, raw_bit_stream)
                     .await
             }
         }
@@ -93,6 +96,7 @@ impl SpdmMeasurements {
     /// A result indicating success or failure.
     pub(crate) async fn measurement_block(
         &mut self,
+        evidence: &dyn SpdmEvidence,
         asym_algo: AsymAlgo,
         index: u8,
         raw_bit_stream: bool,
@@ -102,7 +106,7 @@ impl SpdmMeasurements {
         match self {
             SpdmMeasurements::FreeformManifest(manifest) => {
                 manifest
-                    .measurement_block(asym_algo, index, raw_bit_stream, offset, measurement_chunk)
+                    .measurement_block(evidence, asym_algo, index, raw_bit_stream, offset, measurement_chunk)
                     .await
             }
         }
@@ -122,6 +126,8 @@ impl SpdmMeasurements {
     /// A result indicating success or failure.
     pub(crate) async fn measurement_summary_hash(
         &mut self,
+        evidence: &dyn SpdmEvidence,
+        hash_ctx: &mut dyn SpdmHash,
         asym_algo: AsymAlgo,
         measurement_summary_hash_type: u8,
         hash: &mut [u8; SHA384_HASH_SIZE],
@@ -129,7 +135,7 @@ impl SpdmMeasurements {
         match self {
             SpdmMeasurements::FreeformManifest(manifest) => {
                 manifest
-                    .measurement_summary_hash(asym_algo, measurement_summary_hash_type, hash)
+                    .measurement_summary_hash(evidence, hash_ctx, asym_algo, measurement_summary_hash_type, hash)
                     .await
             }
         }

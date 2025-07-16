@@ -1,14 +1,13 @@
 // Licensed under the Apache-2.0 license
 
 use crate::protocol::{SpdmVersion, SHA384_HASH_SIZE};
-use libapi_caliptra::crypto::hash::{HashAlgoType, HashContext};
-use libapi_caliptra::error::CaliptraApiError;
+use crate::platform::hash::{SpdmHash, SpdmHashError};
 
 #[derive(Debug, PartialEq)]
 pub enum TranscriptError {
     BufferOverflow,
     InvalidState,
-    CaliptraApi(CaliptraApiError),
+    Hash(SpdmHashError),
 }
 
 pub type TranscriptResult<T> = Result<T, TranscriptError>;
@@ -55,8 +54,7 @@ pub enum TranscriptContext {
 }
 
 /// Transcript management for the SPDM responder.
-#[derive(Default)]
-pub(crate) struct TranscriptManager {
+pub(crate) struct TranscriptManager<'a> {
     spdm_version: SpdmVersion,
     // Buffer for storing `VCA`
     // VCA or A = Concatenate (GET_VERSION, VERSION, GET_CAPABILITIES, CAPABILITIES, NEGOTIATE_ALGORITHMS, ALGORITHMS)
@@ -66,21 +64,25 @@ pub(crate) struct TranscriptManager {
     // where
     // B = Concatenate (GET_DIGESTS, DIGESTS, GET_CERTIFICATE, CERTIFICATE)
     // C = Concatenate (CHALLENGE, CHALLENGE_AUTH excluding signature)
-    hash_ctx_m1: Option<HashContext>,
+    hash_ctx_m1: &'a mut dyn SpdmHash,
+    m1_ctx_ready: bool,
     // Hash Context for `L1``
     // L1 = Concatenate(A, M) if SPDM_VERSION >= 1.2 or L1 = Concatenate(M) if SPDM_VERSION < 1.2
     // where
     // M = Concatenate (GET_MEASUREMENTS, MEASUREMENTS\signature)
-    hash_ctx_l1: Option<HashContext>,
+    hash_ctx_l1: &'a mut dyn SpdmHash,
+    l1_ctx_ready: bool,
 }
 
-impl TranscriptManager {
-    pub fn new() -> Self {
+impl<'a> TranscriptManager<'a> {
+    pub fn new(m1: &'a mut dyn SpdmHash, l1: &'a mut dyn SpdmHash) -> Self {
         Self {
             spdm_version: SpdmVersion::V10,
             vca_buf: VcaBuffer::default(),
-            hash_ctx_m1: None,
-            hash_ctx_l1: None,
+            hash_ctx_m1: m1,
+            m1_ctx_ready: false,
+            hash_ctx_l1: l1,
+            l1_ctx_ready: false
         }
     }
 
@@ -99,8 +101,10 @@ impl TranscriptManager {
     pub fn reset(&mut self) {
         self.spdm_version = SpdmVersion::V10;
         self.vca_buf.reset();
-        self.hash_ctx_m1 = None;
-        self.hash_ctx_l1 = None;
+        self.hash_ctx_m1.reset();
+        self.m1_ctx_ready = false;
+        self.hash_ctx_l1.reset();
+        self.l1_ctx_ready = false;
     }
 
     /// Reset a transcript context.
@@ -110,8 +114,8 @@ impl TranscriptManager {
     pub fn reset_context(&mut self, context: TranscriptContext) {
         match context {
             TranscriptContext::Vca => self.vca_buf.reset(),
-            TranscriptContext::M1 => self.hash_ctx_m1 = None,
-            TranscriptContext::L1 => self.hash_ctx_l1 = None,
+            TranscriptContext::M1 => { self.hash_ctx_m1.reset(); self.m1_ctx_ready = false; },
+            TranscriptContext::L1 => { self.hash_ctx_l1.reset(); self.l1_ctx_ready = false; },
         }
     }
 
@@ -150,21 +154,18 @@ impl TranscriptManager {
     ) -> TranscriptResult<()> {
         let hash_ctx = match context {
             TranscriptContext::Vca => return Err(TranscriptError::InvalidState),
-            TranscriptContext::M1 => self.hash_ctx_m1.as_mut(),
-            TranscriptContext::L1 => self.hash_ctx_l1.as_mut(),
+            TranscriptContext::M1 => &mut self.hash_ctx_m1,
+            TranscriptContext::L1 => &mut self.hash_ctx_l1,
         };
 
-        if let Some(ctx) = hash_ctx {
-            ctx.finalize(hash)
-                .await
-                .map_err(TranscriptError::CaliptraApi)?;
-        } else {
-            return Err(TranscriptError::InvalidState);
-        }
+        hash_ctx
+            .finalize(hash)
+            .await
+            .map_err(|e| TranscriptError::Hash(e))?;
 
         match context {
-            TranscriptContext::M1 => self.hash_ctx_m1 = None,
-            TranscriptContext::L1 => self.hash_ctx_l1 = None,
+            TranscriptContext::M1 =>  {self.hash_ctx_m1.reset(); self.m1_ctx_ready = false; },
+            TranscriptContext::L1 => {self.hash_ctx_l1.reset(); self.l1_ctx_ready = false; },
             _ => {}
         }
 
@@ -172,39 +173,45 @@ impl TranscriptManager {
     }
 
     async fn append_m1(&mut self, data: &[u8]) -> TranscriptResult<()> {
-        if let Some(ctx) = &mut self.hash_ctx_m1 {
-            ctx.update(data).await.map_err(TranscriptError::CaliptraApi)
+        if self.m1_ctx_ready {
+            self.hash_ctx_m1
+                .update(data).await.map_err(|e| TranscriptError::Hash(e))
         } else {
             let vca_data = self.vca_buf.data();
-            let mut ctx = HashContext::new();
-            ctx.init(HashAlgoType::SHA384, Some(vca_data))
+            self.hash_ctx_m1
+                .init(self.hash_ctx_m1.algo(), Some(vca_data))
                 .await
-                .map_err(TranscriptError::CaliptraApi)?;
-            ctx.update(data)
+                .map_err(|e| TranscriptError::Hash(e))?;
+            self.hash_ctx_m1
+                .update(data)
                 .await
-                .map_err(TranscriptError::CaliptraApi)?;
-            self.hash_ctx_m1 = Some(ctx);
+                .map_err(|e| TranscriptError::Hash(e))?;
+            self.m1_ctx_ready = true;
             Ok(())
         }
     }
 
     async fn append_l1(&mut self, spdm_version: SpdmVersion, data: &[u8]) -> TranscriptResult<()> {
-        if let Some(ctx) = &mut self.hash_ctx_l1 {
-            ctx.update(data).await.map_err(TranscriptError::CaliptraApi)
+        if self.l1_ctx_ready {
+            self.hash_ctx_l1
+                .update(data).await.map_err(|e| TranscriptError::Hash(e))
         } else {
             let vca_data = if spdm_version >= SpdmVersion::V12 {
                 Some(self.vca_buf.data())
             } else {
                 None
             };
-            let mut ctx = HashContext::new();
-            ctx.init(HashAlgoType::SHA384, vca_data)
+            self.hash_ctx_l1
+                .init(self.hash_ctx_l1.algo(), vca_data)
                 .await
-                .map_err(TranscriptError::CaliptraApi)?;
-            ctx.update(data)
+                .map_err(|e| TranscriptError::Hash(e))?;
+
+            self.hash_ctx_l1
+                .update(data)
                 .await
-                .map_err(TranscriptError::CaliptraApi)?;
-            self.hash_ctx_l1 = Some(ctx);
+                .map_err(|e| TranscriptError::Hash(e))?;
+
+            self.l1_ctx_ready = true;
             Ok(())
         }
     }

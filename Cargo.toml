@@ -1,19 +1,15 @@
-# Licensed under the Apache-2.0 license
+# Licensed under the Apache-2 = 
 
 [package]
 name = "spdm-lib"
-version.workspace = true
-authors.workspace = true
-edition.workspace = true
+version = "0.1.0"
+authors = ["Caliptra contributors", "OpenPRoT contributors"]
+edition = "2021"
 
 [dependencies]
-async-trait.workspace = true
-bitfield.workspace = true
-zerocopy.workspace = true
-libapi-caliptra.workspace = true
-libsyscall-caliptra.workspace = true
-libtock_platform.workspace = true
-libtock_console.workspace = true
+async-trait = "0.1.87"
+bitfield = "0.14.0"
+zerocopy = { version = "0.8.17", features = ["derive"] }
 
 [dev-dependencies]
-rand.workspace = true
+rand = "0.8.5"

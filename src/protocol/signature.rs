@@ -1,8 +1,7 @@
 // Licensed under the Apache-2.0 license
 
 use crate::protocol::*;
-use libapi_caliptra::crypto::hash::{HashAlgoType, HashContext};
-use libapi_caliptra::error::CaliptraApiError;
+use crate::platform::hash::{SpdmHash, SpdmHashError};
 
 pub const NONCE_LEN: usize = 32;
 
@@ -19,7 +18,7 @@ pub enum SignCtxError {
     UnsupportedVersion,
     BufferTooSmall,
     InvalidSignCtxString,
-    CaliptraApi(CaliptraApiError),
+    Platform(SpdmHashError),
 }
 
 pub type SignatureCtxResult<T> = Result<T, SignCtxError>;
@@ -62,6 +61,7 @@ pub(crate) async fn get_tbs_via_response_code(
     spdm_version: SpdmVersion,
     resp_code: ReqRespCode,
     transcript_hash: [u8; SHA384_HASH_SIZE],
+    hash_ctx: &mut dyn SpdmHash,
 ) -> SignatureCtxResult<[u8; SHA384_HASH_SIZE]> {
     if spdm_version < SpdmVersion::V12 {
         return Ok(transcript_hash);
@@ -75,16 +75,14 @@ pub(crate) async fn get_tbs_via_response_code(
     message[..SPDM_SIGNING_CONTEXT_LEN].copy_from_slice(&signing_context);
     message[SPDM_SIGNING_CONTEXT_LEN..].copy_from_slice(&transcript_hash);
 
-    let mut hash_ctx = HashContext::new();
-
     hash_ctx
-        .init(HashAlgoType::SHA384, Some(&message))
+        .init(hash_ctx.algo(), Some(&message))
         .await
-        .map_err(SignCtxError::CaliptraApi)?;
+        .map_err(|e| SignCtxError::Platform(e))?;
 
     hash_ctx
         .finalize(&mut tbs)
         .await
-        .map_err(SignCtxError::CaliptraApi)?;
+        .map_err(|e| SignCtxError::Platform(e))?;
     Ok(tbs)
 }
