@@ -79,7 +79,7 @@ bitfield! {
     reserved, _: 7,3;
 }
 
-async fn encode_certchain_metadata(
+fn encode_certchain_metadata(
     cert_store: &mut dyn SpdmCertStore,
     total_certchain_len: u16,
     slot_id: u8,
@@ -102,7 +102,6 @@ async fn encode_certchain_metadata(
     let mut root_hash_buf = [0u8; SHA384_HASH_SIZE];
     cert_store
         .root_cert_hash(slot_id, asym_algo, &mut root_hash_buf)
-        .await
         .map_err(|e| (false, CommandError::CertStore(e)))?;
     certchain_metadata[cert_chain_hdr_bytes.len()..].copy_from_slice(&root_hash_buf[..]);
 
@@ -122,7 +121,7 @@ async fn encode_certchain_metadata(
     Ok(write_len)
 }
 
-async fn generate_certificate_response<'a>(
+fn generate_certificate_response<'a>(
     ctx: &mut SpdmContext<'a>,
     slot_id: u8,
     offset: u16,
@@ -157,7 +156,6 @@ async fn generate_certificate_response<'a>(
     let cert_chain_len = ctx
         .device_certs_store
         .cert_chain_len(asym_algo, slot_id)
-        .await
         .map_err(|_| ctx.generate_error_response(rsp, ErrorCode::InvalidRequest, 0, None))?;
     let total_cert_chain_len = cert_chain_len as u16 + SPDM_CERT_CHAIN_METADATA_LEN;
 
@@ -197,8 +195,7 @@ async fn generate_certificate_response<'a>(
                 offset as usize,
                 portion_len as usize,
                 rsp,
-            )
-            .await?;
+            )?;
             payload_len += read_len;
             rem_len = portion_len.saturating_sub(read_len as u16);
             cert_offset = 0;
@@ -216,7 +213,6 @@ async fn generate_certificate_response<'a>(
             let read_len = ctx
                 .device_certs_store
                 .get_cert_chain(slot_id, asym_algo, cert_offset, cert_chain_buf)
-                .await
                 .map_err(|e| (false, CommandError::CertStore(e)))?;
             payload_len += read_len;
             rsp.pull_data(read_len)
@@ -229,10 +225,9 @@ async fn generate_certificate_response<'a>(
 
     // Append the response message to the M1 transcript
     ctx.append_message_to_transcript(rsp, TranscriptContext::M1)
-        .await
 }
 
-async fn process_get_certificate<'a>(
+fn process_get_certificate<'a>(
     ctx: &mut SpdmContext<'a>,
     spdm_hdr: SpdmMsgHdr,
     req_payload: &mut MessageBuf<'a>,
@@ -275,13 +270,12 @@ async fn process_get_certificate<'a>(
     ctx.reset_transcript_via_req_code(ReqRespCode::GetCertificate);
 
     // Append the request to the M1 transcript
-    ctx.append_message_to_transcript(req_payload, TranscriptContext::M1)
-        .await?;
+    ctx.append_message_to_transcript(req_payload, TranscriptContext::M1)?;
 
     Ok((slot_id, offset, length))
 }
 
-pub(crate) async fn handle_get_certificate<'a>(
+pub(crate) fn handle_get_certificate<'a>(
     ctx: &mut SpdmContext<'a>,
     spdm_hdr: SpdmMsgHdr,
     req_payload: &mut MessageBuf<'a>,
@@ -297,7 +291,7 @@ pub(crate) async fn handle_get_certificate<'a>(
     }
 
     // Process the GET_CERTIFICATE request
-    let (slot_id, offset, length) = process_get_certificate(ctx, spdm_hdr, req_payload).await?;
+    let (slot_id, offset, length) = process_get_certificate(ctx, spdm_hdr, req_payload)?;
 
     // Generate the CERTIFICATE response
     ctx.prepare_response_buffer(req_payload)?;
@@ -308,8 +302,7 @@ pub(crate) async fn handle_get_certificate<'a>(
         offset,
         length,
         req_payload,
-    )
-    .await?;
+    )?;
 
     // Set the connection state to AfterCertificate
     if ctx.state.connection_info.state() < ConnectionState::AfterCertificate {

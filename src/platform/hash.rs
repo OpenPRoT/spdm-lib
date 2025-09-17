@@ -1,15 +1,12 @@
 extern crate alloc;
-use alloc::boxed::Box;
-use async_trait::async_trait;
 
 pub type SpdmHashResult<T> = Result<T, SpdmHashError>;
 
-#[async_trait]
 pub trait SpdmHash {
-    async fn hash(&mut self, hash_algo: SpdmHashAlgoType, data: &[u8], hash: &mut [u8]) -> SpdmHashResult<()>;
-    async fn init(&mut self, hash_algo: SpdmHashAlgoType, data: Option<&[u8]>) -> SpdmHashResult<()>;
-    async fn update(&mut self, data: &[u8]) -> SpdmHashResult<()>;
-    async fn finalize(&mut self, hash: &mut [u8]) -> SpdmHashResult<()>;
+    fn hash(&mut self, hash_algo: SpdmHashAlgoType, data: &[u8], hash: &mut [u8]) -> SpdmHashResult<()>;
+    fn init(&mut self, hash_algo: SpdmHashAlgoType, data: Option<&[u8]>) -> SpdmHashResult<()>;
+    fn update(&mut self, data: &[u8]) -> SpdmHashResult<()>;
+    fn finalize(&mut self, hash: &mut [u8]) -> SpdmHashResult<()>;
 
     fn reset(&mut self);
     fn algo(&self) -> SpdmHashAlgoType;  
