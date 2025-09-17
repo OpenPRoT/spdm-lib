@@ -43,7 +43,7 @@ impl FreeformManifest {
         1
     }
 
-    pub(crate) async fn measurement_block_size(
+    pub(crate) fn measurement_block_size(
         &mut self,
         evidence: &dyn SpdmEvidence,
         asym_algo: AsymAlgo,
@@ -51,14 +51,14 @@ impl FreeformManifest {
         _raw_bit_stream: bool,
     ) -> MeasurementsResult<usize> {
         if index == SPDM_MEASUREMENT_MANIFEST_INDEX || index == 0xFF {
-            self.refresh_measurement_record(evidence, asym_algo).await?;
+            self.refresh_measurement_record(evidence, asym_algo)?;
             Ok(self.data_size)
         } else {
             Err(MeasurementsError::InvalidIndex)
         }
     }
 
-    pub(crate) async fn measurement_block(
+    pub(crate) fn measurement_block(
         &mut self,
         evidence: &dyn SpdmEvidence,
         asym_algo: AsymAlgo,
@@ -68,7 +68,7 @@ impl FreeformManifest {
         measurement_chunk: &mut [u8],
     ) -> MeasurementsResult<usize> {
         if index == SPDM_MEASUREMENT_MANIFEST_INDEX || index == 0xFF {
-            self.refresh_measurement_record(evidence, asym_algo).await?;
+            self.refresh_measurement_record(evidence, asym_algo)?;
             if offset >= self.data_size {
                 return Err(MeasurementsError::InvalidOffset);
             }
@@ -86,7 +86,7 @@ impl FreeformManifest {
         }
     }
 
-    pub(crate) async fn measurement_summary_hash(
+    pub(crate) fn measurement_summary_hash(
         &mut self,
         evidence: &dyn SpdmEvidence,
         hash_ctx: &mut dyn SpdmHash,
@@ -94,7 +94,7 @@ impl FreeformManifest {
         _measurement_summary_hash_type: u8,
         hash: &mut [u8; SHA384_HASH_SIZE],
     ) -> MeasurementsResult<()> {
-        self.refresh_measurement_record(evidence, asym_algo).await?;
+        self.refresh_measurement_record(evidence, asym_algo)?;
 
         let mut offset = 0;
 
@@ -103,34 +103,23 @@ impl FreeformManifest {
 
             if offset == 0 {
                 hash_ctx
-                    .init(
-                        hash_ctx.algo(),
-                        Some(&self.measurement_record[..chunk_size]),
-                    )
-                    .await
+                    .init(hash_ctx.algo(), Some(&self.measurement_record[..chunk_size]))
                     .map_err(|e| MeasurementsError::Hash(e))?;
             } else {
                 let chunk = &self.measurement_record[offset..offset + chunk_size];
-                hash_ctx
-                    .update(chunk)
-                    .await
-                    .map_err(|e| MeasurementsError::Hash(e))?;
+                hash_ctx.update(chunk).map_err(|e| MeasurementsError::Hash(e))?;
             }
 
             offset += chunk_size;
         }
 
-        hash_ctx
-            .finalize(hash)
-            .await
-            .map_err(|e| MeasurementsError::Hash(e))
+        hash_ctx.finalize(hash).map_err(|e| MeasurementsError::Hash(e))
     }
 
-    async fn refresh_measurement_record(&mut self, evidence: &dyn SpdmEvidence, asym_algo: AsymAlgo) -> MeasurementsResult<()> {
+    fn refresh_measurement_record(&mut self, evidence: &dyn SpdmEvidence, asym_algo: AsymAlgo) -> MeasurementsResult<()> {
         let with_pqc_sig = asym_algo != AsymAlgo::EccP384;
         let measurement_record = &mut self.measurement_record;
         let measurement_value_size = evidence.pcr_quote_size(with_pqc_sig)
-            .await
             .map_err(|e| MeasurementsError::Evidence(e))?;
         measurement_record.fill(0);
         let metadata = DmtfMeasurementBlockMetadata::new(
@@ -147,9 +136,8 @@ impl FreeformManifest {
         let quote_slice =
             &mut measurement_record[METADATA_SIZE..METADATA_SIZE + PCR_QUOTE_BUFFER_SIZE];
 
-        let copied_len = evidence.pcr_quote(quote_slice, with_pqc_sig)
-                                            .await
-                                            .map_err(|e| MeasurementsError::Evidence(e))?;
+    let copied_len = evidence.pcr_quote(quote_slice, with_pqc_sig)
+                        .map_err(|e| MeasurementsError::Evidence(e))?;
         if copied_len != measurement_value_size {
             return Err(MeasurementsError::MeasurementSizeMismatch);
         }

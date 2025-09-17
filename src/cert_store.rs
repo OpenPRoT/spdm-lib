@@ -6,8 +6,6 @@ use crate::error::{SpdmError, SpdmResult};
 use crate::protocol::algorithms::{AsymAlgo, ECC_P384_SIGNATURE_SIZE, SHA384_HASH_SIZE};
 use crate::protocol::certs::{CertificateInfo, KeyUsageMask};
 use crate::protocol::SpdmCertChainHeader;
-use alloc::boxed::Box;
-use async_trait::async_trait;
 
 pub const MAX_CERT_SLOTS_SUPPORTED: u8 = 2;
 pub const SPDM_CERT_CHAIN_METADATA_LEN: u16 =
@@ -25,7 +23,6 @@ pub enum CertStoreError {
 }
 pub type CertStoreResult<T> = Result<T, CertStoreError>;
 
-#[async_trait]
 pub trait SpdmCertStore {
     /// Get supported certificate slot count
     /// The supported slots are consecutive from 0 to slot_count - 1.
@@ -53,7 +50,7 @@ pub trait SpdmCertStore {
     ///
     /// # Returns
     /// * `usize` - The length of the certificate chain in bytes or error.
-    async fn cert_chain_len(&mut self, asym_algo: AsymAlgo, slot_id: u8) -> CertStoreResult<usize>;
+    fn cert_chain_len(&mut self, asym_algo: AsymAlgo, slot_id: u8) -> CertStoreResult<usize>;
 
     /// Get the certificate chain in portion. The certificate chain is in ASN.1 DER-encoded X.509 v3 format.
     /// The type of the certificate chain is indicated by the asym_algo parameter.
@@ -68,7 +65,7 @@ pub trait SpdmCertStore {
     /// * `usize` - The number of bytes read or error.
     /// If the cert portion size is smaller than the buffer size, the remaining bytes in the buffer will be filled with 0,
     /// indicating the end of the cert chain.
-    async fn get_cert_chain<'a>(
+    fn get_cert_chain<'a>(
         &mut self,
         slot_id: u8,
         asym_algo: AsymAlgo,
@@ -86,7 +83,7 @@ pub trait SpdmCertStore {
     ///
     /// # Returns
     /// * `()` - Ok if successful, error otherwise.
-    async fn root_cert_hash<'a>(
+    fn root_cert_hash<'a>(
         &mut self,
         slot_id: u8,
         asym_algo: AsymAlgo,
@@ -102,7 +99,7 @@ pub trait SpdmCertStore {
     ///
     /// # Returns
     /// * `()` - Ok if successful, error otherwise.
-    async fn sign_hash<'a>(
+    fn sign_hash<'a>(
         &self,
         slot_id: u8,
         hash: &'a [u8; SHA384_HASH_SIZE],
