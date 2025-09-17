@@ -63,7 +63,7 @@ impl SpdmMeasurements {
     ///
     /// # Returns
     /// The size of the measurement block.
-    pub(crate) async fn measurement_block_size(
+    pub(crate) fn measurement_block_size(
         &mut self,
         evidence: &dyn SpdmEvidence,
         asym_algo: AsymAlgo,
@@ -76,9 +76,7 @@ impl SpdmMeasurements {
 
         match self {
             SpdmMeasurements::FreeformManifest(manifest) => {
-                manifest
-                    .measurement_block_size(evidence, asym_algo, index, raw_bit_stream)
-                    .await
+                manifest.measurement_block_size(evidence, asym_algo, index, raw_bit_stream)
             }
         }
     }
@@ -94,7 +92,7 @@ impl SpdmMeasurements {
     ///
     /// # Returns
     /// A result indicating success or failure.
-    pub(crate) async fn measurement_block(
+    pub(crate) fn measurement_block(
         &mut self,
         evidence: &dyn SpdmEvidence,
         asym_algo: AsymAlgo,
@@ -105,9 +103,7 @@ impl SpdmMeasurements {
     ) -> MeasurementsResult<usize> {
         match self {
             SpdmMeasurements::FreeformManifest(manifest) => {
-                manifest
-                    .measurement_block(evidence, asym_algo, index, raw_bit_stream, offset, measurement_chunk)
-                    .await
+                manifest.measurement_block(evidence, asym_algo, index, raw_bit_stream, offset, measurement_chunk)
             }
         }
     }
@@ -124,7 +120,7 @@ impl SpdmMeasurements {
     ///
     /// # Returns
     /// A result indicating success or failure.
-    pub(crate) async fn measurement_summary_hash(
+    pub(crate) fn measurement_summary_hash(
         &mut self,
         evidence: &dyn SpdmEvidence,
         hash_ctx: &mut dyn SpdmHash,
@@ -134,9 +130,7 @@ impl SpdmMeasurements {
     ) -> MeasurementsResult<()> {
         match self {
             SpdmMeasurements::FreeformManifest(manifest) => {
-                manifest
-                    .measurement_summary_hash(evidence, hash_ctx, asym_algo, measurement_summary_hash_type, hash)
-                    .await
+                manifest.measurement_summary_hash(evidence, hash_ctx, asym_algo, measurement_summary_hash_type, hash)
             }
         }
     }

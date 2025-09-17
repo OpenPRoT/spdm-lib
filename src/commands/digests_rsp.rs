@@ -30,7 +30,7 @@ pub struct GetDigestsRespCommon {
 
 impl CommonCodec for GetDigestsRespCommon {}
 
-pub(crate) async fn compute_cert_chain_hash(
+pub(crate) fn compute_cert_chain_hash(
     digest_fn: &mut dyn SpdmHash,
     slot_id: u8,
     cert_store: &mut dyn SpdmCertStore,
@@ -43,7 +43,6 @@ pub(crate) async fn compute_cert_chain_hash(
 
     let crt_chain_len = cert_store
         .cert_chain_len(asym_algo, slot_id)
-        .await
         .map_err(|e| (false, CommandError::CertStore(e)))?;
     let cert_chain_format_len = crt_chain_len + SPDM_CERT_CHAIN_METADATA_LEN as usize;
 
@@ -57,7 +56,6 @@ pub(crate) async fn compute_cert_chain_hash(
     
     digest_fn
         .init(SpdmHashAlgoType::SHA384, Some(header_bytes))
-        .await
         .map_err(|e| (false, CommandError::Platform(PlatformError::HashError(e))))?;
 
     // Root certificate hash
@@ -65,11 +63,9 @@ pub(crate) async fn compute_cert_chain_hash(
 
     cert_store
         .root_cert_hash(slot_id, asym_algo, &mut root_hash)
-        .await
         .map_err(|e| (false, CommandError::CertStore(e)))?;
     digest_fn
         .update(&root_hash)
-        .await
         .map_err(|e| (false, CommandError::Platform(PlatformError::HashError(e))))?;
 
     // Hash the certificate chain
@@ -79,12 +75,10 @@ pub(crate) async fn compute_cert_chain_hash(
     loop {
         let bytes_read = cert_store
             .get_cert_chain(slot_id, asym_algo, offset, &mut cert_portion)
-            .await
             .map_err(|e| (false, CommandError::CertStore(e)))?;
 
         digest_fn
             .update(&cert_portion[..bytes_read])
-            .await
             .map_err(|e| (false, CommandError::Platform(PlatformError::HashError(e))))?;
 
         offset += bytes_read;
@@ -96,11 +90,10 @@ pub(crate) async fn compute_cert_chain_hash(
     }
     digest_fn
         .finalize(hash)
-        .await
         .map_err(|e| (false, CommandError::Platform(PlatformError::HashError(e))))
 }
 
-async fn encode_cert_chain_digest(
+fn encode_cert_chain_digest(
     digest_fn: &mut dyn SpdmHash,
     slot_id: u8,
     cert_store: &mut dyn SpdmCertStore,
@@ -114,7 +107,7 @@ async fn encode_cert_chain_digest(
         .data_mut(SHA384_HASH_SIZE)
         .map_err(|_| (false, CommandError::BufferTooSmall))?;
 
-    compute_cert_chain_hash(digest_fn, slot_id, cert_store, asym_algo, cert_chain_digest_buf).await?;
+    compute_cert_chain_hash(digest_fn, slot_id, cert_store, asym_algo, cert_chain_digest_buf)?;
 
     rsp.pull_data(SHA384_HASH_SIZE)
         .map_err(|_| (false, CommandError::BufferTooSmall))?;
@@ -122,7 +115,7 @@ async fn encode_cert_chain_digest(
     Ok(SHA384_HASH_SIZE)
 }
 
-async fn generate_digests_response<'a>(
+fn generate_digests_response<'a>(
     ctx: &mut SpdmContext<'a>,
     rsp: &mut MessageBuf<'a>,
 ) -> CommandResult<()> {
@@ -162,10 +155,14 @@ async fn generate_digests_response<'a>(
 
     // Encode the certificate chain digests for each provisioned slot
     for slot_id in 0..slot_cnt {
-        payload_len +=
-            encode_cert_chain_digest(ctx.hash, slot_id as u8, ctx.device_certs_store, asym_algo, rsp)
-                .await
-                .map_err(|_| ctx.generate_error_response(rsp, ErrorCode::Unspecified, 0, None))?;
+        payload_len += encode_cert_chain_digest(
+            ctx.hash,
+            slot_id as u8,
+            ctx.device_certs_store,
+            asym_algo,
+            rsp,
+        )
+        .map_err(|_| ctx.generate_error_response(rsp, ErrorCode::Unspecified, 0, None))?;
     }
 
     // Fill the multi-key connection response data if applicable
@@ -179,7 +176,6 @@ async fn generate_digests_response<'a>(
 
     // Append the response message to the M1 transcript
     ctx.append_message_to_transcript(rsp, TranscriptContext::M1)
-        .await
 }
 
 fn encode_multi_key_conn_rsp_data(
@@ -243,7 +239,7 @@ fn encode_multi_key_conn_rsp_data(
     Ok(total_size)
 }
 
-async fn process_get_digests<'a>(
+fn process_get_digests<'a>(
     ctx: &mut SpdmContext<'a>,
     spdm_hdr: SpdmMsgHdr,
     req_payload: &mut MessageBuf<'a>,
@@ -269,10 +265,9 @@ async fn process_get_digests<'a>(
 
     // Append the request message to the M1 transcript
     ctx.append_message_to_transcript(req_payload, TranscriptContext::M1)
-        .await
 }
 
-pub(crate) async fn handle_get_digests<'a>(
+pub(crate) fn handle_get_digests<'a>(
     ctx: &mut SpdmContext<'a>,
     spdm_hdr: SpdmMsgHdr,
     req_payload: &mut MessageBuf<'a>,
@@ -288,11 +283,11 @@ pub(crate) async fn handle_get_digests<'a>(
     }
 
     // Process GET_DIGESTS request
-    process_get_digests(ctx, spdm_hdr, req_payload).await?;
+    process_get_digests(ctx, spdm_hdr, req_payload)?;
 
     // Generate DIGESTS response
     ctx.prepare_response_buffer(req_payload)?;
-    generate_digests_response(ctx, req_payload).await?;
+    generate_digests_response(ctx, req_payload)?;
 
     if ctx.state.connection_info.state() < ConnectionState::AfterDigest {
         ctx.state

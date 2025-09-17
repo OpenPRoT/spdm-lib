@@ -7,7 +7,6 @@ authors = ["Caliptra contributors", "OpenPRoT contributors"]
 edition = "2021"
 
 [dependencies]
-async-trait = "0.1.87"
 bitfield = "0.14.0"
 zerocopy = { version = "0.8.17", features = ["derive"] }
 

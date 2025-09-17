@@ -142,7 +142,7 @@ fn encode_chunk_resp_fixed_fields(
         .map_err(|e| (false, CommandError::Codec(e)))
 }
 
-async fn encode_chunk_data(
+fn encode_chunk_data(
     ctx: &mut SpdmContext<'_>,
     chunk_size: usize,
     rsp: &mut MessageBuf<'_>,
@@ -170,8 +170,7 @@ async fn encode_chunk_data(
                         ctx.device_certs_store,
                         offset,
                         chunk_buf,
-                    )
-                    .await?;
+                    )?;
             }
         }
     } else {
@@ -183,7 +182,7 @@ async fn encode_chunk_data(
     Ok(chunk_size)
 }
 
-async fn generate_chunk_response<'a>(
+fn generate_chunk_response<'a>(
     ctx: &mut SpdmContext<'a>,
     handle: u8,
     chunk_seq_num: u16,
@@ -217,13 +216,13 @@ async fn generate_chunk_response<'a>(
     }
 
     // Encode chunk data of chunk size
-    payload_len += encode_chunk_data(ctx, chunk_size, rsp).await?;
+    payload_len += encode_chunk_data(ctx, chunk_size, rsp)?;
 
     rsp.push_data(payload_len)
         .map_err(|e| (false, CommandError::Codec(e)))
 }
 
-pub(crate) async fn handle_chunk_get<'a>(
+pub(crate) fn handle_chunk_get<'a>(
     ctx: &mut SpdmContext<'a>,
     spdm_hdr: SpdmMsgHdr,
     req_payload: &mut MessageBuf<'a>,
@@ -250,7 +249,7 @@ pub(crate) async fn handle_chunk_get<'a>(
 
     // Generate CHUNK_RESPONSE response
     ctx.prepare_response_buffer(req_payload)?;
-    generate_chunk_response(ctx, handle, chunk_seq_num, req_payload).await?;
+    generate_chunk_response(ctx, handle, chunk_seq_num, req_payload)?;
 
     Ok(())
 }

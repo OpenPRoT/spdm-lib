@@ -4,23 +4,21 @@ extern crate alloc;
 use crate::codec::MessageBuf;
 use crate::codec::{Codec, CodecError, CommonCodec, DataKind};
 use alloc::boxed::Box;
-use async_trait::async_trait;
 use bitfield::bitfield;
 use libsyscall_caliptra::mctp::{Mctp, MessageInfo};
 use zerocopy::{FromBytes, Immutable, IntoBytes};
 
 pub type TransportResult<T> = Result<T, TransportError>;
 
-#[async_trait]
 pub trait SpdmTransport {
-    async fn send_request<'a>(
+    fn send_request<'a>(
         &mut self,
         dest_eid: u8,
         req: &mut MessageBuf<'a>,
     ) -> TransportResult<()>;
-    async fn receive_response<'a>(&mut self, rsp: &mut MessageBuf<'a>) -> TransportResult<()>;
-    async fn receive_request<'a>(&mut self, req: &mut MessageBuf<'a>) -> TransportResult<()>;
-    async fn send_response<'a>(&mut self, resp: &mut MessageBuf<'a>) -> TransportResult<()>;
+    fn receive_response<'a>(&mut self, rsp: &mut MessageBuf<'a>) -> TransportResult<()>;
+    fn receive_request<'a>(&mut self, req: &mut MessageBuf<'a>) -> TransportResult<()>;
+    fn send_response<'a>(&mut self, resp: &mut MessageBuf<'a>) -> TransportResult<()>;
     fn max_message_size(&self) -> TransportResult<usize>;
     fn header_size(&self) -> usize;
 }
@@ -82,9 +80,8 @@ impl MctpTransport {
     }
 }
 
-#[async_trait]
 impl SpdmTransport for MctpTransport {
-    async fn send_request<'a>(
+    fn send_request<'a>(
         &mut self,
         dest_eid: u8,
         req: &mut MessageBuf<'a>,
@@ -103,7 +100,6 @@ impl SpdmTransport for MctpTransport {
         let tag = self
             .mctp
             .send_request(dest_eid, req_buf)
-            .await
             .map_err(|_| TransportError::SendError)?;
 
         self.cur_req_ctx = Some(tag);
@@ -111,7 +107,7 @@ impl SpdmTransport for MctpTransport {
         Ok(())
     }
 
-    async fn receive_response<'a>(&mut self, rsp: &mut MessageBuf<'a>) -> TransportResult<()> {
+    fn receive_response<'a>(&mut self, rsp: &mut MessageBuf<'a>) -> TransportResult<()> {
         rsp.reset();
 
         let max_len = rsp.capacity();
@@ -122,9 +118,9 @@ impl SpdmTransport for MctpTransport {
             .data_mut(max_len)
             .map_err(|_| TransportError::BufferTooSmall)?;
         let (rsp_len, _msg_info) = if let Some(tag) = self.cur_req_ctx {
-            self.mctp
+            self
+                .mctp
                 .receive_response(rsp_buf, tag, 0)
-                .await
                 .map_err(|_| TransportError::ReceiveError)
         } else {
             Err(TransportError::ResponseNotExpected)
@@ -153,7 +149,7 @@ impl SpdmTransport for MctpTransport {
         Ok(())
     }
 
-    async fn receive_request<'a>(&mut self, req: &mut MessageBuf<'a>) -> TransportResult<()> {
+    fn receive_request<'a>(&mut self, req: &mut MessageBuf<'a>) -> TransportResult<()> {
         req.reset();
 
         let max_len = req.capacity();
@@ -167,7 +163,6 @@ impl SpdmTransport for MctpTransport {
         let (req_len, msg_info) = self
             .mctp
             .receive_request(data_buf)
-            .await
             .map_err(|_| TransportError::ReceiveError)?;
 
         if req_len == 0 {
@@ -195,7 +190,7 @@ impl SpdmTransport for MctpTransport {
         Ok(())
     }
 
-    async fn send_response<'a>(&mut self, resp: &mut MessageBuf<'a>) -> TransportResult<()> {
+    fn send_response<'a>(&mut self, resp: &mut MessageBuf<'a>) -> TransportResult<()> {
         let msg_type = self
             .mctp
             .msg_type()
@@ -209,9 +204,9 @@ impl SpdmTransport for MctpTransport {
             .map_err(|_| TransportError::BufferTooSmall)?;
 
         if let Some(msg_info) = self.cur_resp_ctx.clone() {
-            self.mctp
+            self
+                .mctp
                 .send_response(rsp_buf, msg_info)
-                .await
                 .map_err(|_| TransportError::SendError)?
         } else {
             Err(TransportError::NoRequestInFlight)?;

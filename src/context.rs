@@ -72,29 +72,26 @@ impl<'a> SpdmContext<'a> {
         })
     }
 
-    pub async fn process_message(&mut self, msg_buf: &mut MessageBuf<'a>) -> SpdmResult<()> {
+    pub fn process_message(&mut self, msg_buf: &mut MessageBuf<'a>) -> SpdmResult<()> {
         self.transport
             .receive_request(msg_buf)
-            .await
             .map_err(SpdmError::Transport)?;
 
-        // Process message
-        match self.handle_request(msg_buf).await {
+        match self.handle_request(msg_buf) {
             Ok(()) => {
-                self.send_response(msg_buf).await?;
+                self.send_response(msg_buf)?;
             }
             Err((rsp, command_error)) => {
                 if rsp {
-                    self.send_response(msg_buf).await.inspect_err(|_| {})?;
+                    self.send_response(msg_buf).inspect_err(|_| {})?;
                 }
                 Err(SpdmError::Command(command_error))?;
             }
         }
-
         Ok(())
     }
 
-    async fn handle_request(&mut self, buf: &mut MessageBuf<'a>) -> CommandResult<()> {
+    fn handle_request(&mut self, buf: &mut MessageBuf<'a>) -> CommandResult<()> {
         let req = buf;
 
         let req_msg_header: SpdmMsgHdr =
@@ -110,41 +107,22 @@ impl<'a> SpdmContext<'a> {
         }
 
         match req_code {
-            ReqRespCode::GetVersion => {
-                version_rsp::handle_get_version(self, req_msg_header, req).await?
-            }
-            ReqRespCode::GetCapabilities => {
-                capabilities_rsp::handle_get_capabilities(self, req_msg_header, req).await?
-            }
-            ReqRespCode::NegotiateAlgorithms => {
-                algorithms_rsp::handle_negotiate_algorithms(self, req_msg_header, req).await?
-            }
-            ReqRespCode::GetDigests => {
-                digests_rsp::handle_get_digests(self, req_msg_header, req).await?
-            }
-            ReqRespCode::GetCertificate => {
-                certificate_rsp::handle_get_certificate(self, req_msg_header, req).await?
-            }
-            ReqRespCode::Challenge => {
-                challenge_auth_rsp::handle_challenge(self, req_msg_header, req).await?
-            }
-            ReqRespCode::GetMeasurements => {
-                measurements_rsp::handle_get_measurements(self, req_msg_header, req).await?
-            }
-            ReqRespCode::ChunkGet => {
-                chunk_get_rsp::handle_chunk_get(self, req_msg_header, req).await?
-            }
+            ReqRespCode::GetVersion => version_rsp::handle_get_version(self, req_msg_header, req)?,
+            ReqRespCode::GetCapabilities => capabilities_rsp::handle_get_capabilities(self, req_msg_header, req)?,
+            ReqRespCode::NegotiateAlgorithms => algorithms_rsp::handle_negotiate_algorithms(self, req_msg_header, req)?,
+            ReqRespCode::GetDigests => digests_rsp::handle_get_digests(self, req_msg_header, req)?,
+            ReqRespCode::GetCertificate => certificate_rsp::handle_get_certificate(self, req_msg_header, req)?,
+            ReqRespCode::Challenge => challenge_auth_rsp::handle_challenge(self, req_msg_header, req)?,
+            ReqRespCode::GetMeasurements => measurements_rsp::handle_get_measurements(self, req_msg_header, req)?,
+            ReqRespCode::ChunkGet => chunk_get_rsp::handle_chunk_get(self, req_msg_header, req)?,
 
             _ => Err((false, CommandError::UnsupportedRequest))?,
         }
         Ok(())
     }
 
-    async fn send_response(&mut self, resp: &mut MessageBuf<'a>) -> SpdmResult<()> {
-        self.transport
-            .send_response(resp)
-            .await
-            .map_err(SpdmError::Transport)
+    fn send_response(&mut self, resp: &mut MessageBuf<'a>) -> SpdmResult<()> {
+        self.transport.send_response(resp).map_err(SpdmError::Transport)
     }
 
     pub(crate) fn prepare_response_buffer(&self, rsp_buf: &mut MessageBuf) -> CommandResult<()> {
@@ -240,7 +218,7 @@ impl<'a> SpdmContext<'a> {
         }
     }
 
-    pub(crate) async fn append_message_to_transcript(
+    pub(crate) fn append_message_to_transcript(
         &mut self,
         msg_buf: &mut MessageBuf<'_>,
         transcript_context: TranscriptContext,
@@ -251,7 +229,6 @@ impl<'a> SpdmContext<'a> {
 
         self.transcript_mgr
             .append(transcript_context, msg)
-            .await
             .map_err(|e| (false, CommandError::Transcript(e)))
     }
 }
