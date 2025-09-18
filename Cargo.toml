@@ -12,10 +12,16 @@ default = []
 std = []
 # TCP transport (requires std); opt-in so embedded/no_std users unaffected.
 tcp-transport = ["std"]
+ # Rand-based RNG implementation (requires std for OS entropy via getrandom)
+ rand-rng = ["std", "rand"]
+ # Linux evidence mock implementation
+ linux-evidence = ["std"]
+ # Linux placeholder certificate store implementation
+ linux-certs = ["std"]
 
 [dependencies]
 bitfield = "0.14.0"
 zerocopy = { version = "0.8.17", features = ["derive"] }
+rand = { version = "0.8.5", optional = true }
 
 [dev-dependencies]
-rand = "0.8.5"
