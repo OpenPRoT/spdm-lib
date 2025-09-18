@@ -1,6 +1,6 @@
 // Licensed under the Apache-2.0 license
 
-#![no_std]
+#![cfg_attr(not(feature = "std"), no_std)]
 
 // Common errors
 pub mod error;
@@ -32,3 +32,5 @@ pub mod chunk_ctx;
 
 // Platform-specific implementations
 pub mod platform;
+#[cfg(any(feature = "tcp-transport"))]
+pub mod platform_impl;

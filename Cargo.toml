@@ -6,6 +6,13 @@ version = "0.1.0"
 authors = ["Caliptra contributors", "OpenPRoT contributors"]
 edition = "2021"
 
+[features]
+default = []
+# Enable to use std-dependent transports/utilities
+std = []
+# TCP transport (requires std); opt-in so embedded/no_std users unaffected.
+tcp-transport = ["std"]
+
 [dependencies]
 bitfield = "0.14.0"
 zerocopy = { version = "0.8.17", features = ["derive"] }
