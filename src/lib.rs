@@ -32,5 +32,5 @@ pub mod chunk_ctx;
 
 // Platform-specific implementations
 pub mod platform;
-#[cfg(any(feature = "tcp-transport"))]
+#[cfg(feature = "std")]
 pub mod platform_impl;

@@ -25,3 +25,19 @@ zerocopy = { version = "0.8.17", features = ["derive"] }
 rand = { version = "0.8.5", optional = true }
 
 [dev-dependencies]
+
+# Examples
+[[example]]
+name = "spdm_responder_dmtf"
+path = "examples/spdm_responder_dmtf.rs"
+required-features = ["std"]
+
+[[example]]
+name = "spdm_responder_simple"
+path = "examples/spdm_responder_simple.rs"
+required-features = ["std"]
+
+[[example]]
+name = "spdm_tcp_direct"
+path = "examples/spdm_tcp_direct.rs"
+required-features = ["std", "tcp-transport"]
