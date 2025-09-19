@@ -32,5 +32,6 @@ pub mod chunk_ctx;
 
 // Platform-specific implementations
 pub mod platform;
-#[cfg(feature = "std")]
-pub mod platform_impl;
+// Disabled due to outdated APIs and missing dependencies (base64, serde)
+// #[cfg(feature = "std")]
+// pub mod platform_impl;

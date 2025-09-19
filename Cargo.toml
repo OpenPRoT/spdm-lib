@@ -41,3 +41,8 @@ required-features = ["std"]
 name = "spdm_tcp_direct"
 path = "examples/spdm_tcp_direct.rs"
 required-features = ["std", "tcp-transport"]
+
+[[example]]
+name = "spdm_responder_real"
+path = "examples/spdm_responder_real.rs"
+required-features = ["std"]

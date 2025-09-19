@@ -4,6 +4,9 @@
 //! 
 //! This responder integrates the actual SPDM library for real protocol processing
 //! while maintaining compatibility with the DMTF SPDM emulator protocol.
+//!
+//! This version provides simplified working implementations of the platform traits
+//! to demonstrate the integration with the real SPDM library.
 
 use std::env;
 use std::process;
@@ -13,24 +16,29 @@ use std::io::{Read, Write, Result as IoResult, Error, ErrorKind};
 use spdm_lib::context::SpdmContext;
 use spdm_lib::protocol::{DeviceCapabilities, CapabilityFlags};
 use spdm_lib::protocol::version::SpdmVersion;
-use spdm_lib::protocol::algorithms::{LocalDeviceAlgorithms, DeviceAlgorithms, AlgorithmPriorityTable, AsymAlgo};
+use spdm_lib::protocol::algorithms::{
+    LocalDeviceAlgorithms, AlgorithmPriorityTable, DeviceAlgorithms,
+    AsymAlgo, SHA384_HASH_SIZE, ECC_P384_SIGNATURE_SIZE,
+    MeasurementSpecification, MeasurementHashAlgo, BaseAsymAlgo, BaseHashAlgo, 
+    DheNamedGroup, AeadCipherSuite, KeySchedule, OtherParamSupport, MelSpecification,
+    ReqBaseAsymAlg
+};
 use spdm_lib::platform::transport::{SpdmTransport, TransportResult, TransportError};
 use spdm_lib::platform::hash::{SpdmHash, SpdmHashAlgoType, SpdmHashResult, SpdmHashError};
-use spdm_lib::platform::rng::{SpdmRng, SpdmRngResult, SpdmRngError};
-use spdm_lib::platform::evidence::{SpdmEvidence, SpdmEvidenceResult, SpdmEvidenceError, PCR_QUOTE_BUFFER_SIZE};
+use spdm_lib::platform::rng::{SpdmRng, SpdmRngResult};
+use spdm_lib::platform::evidence::{SpdmEvidence, SpdmEvidenceResult};
 use spdm_lib::cert_store::{SpdmCertStore, CertStoreResult, CertStoreError};
 use spdm_lib::codec::MessageBuf;
 use spdm_lib::protocol::certs::{CertificateInfo, KeyUsageMask};
-use spdm_lib::protocol::algorithms::{SHA384_HASH_SIZE, ECC_P384_SIGNATURE_SIZE};
 
 /// Socket platform command types (from DMTF emulator)
 #[derive(Debug, Clone, Copy, PartialEq)]
 #[repr(u32)]
 enum SocketSpdmCommand {
     Normal = 0x00000001,
-    Shutdown = 0x00000002,
     Continue = 0x00000003,
-    ClientHello = 0x0000adde,  // Magic header from validator
+    ClientHello = 0x0000DEAD,  // Magic header from validator
+    Shutdown = 0x0000FFFE,
     Unknown = 0xFFFFFFFF,
 }
 
@@ -38,21 +46,12 @@ impl From<u32> for SocketSpdmCommand {
     fn from(value: u32) -> Self {
         match value {
             0x00000001 => SocketSpdmCommand::Normal,
-            0x00000002 => SocketSpdmCommand::Shutdown,
+            0x0000FFFE => SocketSpdmCommand::Shutdown,
             0x00000003 => SocketSpdmCommand::Continue,
-            0x0000adde => SocketSpdmCommand::ClientHello,
+            0x0000DEAD => SocketSpdmCommand::ClientHello,
             _ => SocketSpdmCommand::Unknown,
         }
     }
-}
-
-/// Platform message header for socket transport
-#[repr(C, packed)]
-#[derive(Debug, Clone, Copy)]
-struct SocketMessageHeader {
-    command: u32,           // Socket command type
-    transport_type: u32,    // Transport type (0 = TCP)
-    data_size: u32,         // Size of following data
 }
 
 /// Responder configuration
@@ -77,20 +76,14 @@ impl Default for ResponderConfig {
     }
 }
 
-/// Real SPDM Transport implementation for socket protocol
+/// SPDM Transport implementation that handles socket protocol internally
 struct SpdmSocketTransport {
     stream: TcpStream,
-    pending_request: Option<Vec<u8>>,
-    pending_response: Option<Vec<u8>>,
 }
 
 impl SpdmSocketTransport {
     fn new(stream: TcpStream) -> Self {
-        Self {
-            stream,
-            pending_request: None,
-            pending_response: None,
-        }
+        Self { stream }
     }
 
     /// Receive platform data with socket message header
@@ -99,9 +92,9 @@ impl SpdmSocketTransport {
         let mut header_bytes = [0u8; 12]; // sizeof(SocketMessageHeader)
         self.stream.read_exact(&mut header_bytes)?;
         
-        let command = u32::from_le_bytes([header_bytes[0], header_bytes[1], header_bytes[2], header_bytes[3]]);
-        let _transport_type = u32::from_le_bytes([header_bytes[4], header_bytes[5], header_bytes[6], header_bytes[7]]);
-        let data_size = u32::from_le_bytes([header_bytes[8], header_bytes[9], header_bytes[10], header_bytes[11]]);
+        let command = u32::from_be_bytes([header_bytes[0], header_bytes[1], header_bytes[2], header_bytes[3]]);
+        let _transport_type = u32::from_be_bytes([header_bytes[4], header_bytes[5], header_bytes[6], header_bytes[7]]);
+        let data_size = u32::from_be_bytes([header_bytes[8], header_bytes[9], header_bytes[10], header_bytes[11]]);
         
         let socket_command = SocketSpdmCommand::from(command);
         
@@ -116,17 +109,14 @@ impl SpdmSocketTransport {
 
     /// Send platform data with socket message header
     fn send_platform_data(&mut self, command: SocketSpdmCommand, data: &[u8]) -> IoResult<()> {
-        let header = SocketMessageHeader {
-            command: command as u32,
-            transport_type: 0, // TCP transport
-            data_size: data.len() as u32,
-        };
+        // Send header in big-endian format to match validator expectations
+        let command_bytes = (command as u32).to_be_bytes();
+        let transport_bytes = (3u32).to_be_bytes(); // TCP transport type = 3
+        let size_bytes = (data.len() as u32).to_be_bytes();
         
-        // Send header
-        let header_bytes = unsafe {
-            std::slice::from_raw_parts(&header as *const _ as *const u8, std::mem::size_of::<SocketMessageHeader>())
-        };
-        self.stream.write_all(header_bytes)?;
+        self.stream.write_all(&command_bytes)?;
+        self.stream.write_all(&transport_bytes)?;
+        self.stream.write_all(&size_bytes)?;
         
         // Send data if any
         if !data.is_empty() {
@@ -150,20 +140,57 @@ impl SpdmTransport for SpdmSocketTransport {
     }
 
     fn receive_request<'a>(&mut self, req: &mut MessageBuf<'a>) -> TransportResult<()> {
-        if let Some(request_data) = self.pending_request.take() {
-            req.reset();
-            req.reserve(request_data.len()).map_err(|_| TransportError::BufferTooSmall)?;
-            req.append(&request_data).map_err(|_| TransportError::BufferTooSmall)?;
-            Ok(())
-        } else {
-            Err(TransportError::ReceiveError)
+        // Handle socket protocol and extract SPDM data
+        loop {
+            match self.receive_platform_data() {
+                Ok((command, data)) => {
+                    match command {
+                        SocketSpdmCommand::Normal => {
+                            if !data.is_empty() {
+                                // This is an SPDM message
+                                req.reset();
+                                let data_len = data.len();
+                                req.put_data(data_len).map_err(|_| TransportError::BufferTooSmall)?;
+                                let buf = req.data_mut(data_len).map_err(|_| TransportError::BufferTooSmall)?;
+                                buf.copy_from_slice(&data);
+                                return Ok(());
+                            } else {
+                                // Empty data - send empty response
+                                self.send_platform_data(SocketSpdmCommand::Unknown, &[]).map_err(|_| TransportError::SendError)?;
+                                continue;
+                            }
+                        },
+                        SocketSpdmCommand::ClientHello => {
+                            // Handle client hello
+                            let response = b"Server Hello!";
+                            self.send_platform_data(SocketSpdmCommand::ClientHello, response).map_err(|_| TransportError::SendError)?;
+                            continue;
+                        },
+                        SocketSpdmCommand::Continue => {
+                            // Handle continue
+                            self.send_platform_data(SocketSpdmCommand::Continue, &[]).map_err(|_| TransportError::SendError)?;
+                            continue;
+                        },
+                        SocketSpdmCommand::Shutdown => {
+                            return Err(TransportError::ReceiveError);
+                        },
+                        SocketSpdmCommand::Unknown => {
+                            self.send_platform_data(SocketSpdmCommand::Unknown, &[]).map_err(|_| TransportError::SendError)?;
+                            continue; 
+                        }
+                    }
+                },
+                Err(_) => {
+                    return Err(TransportError::ReceiveError);
+                }
+            }
         }
     }
 
     fn send_response<'a>(&mut self, resp: &mut MessageBuf<'a>) -> TransportResult<()> {
-        // Extract response data
-        let response_data = resp.as_slice().to_vec();
-        self.pending_response = Some(response_data);
+        // Extract response data and send with socket protocol
+        let message_data = resp.message_data().map_err(|_| TransportError::BufferTooSmall)?;
+        self.send_platform_data(SocketSpdmCommand::Normal, message_data).map_err(|_| TransportError::SendError)?;
         Ok(())
     }
 
@@ -282,47 +309,129 @@ impl DemoCertStore {
 }
 
 impl SpdmCertStore for DemoCertStore {
-    fn get_cert_via_cert_chain(&self, _slot_id: u8) -> Result<&[u8], spdm_lib::error::SpdmError> {
-        Ok(&self.cert_chain)
+    fn slot_count(&self) -> u8 {
+        1 // Only support slot 0
     }
 
-    fn verify_cert_chain(&self, _cert_chain: &[u8]) -> Result<(), spdm_lib::error::SpdmError> {
-        // For demo, always return success
+    fn is_provisioned(&self, slot_id: u8) -> bool {
+        slot_id == 0 // Only slot 0 is provisioned
+    }
+
+    fn cert_chain_len(&mut self, _asym_algo: AsymAlgo, slot_id: u8) -> CertStoreResult<usize> {
+        if slot_id == 0 {
+            Ok(self.cert_chain.len())
+        } else {
+            Err(CertStoreError::InvalidSlotId)
+        }
+    }
+
+    fn get_cert_chain<'a>(
+        &mut self,
+        slot_id: u8,
+        _asym_algo: AsymAlgo,
+        offset: usize,
+        cert_portion: &'a mut [u8],
+    ) -> CertStoreResult<usize> {
+        if slot_id != 0 {
+            return Err(CertStoreError::InvalidSlotId);
+        }
+
+        if offset >= self.cert_chain.len() {
+            return Ok(0);
+        }
+
+        let remaining = self.cert_chain.len() - offset;
+        let to_copy = std::cmp::min(remaining, cert_portion.len());
+        
+        cert_portion[..to_copy].copy_from_slice(&self.cert_chain[offset..offset + to_copy]);
+        
+        // Fill remaining with zeros if needed
+        if to_copy < cert_portion.len() {
+            cert_portion[to_copy..].fill(0);
+        }
+        
+        Ok(to_copy)
+    }
+
+    fn root_cert_hash<'a>(
+        &mut self,
+        slot_id: u8,
+        _asym_algo: AsymAlgo,
+        cert_hash: &'a mut [u8; SHA384_HASH_SIZE],
+    ) -> CertStoreResult<()> {
+        if slot_id != 0 {
+            return Err(CertStoreError::InvalidSlotId);
+        }
+        
+        // For demo, return a fixed hash
+        cert_hash.fill(0x42);
         Ok(())
+    }
+
+    fn sign_hash<'a>(
+        &self,
+        slot_id: u8,
+        _hash: &'a [u8; SHA384_HASH_SIZE],
+        signature: &'a mut [u8; ECC_P384_SIGNATURE_SIZE],
+    ) -> CertStoreResult<()> {
+        if slot_id != 0 {
+            return Err(CertStoreError::InvalidSlotId);
+        }
+        
+        // For demo, return a fixed signature
+        signature.fill(0x43);
+        Ok(())
+    }
+
+    fn key_pair_id(&self, slot_id: u8) -> Option<u8> {
+        if slot_id == 0 {
+            Some(0)
+        } else {
+            None
+        }
+    }
+
+    fn cert_info(&self, slot_id: u8) -> Option<CertificateInfo> {
+        if slot_id == 0 {
+            let mut cert_info = CertificateInfo(0);
+            cert_info.set_cert_model(1); // Device certificate model
+            Some(cert_info)
+        } else {
+            None
+        }
+    }
+
+    fn key_usage_mask(&self, slot_id: u8) -> Option<KeyUsageMask> {
+        if slot_id == 0 {
+            let mut key_usage = KeyUsageMask::default();
+            key_usage.set_challenge_usage(1);
+            key_usage.set_measurement_usage(1);
+            Some(key_usage)
+        } else {
+            None
+        }
     }
 }
 
 /// Demo evidence implementation
-struct DemoEvidence {
-    measurements: Vec<SpdmMeasurement>,
-}
+struct DemoEvidence;
 
 impl DemoEvidence {
     fn new() -> Self {
-        // Create demo measurements
-        let mut measurements = Vec::new();
-        for i in 0..3 {
-            let mut measurement = SpdmMeasurement::new();
-            measurement.index = i;
-            measurement.specification = 1; // DMTF
-            measurement.hash_alg = 0x20; // SHA-384
-            measurement.measurement_value = vec![0x42 + i; 48]; // Demo measurement
-            measurements.push(measurement);
-        }
-        
-        Self { measurements }
+        Self
     }
 }
 
 impl SpdmEvidence for DemoEvidence {
-    fn get_measurement(&self, measurement_index: usize) -> Result<SpdmMeasurement, spdm_lib::error::SpdmError> {
-        self.measurements.get(measurement_index)
-            .cloned()
-            .ok_or(spdm_lib::error::SpdmError::InvalidParameter)
+    fn pcr_quote(&self, buffer: &mut [u8], _with_pqc_sig: bool) -> SpdmEvidenceResult<usize> {
+        // For demo, fill with dummy PCR quote data
+        let quote_size = std::cmp::min(buffer.len(), 64); // Demo quote size
+        buffer[..quote_size].fill(0x44); // Demo data
+        Ok(quote_size)
     }
 
-    fn get_measurement_count(&self) -> usize {
-        self.measurements.len()
+    fn pcr_quote_size(&self, _with_pqc_sig: bool) -> SpdmEvidenceResult<usize> {
+        Ok(64) // Demo quote size
     }
 }
 
@@ -347,16 +456,44 @@ fn create_device_capabilities() -> DeviceCapabilities {
 
 /// Create local device algorithms
 fn create_local_algorithms<'a>() -> LocalDeviceAlgorithms<'a> {
-    let mut device_algorithms = DeviceAlgorithms::default();
+    // Configure supported algorithms with proper bitfield construction
+    let mut measurement_spec = MeasurementSpecification::default();
+    measurement_spec.set_dmtf_measurement_spec(1);
     
-    // Set supported algorithms
-    device_algorithms.base_hash_algo = 0x20; // SHA-384
-    device_algorithms.base_asym_algo = 0x20; // ECDSA P-384
-    device_algorithms.measurement_spec = 0x01; // DMTF
-    device_algorithms.measurement_hash_algo = 0x20; // SHA-384
+    let mut measurement_hash_algo = MeasurementHashAlgo::default();
+    measurement_hash_algo.set_tpm_alg_sha_384(1);
     
-    let algorithm_priority_table = AlgorithmPriorityTable::default();
+    let mut base_asym_algo = BaseAsymAlgo::default();
+    base_asym_algo.set_tpm_alg_ecdsa_ecc_nist_p384(1);
     
+    let mut base_hash_algo = BaseHashAlgo::default();
+    base_hash_algo.set_tpm_alg_sha_384(1);
+    
+    let device_algorithms = DeviceAlgorithms {
+        measurement_spec,
+        other_param_support: OtherParamSupport::default(),
+        measurement_hash_algo,
+        base_asym_algo,
+        base_hash_algo,
+        mel_specification: MelSpecification::default(),
+        dhe_group: DheNamedGroup::default(),
+        aead_cipher_suite: AeadCipherSuite::default(),
+        req_base_asym_algo: ReqBaseAsymAlg::default(),
+        key_schedule: KeySchedule::default(),
+    };
+
+    let algorithm_priority_table = AlgorithmPriorityTable {
+        measurement_specification: None,
+        opaque_data_format: None,
+        base_asym_algo: None,
+        base_hash_algo: None,
+        mel_specification: None,
+        dhe_group: None,
+        aead_cipher_suite: None,
+        req_base_asym_algo: None,
+        key_schedule: None,
+    };
+
     LocalDeviceAlgorithms {
         device_algorithms,
         algorithm_priority_table,
@@ -392,7 +529,7 @@ fn handle_spdm_client(stream: TcpStream, config: &ResponderConfig) -> IoResult<(
         &mut cert_store,
         &mut hash,
         &mut m1_hash,
-        &mut l1_hash,
+        &mut l1_hash,  
         &mut rng,
         &evidence,
     ) {
@@ -407,81 +544,34 @@ fn handle_spdm_client(stream: TcpStream, config: &ResponderConfig) -> IoResult<(
         println!("SPDM context created successfully");
     }
     
-    // Main protocol loop
+    // Since SpdmContext owns the transport, use its message processing loop
+    // The transport handles both socket protocol and SPDM messages internally
+    let mut buffer = [0u8; 4096];
+    let mut message_buffer = MessageBuf::new(&mut buffer);
     loop {
-        match transport.receive_platform_data() {
-            Ok((command, data)) => {
+        match spdm_context.process_message(&mut message_buffer) {
+            Ok(()) => {
                 if config.verbose {
-                    println!("Received command: {:?}, data size: {}", command, data.len());
+                    println!("Successfully processed SPDM message");
                 }
-                
-                match command {
-                    SocketSpdmCommand::Normal => {
-                        if !data.is_empty() {
-                            // Store SPDM request data for processing
-                            transport.pending_request = Some(data);
-                            
-                            // Process SPDM message using real library
-                            let mut message_buf = MessageBuf::new();
-                            match spdm_context.process_message(&mut message_buf) {
-                                Ok(()) => {
-                                    if config.verbose {
-                                        println!("SPDM message processed successfully");
-                                    }
-                                    
-                                    // Get response data
-                                    if let Some(response_data) = transport.pending_response.take() {
-                                        transport.send_platform_data(SocketSpdmCommand::Normal, &response_data)?;
-                                    } else {
-                                        // No response data, send empty response
-                                        transport.send_platform_data(SocketSpdmCommand::Normal, &[])?;
-                                    }
-                                },
-                                Err(e) => {
-                                    if config.verbose {
-                                        eprintln!("SPDM processing error: {:?}", e);
-                                    }
-                                    // Send error response
-                                    transport.send_platform_data(SocketSpdmCommand::Unknown, &[])?;
-                                }
-                            }
-                        } else {
-                            transport.send_platform_data(SocketSpdmCommand::Unknown, &[])?;
-                        }
-                    },
-                    SocketSpdmCommand::ClientHello => {
-                        if config.verbose {
-                            println!("Received client hello: {:?}", String::from_utf8_lossy(&data));
-                        }
-                        let response = b"Server Hello!";
-                        transport.send_platform_data(SocketSpdmCommand::ClientHello, response)?;
-                    },
-                    SocketSpdmCommand::Shutdown => {
-                        if config.verbose {
-                            println!("Received shutdown command");
-                        }
-                        transport.send_platform_data(SocketSpdmCommand::Shutdown, &[])?;
-                        break;
-                    },
-                    SocketSpdmCommand::Continue => {
-                        if config.verbose {
-                            println!("Received continue command");
-                        }
-                        transport.send_platform_data(SocketSpdmCommand::Continue, &[])?;
-                    },
-                    SocketSpdmCommand::Unknown => {
-                        if config.verbose {
-                            println!("Received unknown command");
-                        }
-                        transport.send_platform_data(SocketSpdmCommand::Unknown, &[])?;
-                    }
-                }
-            },
+            }
             Err(e) => {
                 if config.verbose {
-                    eprintln!("Protocol error: {}", e);
+                    eprintln!("Error processing SPDM message: {:?}", e);
                 }
-                break;
+                // Continue processing unless it's a fatal transport error
+                match &e {
+                    spdm_lib::error::SpdmError::Transport(_) => {
+                        if config.verbose {
+                            println!("Transport error, closing connection");
+                        }
+                        break;
+                    }
+                    _ => {
+                        // Log error but continue processing
+                        continue;
+                    }
+                }
             }
         }
     }
@@ -657,7 +747,7 @@ mod tests {
         assert_eq!(SocketSpdmCommand::from(0x00000001), SocketSpdmCommand::Normal);
         assert_eq!(SocketSpdmCommand::from(0x00000002), SocketSpdmCommand::Shutdown);
         assert_eq!(SocketSpdmCommand::from(0x00000003), SocketSpdmCommand::Continue);
-        assert_eq!(SocketSpdmCommand::from(0x0000adde), SocketSpdmCommand::ClientHello);
+        assert_eq!(SocketSpdmCommand::from(0x0000dead), SocketSpdmCommand::ClientHello);
     }
 
     #[test]

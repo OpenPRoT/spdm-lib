@@ -15,9 +15,9 @@ use std::io::{Read, Write, Result as IoResult, Error, ErrorKind};
 #[repr(u32)]
 enum SocketSpdmCommand {
     Normal = 0x00000001,
-    Shutdown = 0x00000002,
     Continue = 0x00000003,
     ClientHello = 0x0000DEAD,  // Magic header from validator
+    Shutdown = 0x0000FFFE,
     Unknown = 0xFFFFFFFF,
 }
 
@@ -25,7 +25,7 @@ impl From<u32> for SocketSpdmCommand {
     fn from(value: u32) -> Self {
         match value {
             0x00000001 => SocketSpdmCommand::Normal,
-            0x00000002 => SocketSpdmCommand::Shutdown,
+            0x0000FFFE => SocketSpdmCommand::Shutdown,
             0x00000003 => SocketSpdmCommand::Continue,
             0x0000DEAD => SocketSpdmCommand::ClientHello,
             _ => SocketSpdmCommand::Unknown,
