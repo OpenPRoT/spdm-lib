@@ -31,6 +31,14 @@ use spdm_lib::cert_store::{SpdmCertStore, CertStoreResult, CertStoreError};
 use spdm_lib::codec::MessageBuf;
 use spdm_lib::protocol::certs::{CertificateInfo, KeyUsageMask};
 
+// Cryptographic imports
+#[cfg(feature = "crypto")]
+use sha2::{Sha384, Digest};
+#[cfg(feature = "crypto")]
+use p384::{ecdsa::{SigningKey, Signature, signature::Signer}, SecretKey};
+#[cfg(feature = "crypto")]
+use std::sync::Mutex;
+
 /// Socket platform command types (from DMTF emulator)
 #[derive(Debug, Clone, Copy, PartialEq)]
 #[repr(u32)]
@@ -203,23 +211,25 @@ impl SpdmTransport for SpdmSocketTransport {
     }
 }
 
-/// SHA-384 hash implementation
+/// SHA-384 hash implementation using proper cryptography
 struct Sha384Hash {
     current_algo: SpdmHashAlgoType,
+    #[cfg(feature = "crypto")]
+    hasher: Option<Sha384>,
 }
 
 impl Sha384Hash {
     fn new() -> Self {
         Self {
             current_algo: SpdmHashAlgoType::SHA384,
+            #[cfg(feature = "crypto")]
+            hasher: None,
         }
     }
 }
 
 impl SpdmHash for Sha384Hash {
     fn hash(&mut self, hash_algo: SpdmHashAlgoType, data: &[u8], hash: &mut [u8]) -> SpdmHashResult<()> {
-        // For demo purposes, create a fake hash
-        // In real implementation, use a crypto library like sha2 or ring
         if hash_algo != SpdmHashAlgoType::SHA384 {
             return Err(SpdmHashError::InvalidAlgorithm);
         }
@@ -228,24 +238,53 @@ impl SpdmHash for Sha384Hash {
             return Err(SpdmHashError::BufferTooSmall);
         }
         
-        // Simple checksum for demo (not cryptographically secure)
-        for (i, &byte) in data.iter().enumerate() {
-            hash[i % 48] ^= byte;
+        #[cfg(feature = "crypto")]
+        {
+            let mut hasher = Sha384::new();
+            hasher.update(data);
+            let result = hasher.finalize();
+            hash[..48].copy_from_slice(&result[..]);
+            Ok(())
+        }
+        
+        #[cfg(not(feature = "crypto"))]
+        {
+            // Fallback for demo purposes when crypto feature is not enabled
+            for (i, &byte) in data.iter().enumerate() {
+                hash[i % 48] ^= byte;
+            }
+            Ok(())
+        }
+    }
+
+    fn init(&mut self, hash_algo: SpdmHashAlgoType, data: Option<&[u8]>) -> SpdmHashResult<()> {
+        if hash_algo != SpdmHashAlgoType::SHA384 {
+            return Err(SpdmHashError::InvalidAlgorithm);
+        }
+        self.current_algo = hash_algo;
+        
+        #[cfg(feature = "crypto")]
+        {
+            let mut hasher = Sha384::new();
+            if let Some(initial_data) = data {
+                hasher.update(initial_data);
+            }
+            self.hasher = Some(hasher);
         }
         
         Ok(())
     }
 
-    fn init(&mut self, hash_algo: SpdmHashAlgoType, _data: Option<&[u8]>) -> SpdmHashResult<()> {
-        if hash_algo != SpdmHashAlgoType::SHA384 {
-            return Err(SpdmHashError::InvalidAlgorithm);
+    fn update(&mut self, data: &[u8]) -> SpdmHashResult<()> {
+        #[cfg(feature = "crypto")]
+        {
+            if let Some(ref mut hasher) = self.hasher {
+                hasher.update(data);
+            } else {
+                return Err(SpdmHashError::PlatformError);
+            }
         }
-        self.current_algo = hash_algo;
-        Ok(())
-    }
-
-    fn update(&mut self, _data: &[u8]) -> SpdmHashResult<()> {
-        // For demo, just return success
+        
         Ok(())
     }
 
@@ -253,13 +292,33 @@ impl SpdmHash for Sha384Hash {
         if hash.len() < 48 {
             return Err(SpdmHashError::BufferTooSmall);
         }
-        // For demo, return a dummy digest
-        hash[..48].fill(0x42);
+        
+        #[cfg(feature = "crypto")]
+        {
+            if let Some(hasher) = self.hasher.take() {
+                let result = hasher.finalize();
+                hash[..48].copy_from_slice(&result[..]);
+            } else {
+                return Err(SpdmHashError::PlatformError);
+            }
+        }
+        
+        #[cfg(not(feature = "crypto"))]
+        {
+            // Fallback for demo
+            hash[..48].fill(0x42);
+        }
+        
         Ok(())
     }
 
     fn reset(&mut self) {
-        // Reset state for demo
+        #[cfg(feature = "crypto")]
+        {
+            if self.current_algo == SpdmHashAlgoType::SHA384 {
+                self.hasher = Some(Sha384::new());
+            }
+        }
     }
 
     fn algo(&self) -> SpdmHashAlgoType {
@@ -295,16 +354,34 @@ impl SpdmRng for SystemRng {
     }
 }
 
-/// Demo certificate store
+/// Certificate store with proper ECDSA signing
 struct DemoCertStore {
     cert_chain: Vec<u8>,
+    #[cfg(feature = "crypto")]
+    signing_key: Mutex<Option<SigningKey>>,
 }
 
 impl DemoCertStore {
     fn new() -> Self {
         // For demo, create a dummy certificate chain
         let cert_chain = b"DEMO_CERTIFICATE_CHAIN_DATA".to_vec();
-        Self { cert_chain }
+        
+        #[cfg(feature = "crypto")]
+        {
+            // Generate a demo signing key for P-384
+            let secret_key = SecretKey::random(&mut rand::thread_rng());
+            let signing_key = SigningKey::from(secret_key);
+            
+            Self {
+                cert_chain,
+                signing_key: Mutex::new(Some(signing_key)),
+            }
+        }
+        
+        #[cfg(not(feature = "crypto"))]
+        {
+            Self { cert_chain }
+        }
     }
 }
 
@@ -363,24 +440,65 @@ impl SpdmCertStore for DemoCertStore {
             return Err(CertStoreError::InvalidSlotId);
         }
         
-        // For demo, return a fixed hash
-        cert_hash.fill(0x42);
+        #[cfg(feature = "crypto")]
+        {
+            // Hash the certificate chain using SHA-384
+            let mut hasher = Sha384::new();
+            hasher.update(&self.cert_chain);
+            let result = hasher.finalize();
+            cert_hash.copy_from_slice(&result[..]);
+        }
+        
+        #[cfg(not(feature = "crypto"))]
+        {
+            // Fallback for demo when crypto feature is not enabled
+            cert_hash.fill(0x42);
+        }
+        
         Ok(())
     }
 
     fn sign_hash<'a>(
         &self,
         slot_id: u8,
-        _hash: &'a [u8; SHA384_HASH_SIZE],
+        hash: &'a [u8; SHA384_HASH_SIZE],
         signature: &'a mut [u8; ECC_P384_SIGNATURE_SIZE],
     ) -> CertStoreResult<()> {
         if slot_id != 0 {
             return Err(CertStoreError::InvalidSlotId);
         }
         
-        // For demo, return a fixed signature
-        signature.fill(0x43);
-        Ok(())
+        #[cfg(feature = "crypto")]
+        {
+            if let Ok(signing_key_guard) = self.signing_key.lock() {
+                if let Some(ref signing_key) = *signing_key_guard {
+                    // Sign the hash using ECDSA P-384
+                    let sig: Signature = signing_key.sign(hash);
+                    let sig_bytes = sig.to_bytes();
+                    
+                    // Copy signature bytes (ECDSA P-384 signature is 96 bytes: 48 bytes r + 48 bytes s)
+                    if sig_bytes.len() <= ECC_P384_SIGNATURE_SIZE {
+                        signature[..sig_bytes.len()].copy_from_slice(&sig_bytes);
+                        // Fill remaining with zeros if needed
+                        if sig_bytes.len() < ECC_P384_SIGNATURE_SIZE {
+                            signature[sig_bytes.len()..].fill(0);
+                        }
+                    } else {
+                        return Err(CertStoreError::BufferTooSmall);
+                    }
+                    
+                    return Ok(());
+                }
+            }
+            return Err(CertStoreError::PlatformError);
+        }
+        
+        #[cfg(not(feature = "crypto"))]
+        {
+            // Fallback for demo when crypto feature is not enabled
+            signature.fill(0x43);
+            Ok(())
+        }
     }
 
     fn key_pair_id(&self, slot_id: u8) -> Option<u8> {
