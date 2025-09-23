@@ -91,7 +91,9 @@ struct SpdmSocketTransport {
 
 impl SpdmSocketTransport {
     fn new(stream: TcpStream) -> Self {
-        Self { stream }
+        Self { 
+            stream,
+        }
     }
 
     /// Receive platform data with socket message header
@@ -180,7 +182,9 @@ impl SpdmTransport for SpdmSocketTransport {
                             continue;
                         },
                         SocketSpdmCommand::Shutdown => {
-                            return Err(TransportError::ReceiveError);
+                             // Send shutdown response first
+                             let _ = self.send_platform_data(SocketSpdmCommand::Shutdown, &[]);
+                             return Err(TransportError::ReceiveError);
                         },
                         SocketSpdmCommand::Unknown => {
                             self.send_platform_data(SocketSpdmCommand::Unknown, &[]).map_err(|_| TransportError::SendError)?;
@@ -681,7 +685,7 @@ fn handle_spdm_client(stream: TcpStream, config: &ResponderConfig) -> IoResult<(
                 match &e {
                     spdm_lib::error::SpdmError::Transport(_) => {
                         if config.verbose {
-                            println!("Transport error, closing connection");
+                            println!("Connection closed gracefully");
                         }
                         break;
                     }
