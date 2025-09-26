@@ -1,5 +1,3 @@
-extern crate alloc;
-
 pub type SpdmHashResult<T> = Result<T, SpdmHashError>;
 
 pub trait SpdmHash {

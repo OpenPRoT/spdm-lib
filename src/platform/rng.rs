@@ -1,5 +1,3 @@
-extern crate alloc;
-
 pub type SpdmRngResult<T> = Result<T, SpdmRngError>;
 
 #[derive(Debug, PartialEq)]
