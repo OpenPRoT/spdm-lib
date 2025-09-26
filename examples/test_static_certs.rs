@@ -1,5 +1,8 @@
 // Test program to verify static certificates work correctly
-use spdm_lib::platform_impl::{STATIC_ROOT_CA_CERT, STATIC_ATTESTATION_CERT, STATIC_CERTIFICATE_CHAIN};
+
+// Import platform implementations  
+mod platform;
+use platform::{STATIC_ROOT_CA_CERT, STATIC_ATTESTATION_CERT, STATIC_CERTIFICATE_CHAIN};
 
 fn main() {
     println!("Static Certificate Test");

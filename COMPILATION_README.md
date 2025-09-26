@@ -32,15 +32,18 @@ This library provides a complete SPDM responder implementation with:
 ```
 spdm-lib/
 ├── src/
-│   ├── platform_impl/
-│   │   ├── certs.rs      # Static X.509 certificates (OpenSSL generated)
-│   │   └── mod.rs        # Platform implementation exports
 │   ├── lib.rs           # Main library
 │   └── ...              # SPDM protocol implementation
 ├── examples/
-│   ├── spdm_responder.rs    # Main SPDM responder (TCP server)
-│   ├── test_static_certs.rs # Certificate verification test
-│   └── basic_responder.rs   # Simple responder example
+│   ├── platform/        # Reference platform implementations
+│   │   ├── certs.rs     # Static X.509 certificates (OpenSSL generated)
+│   │   ├── cert_store.rs # Certificate store with ECDSA signing
+│   │   ├── crypto.rs    # SHA-384 hash and system RNG
+│   │   ├── socket_transport.rs # TCP transport with DMTF protocol
+│   │   ├── evidence.rs  # Demo device evidence
+│   │   └── mod.rs       # Platform module exports
+│   ├── spdm_responder.rs # Clean SPDM responder using platform implementations
+│   └── test_static_certs.rs # Certificate verification test
 └── tests/               # Integration tests
 ```
 
@@ -201,7 +204,7 @@ openssl verify -CAfile root_ca.pem attestation.pem
 
 ### Modifying Certificates
 
-The static certificates are in `src/platform_impl/certs.rs`. They were generated from working OpenSSL certificates and should not be modified unless you have replacement certificates that pass verification.
+The static certificates are in `examples/platform/certs.rs`. They were generated from working OpenSSL certificates and should not be modified unless you have replacement certificates that pass verification.
 
 ### Debugging
 
