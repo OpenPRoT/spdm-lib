@@ -1,9 +1,7 @@
 // Licensed under the Apache-2.0 license
 
-extern crate alloc;
 use crate::codec::MessageBuf;
 use crate::codec::{Codec, CodecError, CommonCodec, DataKind};
-use alloc::boxed::Box;
 use bitfield::bitfield;
 use libsyscall_caliptra::mctp::{Mctp, MessageInfo};
 use zerocopy::{FromBytes, Immutable, IntoBytes};

@@ -1,5 +1,4 @@
 
-extern crate alloc;
 use crate::codec::{MessageBuf, CodecError};
 
 pub type TransportResult<T> = Result<T, TransportError>;
