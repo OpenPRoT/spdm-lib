@@ -14,16 +14,16 @@ A demonstration SPDM responder application that shows how to:
 
 ```bash
 # Build the example
-cargo build --example spdm_responder
+cargo build --example spdm_responder --features std,crypto
 
 # Run with default settings
-cargo run --example spdm_responder
+cargo run --example spdm_responder --features std,crypto
 
 # Run with custom configuration
-cargo run --example spdm_responder -- --port 8080 --verbose
+cargo run --example spdm_responder --features std,crypto -- --port 8080 --verbose
 
 # See all options
-cargo run --example spdm_responder -- --help
+cargo run --example spdm_responder --features std,crypto -- --help
 ```
 
 ### Command Line Options
@@ -182,7 +182,7 @@ These can serve as starting points for your own platform-specific implementation
 The example includes basic unit tests:
 
 ```bash
-cargo test --example spdm_responder
+cargo test --features std,crypto
 ```
 
 ## Protocol Support

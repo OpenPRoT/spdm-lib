@@ -34,21 +34,11 @@ digest = { version = "0.10", optional = true }
 
 # Examples
 [[example]]
-name = "spdm_responder_dmtf"
-path = "examples/spdm_responder_dmtf.rs"
-required-features = ["std"]
-
-[[example]]
-name = "spdm_responder_simple"
-path = "examples/spdm_responder_simple.rs"
-required-features = ["std"]
-
-[[example]]
-name = "spdm_tcp_direct"
-path = "examples/spdm_tcp_direct.rs"
-required-features = ["std", "tcp-transport"]
-
-[[example]]
-name = "spdm_responder_real"
-path = "examples/spdm_responder_real.rs"
+name = "spdm_responder"
+path = "examples/spdm_responder.rs"
 required-features = ["std", "crypto"]
+
+[[example]]
+name = "test_static_certs"
+path = "examples/test_static_certs.rs"
+required-features = ["std"]
