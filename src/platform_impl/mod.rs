@@ -1,12 +1,9 @@
 // Licensed under the Apache-2.0 license
 
-//! Linux-specific platform implementations for the SPDM library
-//! 
-//! This module provides concrete implementations of the platform traits
-//! for Linux systems, including TCP transport, RNG, evidence collection,
-//! certificate management, and cryptographic hash functions.
+//! Platform implementations including static certificates
 
-pub mod linux;
+// Static certificate data
+pub mod certs;
 
-// Re-export commonly used types
-pub use linux::*;
+// Re-export certificate constants
+pub use certs::{STATIC_ROOT_CA_CERT, STATIC_ATTESTATION_CERT, STATIC_CERTIFICATE_CHAIN};
