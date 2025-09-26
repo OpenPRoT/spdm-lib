@@ -30,9 +30,8 @@ pub mod measurements;
 // Chunking context for large messages
 pub mod chunk_ctx;
 
-// Platform-specific implementations
+// Platform-specific traits
 pub mod platform;
 
-// Platform implementations including static certificates
-#[cfg(feature = "std")]
+// Platform-specific implementations
 pub mod platform_impl;
