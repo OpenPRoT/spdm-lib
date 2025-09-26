@@ -167,15 +167,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 ## Platform Implementation Examples
 
-For reference platform implementations, see the `src/platform_impl/` directory which contains:
+For reference platform implementations, see the `examples/platform/` directory which contains:
 
-- `linux/tcp.rs`: TCP transport implementation for Linux
-- `linux/hash.rs`: SHA-384 hash implementation
-- `linux/rng.rs`: System random number generator
-- `linux/certs.rs`: File-based certificate management
-- `linux/evidence.rs`: Static device measurements
+- `socket_transport.rs`: TCP socket transport implementation with DMTF protocol support
+- `crypto.rs`: SHA-384 hash implementation and system RNG
+- `cert_store.rs`: Certificate store with ECDSA signing
+- `evidence.rs`: Demo device evidence/measurements
+- `certs.rs`: Static OpenSSL-generated certificates
 
-These can serve as starting points for your own platform-specific implementations.
+These provide working implementations that can serve as starting points for your own platform-specific code.
 
 ## Testing
 

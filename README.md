@@ -8,85 +8,33 @@ The library is `#![no_std]` by default. Platform conveniences live behind featur
 
 Feature summary:
 
-* `std` – Enables use of the Rust standard library. (Most other platform features imply this.)
-* `tcp-transport` – Provides a blocking TCP length‑prefixed SPDM transport: `platform_impl::linux::SpdmTcp`.
-* `rand-rng` – Provides `SpdmLinuxRng` based on `rand::rngs::OsRng` implementing the `SpdmRng` trait.
-* `linux-evidence` – Provides `SpdmLinuxEvidence`, a minimal mock implementing `SpdmEvidence` returning a <=48 byte static quote.
+* `std` – Enables use of the Rust standard library.
+* `crypto` – Enables cryptographic features using real implementations.
 
-These helpers live under the `platform_impl` module so they are clearly optional and replaceable for embedded targets.
+For platform implementations (transport, RNG, evidence), see the `examples/platform/` directory which provides working reference implementations.
 
-### Enabling Features
+### Platform Implementation Examples
 
-Example enabling all three helpers:
-
-```
-cargo add spdm-lib --features "tcp-transport rand-rng linux-evidence"
-```
-
-Or in your `Cargo.toml`:
-
-```toml
-[dependencies]
-spdm-lib = { path = "../spdm-lib", features = ["tcp-transport", "rand-rng", "linux-evidence"] }
-```
-
-### TCP Transport Usage (length‑prefixed)
+The `examples/platform/` directory provides reference implementations:
 
 ```rust
-use spdm_lib::platform_impl::linux::SpdmTcp; // behind `tcp-transport`
+// Socket transport for DMTF SPDM protocol
+use examples::platform::SpdmSocketTransport;
 
-fn connect() -> std::io::Result<SpdmTcp> {
-	// Establish connection to responder (example address)
-	let tcp = SpdmTcp::connect("127.0.0.1:2323")?;
-	Ok(tcp)
-}
+// SHA-384 hash implementation  
+use examples::platform::Sha384Hash;
+
+// System RNG
+use examples::platform::SystemRng;
+
+// Certificate store with ECDSA signing
+use examples::platform::DemoCertStore;
+
+// Demo evidence implementation
+use examples::platform::DemoEvidence;
 ```
 
-`SpdmTcp` implements the `SpdmTransport` trait expected by `SpdmContext`.
-
-### RNG Helper
-
-```rust
-use spdm_lib::platform_impl::linux::SpdmLinuxRng; // behind `rand-rng`
-use spdm_lib::platform::rng::SpdmRng; // trait
-
-fn random_bytes() -> [u8; 16] {
-	let rng = SpdmLinuxRng::default();
-	let mut buf = [0u8; 16];
-	rng.get_random_bytes(&mut buf).expect("rng failure");
-	buf
-}
-```
-
-### Evidence Helper
-
-```rust
-use spdm_lib::platform_impl::linux::SpdmLinuxEvidence; // behind `linux-evidence`
-use spdm_lib::platform::evidence::SpdmEvidence; // trait (path illustrative)
-
-fn fetch_quote() -> Vec<u8> {
-	let ev = SpdmLinuxEvidence::default();
-	let mut buf = [0u8; 64]; // bigger than max; implementation limits to <=48
-	let size = ev.evidence_size().unwrap();
-	let written = ev.get_evidence(&mut buf[..size]).expect("evidence failure");
-	buf[..written].to_vec()
-}
-```
-
-### Integrating With `SpdmContext`
-
-Construction (simplified – actual context may require additional capability / algorithm configuration):
-
-```rust
-use spdm_lib::SpdmContext; // assuming context exposes a constructor in this crate
-use spdm_lib::platform_impl::linux::{SpdmTcp, SpdmLinuxRng, SpdmLinuxEvidence};
-
-fn build_context() -> anyhow::Result<SpdmContext<SpdmTcp>> {
-	let transport = SpdmTcp::connect("127.0.0.1:2323")?;
-	let rng = SpdmLinuxRng::default();
-	let evidence = SpdmLinuxEvidence::default();
-	// Pseudocode; adjust to actual constructor signature.
-	// SpdmContext::new(transport, rng, evidence, /* other deps */)
+See `examples/spdm_responder.rs` for a complete working example that uses all platform implementations.
 	todo!("fill in actual constructor usage");
 }
 ```
