@@ -15,6 +15,3 @@ pub use socket_transport::SpdmSocketTransport;
 pub use crypto::{Sha384Hash, SystemRng};
 pub use cert_store::DemoCertStore;
 pub use evidence::DemoEvidence;
-// Certificate constants available for examples that need them
-#[allow(unused_imports)]
-pub use certs::{STATIC_ROOT_CA_CERT, STATIC_ATTESTATION_CERT, STATIC_CERTIFICATE_CHAIN};

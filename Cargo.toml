@@ -29,6 +29,9 @@ rand = { version = "0.8.5", optional = true }
 sha2 = { version = "0.10", optional = true }
 p384 = { version = "0.13", features = ["ecdsa", "pem"], optional = true }
 digest = { version = "0.10", optional = true }
+hex = "0.4.3"
+x509-cert = "0.2.5"
+der = "0.7.10"
 
 [dev-dependencies]
 
