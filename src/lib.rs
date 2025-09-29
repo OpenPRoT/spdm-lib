@@ -30,7 +30,5 @@ pub mod measurements;
 // Chunking context for large messages
 pub mod chunk_ctx;
 
-// Platform-specific implementations
+// Platform-specific traits
 pub mod platform;
-#[cfg(any(feature = "tcp-transport"))]
-pub mod platform_impl;

@@ -1,7 +1,5 @@
 // Licensed under the Apache-2.0 license
 
-extern crate alloc;
-
 use crate::error::{SpdmError, SpdmResult};
 use crate::protocol::algorithms::{AsymAlgo, ECC_P384_SIGNATURE_SIZE, SHA384_HASH_SIZE};
 use crate::protocol::certs::{CertificateInfo, KeyUsageMask};

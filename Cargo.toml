@@ -18,10 +18,30 @@ tcp-transport = ["std"]
  linux-evidence = ["std"]
  # Linux placeholder certificate store implementation
  linux-certs = ["std"]
+ # Cryptographic implementations
+ crypto = ["std", "sha2", "p384", "digest", "rand"]
 
 [dependencies]
 bitfield = "0.14.0"
 zerocopy = { version = "0.8.17", features = ["derive"] }
 rand = { version = "0.8.5", optional = true }
+# Cryptographic dependencies
+sha2 = { version = "0.10", optional = true }
+p384 = { version = "0.13", features = ["ecdsa", "pem"], optional = true }
+digest = { version = "0.10", optional = true }
+hex = "0.4.3"
+x509-cert = "0.2.5"
+der = "0.7.10"
 
 [dev-dependencies]
+
+# Examples
+[[example]]
+name = "spdm_responder"
+path = "examples/spdm_responder.rs"
+required-features = ["std", "crypto"]
+
+[[example]]
+name = "test_static_certs"
+path = "examples/test_static_certs.rs"
+required-features = ["std"]

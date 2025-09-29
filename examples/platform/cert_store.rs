@@ -1,0 +1,364 @@
+// Licensed under the Apache-2.0 license
+
+//! Certificate Store Platform Implementation
+//! 
+//! Provides certificate management using static certificates with ECDSA signing
+
+use std::sync::Mutex;
+
+#[cfg(feature = "crypto")]
+use p384::{
+    ecdsa::{SigningKey, Signature, signature::hazmat::PrehashSigner}, 
+    SecretKey
+};
+
+
+
+use spdm_lib::cert_store::{SpdmCertStore, CertStoreResult, CertStoreError};
+use spdm_lib::protocol::algorithms::{AsymAlgo, ECC_P384_SIGNATURE_SIZE, SHA384_HASH_SIZE};
+use spdm_lib::protocol::certs::{CertificateInfo, KeyUsageMask};
+use super::certs::{STATIC_ROOT_CA_CERT, STATIC_ATTESTATION_CERT, ATTESTATION_PRIVATE_KEY};
+
+/// Certificate store with proper ECDSA signing
+pub struct DemoCertStore {
+    cert_chain: Vec<u8>,
+    #[cfg(feature = "crypto")]
+    signing_key: Mutex<Option<SigningKey>>,
+}
+
+impl DemoCertStore {
+    pub fn new() -> Self {
+        #[cfg(feature = "crypto")]
+        {
+            println!("Loading static certificate chain...");
+            let (cert_chain, signing_key) = Self::generate_certificate_chain();
+            println!("Static certificate chain loaded successfully");
+            
+            Self {
+                cert_chain,
+                signing_key: Mutex::new(Some(signing_key)),
+            }
+        }
+        
+        #[cfg(not(feature = "crypto"))]
+        {
+            // Fallback for when crypto feature is not enabled
+            let cert_chain = b"DEMO_CERTIFICATE_CHAIN_DATA".to_vec();
+            Self { cert_chain }
+        }
+    }
+
+    #[cfg(feature = "crypto")]
+    fn generate_certificate_chain() -> (Vec<u8>, SigningKey) {
+        println!("🔧 DIRECT CERTIFICATE CHAIN - RAW CONCATENATION");
+        
+        // SIMPLE APPROACH: Just concatenate Root CA + Attestation certificates
+        // Let the SPDM library handle its own formatting
+        let mut cert_chain = Vec::new();
+        cert_chain.extend_from_slice(STATIC_ROOT_CA_CERT);
+        cert_chain.extend_from_slice(STATIC_ATTESTATION_CERT);
+        
+        println!("  ✅ Raw certificates: Root({}) + Attestation({})", STATIC_ROOT_CA_CERT.len(), STATIC_ATTESTATION_CERT.len());
+        println!("  Total length: {} bytes", cert_chain.len());
+        println!("  Root starts: {:02x?}", &cert_chain[..4]);
+        println!("  Attestation starts: {:02x?}", &cert_chain[STATIC_ROOT_CA_CERT.len()..STATIC_ROOT_CA_CERT.len()+4]);
+
+        let secret_key = SecretKey::from_bytes(ATTESTATION_PRIVATE_KEY.into())
+            .expect("Failed to parse secret key from static data");
+        
+        let attestation_key = SigningKey::from(secret_key);
+
+        println!("🔑 Static attestation signing key loaded");
+        
+        (cert_chain, attestation_key)
+    }
+
+    /// Extract the first certificate from a DER-encoded certificate chain
+    #[allow(dead_code)]
+    fn extract_first_certificate_der<'a>(&self, cert_chain: &'a [u8]) -> Option<&'a [u8]> {
+        if cert_chain.len() < 2 {
+            return None;
+        }
+        
+        let mut offset = 0;
+        
+        // Check for SEQUENCE tag (0x30)
+        if cert_chain[offset] != 0x30 {
+            return None;
+        }
+        offset += 1;
+        
+        // Parse length and calculate total certificate size
+        let (content_length, header_size) = if cert_chain[offset] & 0x80 == 0 {
+            // Short form length (0-127)
+            let content_len = cert_chain[offset] as usize;
+            let header_len = 2; // tag + 1 byte length
+            (content_len, header_len)
+        } else {
+            // Long form length
+            let length_octets = (cert_chain[offset] & 0x7f) as usize;
+            if length_octets == 0 || length_octets > 4 {
+                return None;
+            }
+            offset += 1;
+            
+            if offset + length_octets > cert_chain.len() {
+                return None;
+            }
+            
+            let mut content_len = 0;
+            for i in 0..length_octets {
+                content_len = (content_len << 8) | cert_chain[offset + i] as usize;
+            }
+            
+            let header_len = 2 + length_octets; // tag + length indicator + length bytes
+            (content_len, header_len)
+        };
+        
+        let total_cert_size = header_size + content_length;
+        
+        if total_cert_size > cert_chain.len() {
+            return None;
+        }
+        
+        Some(&cert_chain[0..total_cert_size])
+    }
+}
+
+impl SpdmCertStore for DemoCertStore {
+    fn slot_count(&self) -> u8 {
+        1 // Only support slot 0
+    }
+
+    fn is_provisioned(&self, slot_id: u8) -> bool {
+        slot_id == 0 // Only slot 0 is provisioned
+    }
+
+    fn cert_chain_len(&mut self, _asym_algo: AsymAlgo, slot_id: u8) -> CertStoreResult<usize> {
+        if slot_id == 0 {
+            Ok(self.cert_chain.len())
+        } else {
+            Err(CertStoreError::InvalidSlotId)
+        }
+    }
+
+    fn get_cert_chain<'a>(
+        &mut self,
+        slot_id: u8,
+        _asym_algo: AsymAlgo,
+        offset: usize,
+        cert_portion: &'a mut [u8],
+    ) -> CertStoreResult<usize> {
+        if slot_id != 0 {
+            return Err(CertStoreError::InvalidSlotId);
+        }
+
+        if offset >= self.cert_chain.len() {
+            return Ok(0);
+        }
+
+        let remaining = self.cert_chain.len() - offset;
+        let copy_len = remaining.min(cert_portion.len());
+
+        cert_portion[..copy_len].copy_from_slice(&self.cert_chain[offset..offset + copy_len]);
+      //  println!("  Cert Chain Copy: {:02x?}", &cert_portion[..copy_len]);
+        Ok(copy_len)
+    }
+
+    fn root_cert_hash<'a>(
+        &mut self,
+        slot_id: u8,
+        _asym_algo: AsymAlgo,
+        cert_hash: &'a mut [u8; SHA384_HASH_SIZE],
+    ) -> CertStoreResult<()> {
+        if slot_id != 0 {
+            return Err(CertStoreError::InvalidSlotId);
+        }
+
+        #[cfg(feature = "crypto")]
+        {
+            use sha2::{Sha384, Digest};
+            // Calculate proper SHA-384 hash of the root certificate
+            let mut hasher = Sha384::new();
+            hasher.update(STATIC_ROOT_CA_CERT);
+            let hash_result = hasher.finalize();
+            cert_hash.copy_from_slice(&hash_result);
+           // println!("  Fabrizio Root Hash starts: {:02x?}", &cert_hash[..4]);
+        }
+        
+        #[cfg(not(feature = "crypto"))]
+        {
+            // Fallback for when crypto feature is not enabled
+            for (i, byte) in cert_hash.iter_mut().enumerate() {
+                *byte = STATIC_ROOT_CA_CERT.get(i % STATIC_ROOT_CA_CERT.len()).copied().unwrap_or(0);
+            }
+        }
+
+        Ok(())
+    }
+
+    fn sign_hash<'a>(
+        &self,
+        slot_id: u8,
+        hash: &'a [u8; SHA384_HASH_SIZE],
+        signature: &'a mut [u8; ECC_P384_SIGNATURE_SIZE],
+    ) -> CertStoreResult<()> {
+        if slot_id != 0 {
+            return Err(CertStoreError::InvalidSlotId);
+        }
+
+        #[cfg(feature = "crypto")]
+        {
+            if let Ok(signing_key_guard) = self.signing_key.lock() {
+                if let Some(ref signing_key) = *signing_key_guard {
+                  
+                    let sig: Signature = signing_key.sign_prehash(hash).unwrap();
+                    
+                    let sig_bytes = sig.to_bytes();
+                    if sig_bytes.len() <= ECC_P384_SIGNATURE_SIZE {
+                        signature[..sig_bytes.len()].copy_from_slice(&sig_bytes);
+                        return Ok(());
+                    }
+                    return Err(CertStoreError::PlatformError);
+                }
+            }
+            Err(CertStoreError::PlatformError)
+        }
+        
+        #[cfg(not(feature = "crypto"))]
+        {
+            // Fallback for demo without crypto
+            for (i, byte) in signature.iter_mut().enumerate() {
+                *byte = hash[i % SHA384_HASH_SIZE] ^ ((i as u8).wrapping_mul(73));
+            }
+            Ok(())
+        }
+    }
+
+    fn key_pair_id(&self, slot_id: u8) -> Option<u8> {
+        if slot_id == 0 { Some(1) } else { None }
+    }
+
+    fn cert_info(&self, slot_id: u8) -> Option<CertificateInfo> {
+        if slot_id != 0 {
+            return None;
+        }
+
+        let mut cert_info = CertificateInfo(0);
+        cert_info.set_cert_model(1);
+        Some(cert_info)
+    }
+
+    fn key_usage_mask(&self, slot_id: u8) -> Option<KeyUsageMask> {
+        if slot_id != 0 {
+            return None;
+        }
+
+        let mut key_usage = KeyUsageMask::default();
+        key_usage.set_challenge_usage(1);
+        key_usage.set_measurement_usage(1);
+        Some(key_usage)
+    }
+}
+
+#[cfg(all(test, feature = "crypto"))]
+#[test]
+fn test_signing() {
+    use p384::ecdsa::signature::SignatureEncoding;
+    
+    // Create a known private key
+    let private_key_bytes = ATTESTATION_PRIVATE_KEY.to_vec();
+    let secret_key = SecretKey::from_bytes((&private_key_bytes[..]).into()).unwrap();
+    let signing_key = SigningKey::from(secret_key);
+    
+    // Your input
+    let input = hex::decode("32ac91a55d17db5e537448789486c633ecba4cd49185d0933f3d6561573fb68931f88bef4dc6ef20602df7dbeb51086b").unwrap();
+    
+    // Test 1: Sign directly
+    let sig_direct: Signature = signing_key.sign(&input);
+    println!("Direct signature:");
+    let sig_bytes = sig_direct.to_bytes();
+    println!("  R: {}", hex::encode(&sig_bytes[..48]));
+    println!("  S: {}", hex::encode(&sig_bytes[48..]));
+    
+    // Test 2: Hash then sign
+    let digest = Sha384::digest(&input);
+    let sig_hashed: Signature = signing_key.sign(&digest[..]);
+    println!("Hashed signature:");
+    let sig_bytes_hashed = sig_hashed.to_bytes();
+    println!("  R: {}", hex::encode(&sig_bytes_hashed[..48]));
+    println!("  S: {}", hex::encode(&sig_bytes_hashed[48..]));
+}
+
+#[cfg(all(test, feature = "crypto"))]
+#[test]
+fn debug_signing_verification() {
+    use p384::ecdsa::signature::SignatureEncoding;
+    use hex;
+    
+    // Your test data
+    let input_hex = "32ac91a55d17db5e537448789486c633ecba4cd49185d0933f3d6561573fb68931f88bef4dc6ef20602df7dbeb51086b";
+    let input = hex::decode(input_hex).unwrap();
+    
+    // Create signing key
+    let private_key_bytes = ATTESTATION_PRIVATE_KEY.to_vec();
+    let secret_key = SecretKey::from_bytes((&private_key_bytes[..]).into()).unwrap();
+    let signing_key = SigningKey::from(secret_key);
+    
+    // Get public key
+    let verifying_key = signing_key.verifying_key();
+    let public_point = verifying_key.to_encoded_point(false);
+    println!("Public key: {}", hex::encode(public_point.as_bytes()));
+    
+    // Test 1: Sign directly
+    println!("\n=== Test 1: Direct signing ===");
+    let sig1: Signature = signing_key.sign(&input);
+    let sig1_bytes = sig1.to_bytes();
+    println!("Input: {}", input_hex);
+    println!("Signature R: {}", hex::encode(&sig1_bytes[..48]));
+    println!("Signature S: {}", hex::encode(&sig1_bytes[48..]));
+    
+    // Verify with Rust
+    let verify_result = verifying_key.verify(&input, &sig1);
+    println!("Rust verification: {:?}", verify_result);
+    
+    // Test 2: Hash then sign
+    println!("\n=== Test 2: Hash then sign ===");
+    let hashed = Sha384::digest(&input);
+    println!("SHA-384 hash: {}", hex::encode(&hashed));
+    let sig2: Signature = signing_key.sign(&hashed);
+    let sig2_bytes = sig2.to_bytes();
+    println!("Signature R: {}", hex::encode(&sig2_bytes[..48]));
+    println!("Signature S: {}", hex::encode(&sig2_bytes[48..]));
+    
+    // Verify with Rust
+    let verify_result2 = verifying_key.verify(&hashed, &sig2);
+    println!("Rust verification of hashed: {:?}", verify_result2);
+    
+    // Test 3: What Python expects
+    println!("\n=== For Python Testing ===");
+    println!("# Test direct signature");
+    println!("from cryptography.hazmat.primitives.asymmetric import ec, utils");
+    println!("from cryptography.hazmat.primitives import hashes");
+    println!("from cryptography.hazmat.primitives.asymmetric.utils import encode_dss_signature");
+    println!("import binascii");
+    println!();
+    println!(r#"data = binascii.unhexlify("{}")"#, input_hex);
+    println!(r#"pubkey = binascii.unhexlify("{}")"#, hex::encode(public_point.as_bytes()));
+    println!(r#"r1 = int("{}", 16)"#, hex::encode(&sig1_bytes[..48]));
+    println!(r#"s1 = int("{}", 16)"#, hex::encode(&sig1_bytes[48..]));
+    println!();
+    println!("public_key = ec.EllipticCurvePublicKey.from_encoded_point(ec.SECP384R1(), pubkey)");
+    println!("sig1 = encode_dss_signature(r1, s1)");
+    println!();
+    println!("# Try different verification methods");
+    println!("try:");
+    println!("    public_key.verify(sig1, data, ec.ECDSA(utils.Prehashed(hashes.SHA384())))");
+    println!("    print('✓ Sig1 valid with Prehashed')");
+    println!("except: print('✗ Sig1 invalid with Prehashed')");
+    println!();
+    println!("try:");
+    println!("    public_key.verify(sig1, data, ec.ECDSA(hashes.SHA384()))");
+    println!("    print('✓ Sig1 valid with SHA384')");
+    println!("except: print('✗ Sig1 invalid with SHA384')");
+}

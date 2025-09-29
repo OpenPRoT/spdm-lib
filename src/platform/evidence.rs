@@ -1,5 +1,3 @@
-extern crate alloc;
-
 pub const PCR_QUOTE_BUFFER_SIZE: usize = 0x1984;
 
 pub type SpdmEvidenceResult<T> = Result<T, SpdmEvidenceError>;
