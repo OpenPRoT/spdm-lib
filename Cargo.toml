@@ -8,40 +8,27 @@ edition = "2021"
 
 [features]
 default = []
-# Enable to use std-dependent transports/utilities
-std = []
-# TCP transport (requires std); opt-in so embedded/no_std users unaffected.
-tcp-transport = ["std"]
- # Rand-based RNG implementation (requires std for OS entropy via getrandom)
- rand-rng = ["std", "rand"]
- # Linux evidence mock implementation
- linux-evidence = ["std"]
- # Linux placeholder certificate store implementation
- linux-certs = ["std"]
- # Cryptographic implementations
- crypto = ["std", "sha2", "p384", "digest", "rand"]
+crypto = []
 
 [dependencies]
 bitfield = "0.14.0"
 zerocopy = { version = "0.8.17", features = ["derive"] }
-rand = { version = "0.8.5", optional = true }
-# Cryptographic dependencies
-sha2 = { version = "0.10", optional = true }
-p384 = { version = "0.13", features = ["ecdsa", "pem"], optional = true }
-digest = { version = "0.10", optional = true }
-hex = "0.4.3"
-x509-cert = "0.2.5"
-der = "0.7.10"
 
 [dev-dependencies]
+rand = "0.8.5"
+# Cryptographic dependencies
+sha2 = { version = "0.10"}
+p384 = { version = "0.13", features = ["ecdsa", "pem"] }
+digest = { version = "0.10"}
+hex = "0.4.3"
+x509-cert = "0.2.5"
 
 # Examples
 [[example]]
 name = "spdm_responder"
 path = "examples/spdm_responder.rs"
-required-features = ["std", "crypto"]
+required-features = ["crypto"]
 
 [[example]]
 name = "test_static_certs"
 path = "examples/test_static_certs.rs"
-required-features = ["std"]
