@@ -1,26 +1,27 @@
 // Licensed under the Apache-2.0 license
 
 // use crate::cert_mgr::DeviceCertsManager;
-use crate::cert_store::*;
 use crate::chunk_ctx::LargeResponseCtx;
 use crate::codec::{Codec, MessageBuf};
 use crate::commands::error_rsp::{encode_error_response, ErrorCode};
+use crate::commands::version_rq::handle_version_response;
 use crate::commands::{
     algorithms_rsp, capabilities_rsp, certificate_rsp, challenge_auth_rsp, chunk_get_rsp,
-    digests_rsp, measurements_rsp, version_rsp,
+    digests_rsp, measurements_rsp, version_rq, version_rsp,
 };
 use crate::error::*;
 use crate::measurements::common::SpdmMeasurements;
 use crate::platform::evidence::SpdmEvidence;
+use crate::platform::hash::SpdmHash;
+use crate::platform::rng::SpdmRng;
+use crate::platform::transport::SpdmTransport;
 use crate::protocol::algorithms::*;
 use crate::protocol::common::{ReqRespCode, SpdmMsgHdr};
 use crate::protocol::version::*;
 use crate::protocol::DeviceCapabilities;
 use crate::state::{ConnectionState, State};
 use crate::transcript::{TranscriptContext, TranscriptManager};
-use crate::platform::transport::SpdmTransport;
-use crate::platform::hash::SpdmHash;
-use crate::platform::rng::SpdmRng;
+use crate::{cert_store::*, commands, protocol};
 
 pub struct SpdmContext<'a> {
     transport: &'a mut dyn SpdmTransport,
@@ -72,12 +73,13 @@ impl<'a> SpdmContext<'a> {
         })
     }
 
-    pub fn process_message(&mut self, msg_buf: &mut MessageBuf<'a>) -> SpdmResult<()> {
+    /// The Responder receives a request message sent by the Requester and processes it accordingly.
+    pub fn responder_process_message(&mut self, msg_buf: &mut MessageBuf<'a>) -> SpdmResult<()> {
         self.transport
             .receive_request(msg_buf)
             .map_err(SpdmError::Transport)?;
 
-        match self.handle_request(msg_buf) {
+        match self.responder_handle_request(msg_buf) {
             Ok(()) => {
                 self.send_response(msg_buf)?;
             }
@@ -91,7 +93,58 @@ impl<'a> SpdmContext<'a> {
         Ok(())
     }
 
-    fn handle_request(&mut self, buf: &mut MessageBuf<'a>) -> CommandResult<()> {
+    /// The Requester receives a response message sent by the Responder and processes it accordingly.
+    ///
+    /// # Arguments
+    /// * `resp_buffer`: buffer the message is received into from the transport medium.
+    ///
+    /// # Warning
+    /// This function resets all data initially stored in then resp_buffer.
+    pub fn requester_process_message(
+        &mut self,
+        resp_buffer: &mut MessageBuf<'a>,
+    ) -> SpdmResult<()> {
+        resp_buffer.reset();
+        self.transport
+            .receive_response(resp_buffer)
+            .map_err(|e| SpdmError::Transport(e))?;
+
+        match self.requester_handle_response(resp_buffer) {
+            Ok(()) => {}
+            Err(_) => panic!("rip requester"),
+        }
+
+        Ok(())
+    }
+
+    // Use ReqRespCode as command issuer for now, until the correct state machine is in place
+    // TODO: implement in transport
+    pub fn send_request(
+        &mut self,
+        req: ReqRespCode,
+        req_buf: &mut MessageBuf<'a>,
+    ) -> SpdmResult<()> {
+        req_buf.reset();
+
+        match req {
+            ReqRespCode::GetVersion => version_rq::send_get_version(
+                self,
+                req_buf,
+                version_rq::GetVersionPayload::new(1, 1),
+            )
+            .map_err(|(_send_response, cmd_err)| SpdmError::Command(cmd_err))?,
+            _ => return Err(SpdmError::InvalidParam),
+        };
+
+        self.transport
+            .send_request(1, req_buf)
+            .map_err(|_| SpdmError::InvalidParam)?;
+
+        Ok(())
+    }
+
+    /// The responder handles incoming requests and responds to them accordingly.
+    fn responder_handle_request(&mut self, buf: &mut MessageBuf<'a>) -> CommandResult<()> {
         let req = buf;
 
         let req_msg_header: SpdmMsgHdr =
@@ -108,12 +161,22 @@ impl<'a> SpdmContext<'a> {
 
         match req_code {
             ReqRespCode::GetVersion => version_rsp::handle_get_version(self, req_msg_header, req)?,
-            ReqRespCode::GetCapabilities => capabilities_rsp::handle_get_capabilities(self, req_msg_header, req)?,
-            ReqRespCode::NegotiateAlgorithms => algorithms_rsp::handle_negotiate_algorithms(self, req_msg_header, req)?,
+            ReqRespCode::GetCapabilities => {
+                capabilities_rsp::handle_get_capabilities(self, req_msg_header, req)?
+            }
+            ReqRespCode::NegotiateAlgorithms => {
+                algorithms_rsp::handle_negotiate_algorithms(self, req_msg_header, req)?
+            }
             ReqRespCode::GetDigests => digests_rsp::handle_get_digests(self, req_msg_header, req)?,
-            ReqRespCode::GetCertificate => certificate_rsp::handle_get_certificate(self, req_msg_header, req)?,
-            ReqRespCode::Challenge => challenge_auth_rsp::handle_challenge(self, req_msg_header, req)?,
-            ReqRespCode::GetMeasurements => measurements_rsp::handle_get_measurements(self, req_msg_header, req)?,
+            ReqRespCode::GetCertificate => {
+                certificate_rsp::handle_get_certificate(self, req_msg_header, req)?
+            }
+            ReqRespCode::Challenge => {
+                challenge_auth_rsp::handle_challenge(self, req_msg_header, req)?
+            }
+            ReqRespCode::GetMeasurements => {
+                measurements_rsp::handle_get_measurements(self, req_msg_header, req)?
+            }
             ReqRespCode::ChunkGet => chunk_get_rsp::handle_chunk_get(self, req_msg_header, req)?,
 
             _ => Err((false, CommandError::UnsupportedRequest))?,
@@ -121,8 +184,36 @@ impl<'a> SpdmContext<'a> {
         Ok(())
     }
 
+    /// Requester function parsing and processing messages provided in `buf`.
+    ///
+    /// # Arguments
+    /// * `buf`: Message buffer containing a raw response.
+    fn requester_handle_response(&mut self, buf: &mut MessageBuf<'a>) -> CommandResult<()> {
+        let req = buf;
+        let req_msg_header: SpdmMsgHdr =
+            SpdmMsgHdr::decode(req).map_err(|e| (false, CommandError::Codec(e)))?;
+
+        let req_code = req_msg_header
+            .req_resp_code()
+            .map_err(|_| (false, CommandError::UnsupportedRequest))?;
+
+        // if req_code != ReqRespCode::ChunkGet && self.large_resp_context.in_progress() {
+        //     // Reset large response context if the request is not a CHUNK_GET
+        //     self.large_resp_context.reset();
+        // }
+
+        match req_code {
+            ReqRespCode::Version => handle_version_response(self, buf, payload)?,
+            _ => Err((false, CommandError::UnsupportedRequest))?,
+        }
+
+        Ok(())
+    }
+
     fn send_response(&mut self, resp: &mut MessageBuf<'a>) -> SpdmResult<()> {
-        self.transport.send_response(resp).map_err(SpdmError::Transport)
+        self.transport
+            .send_response(resp)
+            .map_err(SpdmError::Transport)
     }
 
     pub(crate) fn prepare_response_buffer(&self, rsp_buf: &mut MessageBuf) -> CommandResult<()> {

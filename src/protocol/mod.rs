@@ -13,3 +13,5 @@ pub use certs::*;
 pub(crate) use common::*;
 pub(crate) use signature::*;
 pub use version::*;
+
+pub use common::ReqRespCode;
