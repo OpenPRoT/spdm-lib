@@ -6,7 +6,7 @@ use crate::protocol::{version::SpdmVersion, REQUESTER_CONTEXT_LEN, SPDM_CONTEXT_
 use zerocopy::{FromBytes, Immutable, IntoBytes};
 
 #[derive(Debug, Clone, Copy, PartialEq)]
-pub(crate) enum ReqRespCode {
+pub enum ReqRespCode {
     GetVersion = 0x84,
     Version = 0x04,
     GetCapabilities = 0xE1,

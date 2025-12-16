@@ -1,16 +1,17 @@
 // Licensed under the Apache-2.0 license
 
 //! Socket Transport Platform Implementation
-//! 
+//!
 //! Provides TCP socket transport compatible with DMTF SPDM validator/emulator
 
+use std::io::{Read, Result as IoResult, Write};
 use std::net::TcpStream;
-use std::io::{Read, Write, Result as IoResult};
 
-use spdm_lib::platform::transport::{SpdmTransport, TransportResult, TransportError};
 use spdm_lib::codec::MessageBuf;
+use spdm_lib::platform::transport::{SpdmTransport, TransportError, TransportResult};
 
 /// Socket platform command types (from DMTF emulator)
+// TODO: Doe we have to add elements for ServerHello etc as well?
 #[derive(Debug, Clone, Copy, PartialEq)]
 #[repr(u32)]
 pub enum SocketSpdmCommand {
@@ -47,13 +48,28 @@ impl SpdmSocketTransport {
         // Read socket message header
         let mut header_bytes = [0u8; 12]; // sizeof(SocketMessageHeader)
         self.stream.read_exact(&mut header_bytes)?;
-        
-        let command = u32::from_be_bytes([header_bytes[0], header_bytes[1], header_bytes[2], header_bytes[3]]);
-        let _transport_type = u32::from_be_bytes([header_bytes[4], header_bytes[5], header_bytes[6], header_bytes[7]]);
-        let data_size = u32::from_be_bytes([header_bytes[8], header_bytes[9], header_bytes[10], header_bytes[11]]);
-        
+
+        let command = u32::from_be_bytes([
+            header_bytes[0],
+            header_bytes[1],
+            header_bytes[2],
+            header_bytes[3],
+        ]);
+        let _transport_type = u32::from_be_bytes([
+            header_bytes[4],
+            header_bytes[5],
+            header_bytes[6],
+            header_bytes[7],
+        ]);
+        let data_size = u32::from_be_bytes([
+            header_bytes[8],
+            header_bytes[9],
+            header_bytes[10],
+            header_bytes[11],
+        ]);
+
         let socket_command = SocketSpdmCommand::from(command);
-        
+
         if data_size > 0 {
             let mut data = vec![0u8; data_size as usize];
             self.stream.read_exact(&mut data)?;
@@ -69,30 +85,67 @@ impl SpdmSocketTransport {
         let command_bytes = (command as u32).to_be_bytes();
         let transport_bytes = (3u32).to_be_bytes(); // TCP transport type = 3
         let size_bytes = (data.len() as u32).to_be_bytes();
-        
+
         self.stream.write_all(&command_bytes)?;
         self.stream.write_all(&transport_bytes)?;
         self.stream.write_all(&size_bytes)?;
-        
+
         // Send data if any
         if !data.is_empty() {
             self.stream.write_all(data)?;
         }
-        
+
         self.stream.flush()?;
         Ok(())
     }
 }
 
 impl SpdmTransport for SpdmSocketTransport {
-    fn send_request<'a>(&mut self, _dest_eid: u8, _req: &mut MessageBuf<'a>) -> TransportResult<()> {
-        // Not used in responder mode
-        Err(TransportError::DriverError)
+    /// This function is only relevant for the SPDM Requester.
+    /// Send the SPDM Request encoded into [_req] (header|payload]) via the platform transport
+    /// to and SPDM endpoint with EID [_dest_eid].
+    fn send_request<'a>(&mut self, dest_eid: u8, req: &mut MessageBuf<'a>) -> TransportResult<()> {
+        let message_data = req
+            .message_data()
+            .map_err(|_| TransportError::BufferTooSmall)?;
+
+        self.send_platform_data(SocketSpdmCommand::Normal, message_data)
+            .map_err(|_| TransportError::SendError)?;
+        Ok(())
     }
 
-    fn receive_response<'a>(&mut self, _rsp: &mut MessageBuf<'a>) -> TransportResult<()> {
-        // Not used in responder mode
-        Err(TransportError::DriverError)
+    fn receive_response<'a>(&mut self, rsp: &mut MessageBuf<'a>) -> TransportResult<()> {
+        // Err(TransportError::DriverError)
+        loop {
+            match self.receive_platform_data() {
+                Ok((command, data)) => {
+                    if !data.is_empty() {
+                        match command {
+                            SocketSpdmCommand::Normal => {
+                                if !data.is_empty() {
+                                    rsp.reset();
+                                    rsp.put_data(data.len())
+                                        .map_err(|_| TransportError::BufferTooSmall)?;
+
+                                    rsp.data_mut(data.len())
+                                        .map_err(|_| TransportError::BufferTooSmall)?
+                                        .copy_from_slice(&data);
+
+                                    return Ok(());
+                                }
+                            }
+
+                            SocketSpdmCommand::ClientHello => {}
+                            _ => {} // SocketSpdmCommand::Shutdown => {}
+                        }
+                    }
+                }
+
+                Err(_) => {
+                    return Err(TransportError::ReceiveError);
+                }
+            }
+        }
     }
 
     fn receive_request<'a>(&mut self, req: &mut MessageBuf<'a>) -> TransportResult<()> {
@@ -106,33 +159,39 @@ impl SpdmTransport for SpdmSocketTransport {
                                 // This is an SPDM message
                                 req.reset();
                                 let data_len = data.len();
-                                req.put_data(data_len).map_err(|_| TransportError::BufferTooSmall)?;
-                                let buf = req.data_mut(data_len).map_err(|_| TransportError::BufferTooSmall)?;
+                                req.put_data(data_len)
+                                    .map_err(|_| TransportError::BufferTooSmall)?;
+                                let buf = req
+                                    .data_mut(data_len)
+                                    .map_err(|_| TransportError::BufferTooSmall)?;
                                 buf.copy_from_slice(&data);
                                 return Ok(());
                             } else {
                                 // Empty data - send empty response
-                                self.send_platform_data(SocketSpdmCommand::Unknown, &[]).map_err(|_| TransportError::SendError)?;
+                                self.send_platform_data(SocketSpdmCommand::Unknown, &[])
+                                    .map_err(|_| TransportError::SendError)?;
                                 continue;
                             }
-                        },
+                        }
                         SocketSpdmCommand::ClientHello => {
                             // Handle client hello
                             let response = b"Server Hello!";
-                            self.send_platform_data(SocketSpdmCommand::ClientHello, response).map_err(|_| TransportError::SendError)?;
+                            self.send_platform_data(SocketSpdmCommand::ClientHello, response)
+                                .map_err(|_| TransportError::SendError)?;
                             continue;
-                        },
+                        }
                         SocketSpdmCommand::Shutdown => {
-                             // Send shutdown response first
-                             let _ = self.send_platform_data(SocketSpdmCommand::Shutdown, &[]);
-                             return Err(TransportError::ReceiveError);
-                        },
+                            // Send shutdown response first
+                            let _ = self.send_platform_data(SocketSpdmCommand::Shutdown, &[]);
+                            return Err(TransportError::ReceiveError);
+                        }
                         SocketSpdmCommand::Unknown => {
-                            self.send_platform_data(SocketSpdmCommand::Unknown, &[]).map_err(|_| TransportError::SendError)?;
-                            continue; 
+                            self.send_platform_data(SocketSpdmCommand::Unknown, &[])
+                                .map_err(|_| TransportError::SendError)?;
+                            continue;
                         }
                     }
-                },
+                }
                 Err(_) => {
                     return Err(TransportError::ReceiveError);
                 }
@@ -142,8 +201,11 @@ impl SpdmTransport for SpdmSocketTransport {
 
     fn send_response<'a>(&mut self, resp: &mut MessageBuf<'a>) -> TransportResult<()> {
         // Extract response data and send with socket protocol
-        let message_data = resp.message_data().map_err(|_| TransportError::BufferTooSmall)?;
-        self.send_platform_data(SocketSpdmCommand::Normal, message_data).map_err(|_| TransportError::SendError)?;
+        let message_data = resp
+            .message_data()
+            .map_err(|_| TransportError::BufferTooSmall)?;
+        self.send_platform_data(SocketSpdmCommand::Normal, message_data)
+            .map_err(|_| TransportError::SendError)?;
         Ok(())
     }
 
