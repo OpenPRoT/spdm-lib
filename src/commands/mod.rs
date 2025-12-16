@@ -8,4 +8,5 @@ pub mod chunk_get_rsp;
 pub mod digests_rsp;
 pub mod error_rsp;
 pub mod measurements_rsp;
+pub mod version_rq;
 pub mod version_rsp;

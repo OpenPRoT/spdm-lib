@@ -6,12 +6,12 @@ use crate::chunk_ctx::ChunkError;
 use crate::codec::CodecError;
 use crate::commands::error_rsp::ErrorCode;
 use crate::measurements::common::MeasurementsError;
+use crate::platform::evidence::SpdmEvidenceError;
+use crate::platform::hash::SpdmHashError;
 use crate::platform::rng::SpdmRngError;
+use crate::platform::transport::TransportError;
 use crate::protocol::SignCtxError;
 use crate::transcript::TranscriptError;
-use crate::platform::transport::TransportError;
-use crate::platform::hash::SpdmHashError;
-use crate::platform::evidence::SpdmEvidenceError;
 
 #[derive(Debug)]
 pub enum SpdmError {
@@ -42,6 +42,7 @@ pub enum CommandError {
     Codec(CodecError),
     ErrorCode(ErrorCode),
     UnsupportedRequest,
+    UnsupportedResponse,
     SignCtx(SignCtxError),
     InvalidChunkContext,
     Chunk(ChunkError),

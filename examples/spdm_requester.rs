@@ -1,11 +1,6 @@
 // Licensed under the Apache-2.0 license
 
-//! Real SPDM Library Integrated DMTF Compatible Responder
-//!
-//! This responder integrates the actual SPDM library for real protocol processing
-//! while maintaining compatibility with the DMTF SPDM emulator protocol.
-//!
-//! This version uses platform implementations with no duplicated code.
+//! SPDM Example Responder utilizing the requester library.
 
 use std::env;
 use std::io::{Error, ErrorKind, Result as IoResult};
@@ -20,8 +15,8 @@ use spdm_lib::protocol::algorithms::{
     MeasurementSpecification, MelSpecification, OtherParamSupport, ReqBaseAsymAlg,
 };
 use spdm_lib::protocol::version::SpdmVersion;
+use spdm_lib::protocol::ReqRespCode;
 use spdm_lib::protocol::{CapabilityFlags, DeviceCapabilities};
-
 // Import platform implementations - no duplicates!
 mod platform;
 use platform::{DemoCertStore, DemoEvidence, Sha384Hash, SpdmSocketTransport, SystemRng};
@@ -34,7 +29,6 @@ struct ResponderConfig {
     key_path: String,
     measurements_path: Option<String>,
     verbose: bool,
-    raw: bool,
 }
 
 impl Default for ResponderConfig {
@@ -45,7 +39,6 @@ impl Default for ResponderConfig {
             key_path: "device_key.pem".to_string(),
             measurements_path: Some("measurements.json".to_string()),
             verbose: false,
-            raw: false,
         }
     }
 }
@@ -115,8 +108,8 @@ fn create_local_algorithms<'a>() -> LocalDeviceAlgorithms<'a> {
     }
 }
 
-/// Handle client connection with real SPDM processing
-fn handle_spdm_client(stream: TcpStream, config: &ResponderConfig) -> IoResult<()> {
+// Connect to SPDM Responder
+fn handle_spdm_responder(stream: TcpStream, config: &ResponderConfig) -> IoResult<()> {
     let mut transport = SpdmSocketTransport::new(stream);
 
     // Create platform implementations - all from platform module!
@@ -136,6 +129,11 @@ fn handle_spdm_client(stream: TcpStream, config: &ResponderConfig) -> IoResult<(
         println!("Client connected - initializing SPDM context");
     }
 
+    // TODO: The SpdmContext has to be adjusted (best in a generic way) to be requester compatible
+    // For now, keep the context the same and ignore the internal state tracking.
+    // Imho the the Responder is implemented wrong, since it tracks it's own state instead of the
+    // other parties state.
+    // So for now, we will re-use the state tracking and keep it in sync with the other parties state.
     let mut spdm_context = match SpdmContext::new(
         &supported_versions,
         &mut transport,
@@ -162,37 +160,54 @@ fn handle_spdm_client(stream: TcpStream, config: &ResponderConfig) -> IoResult<(
     // Process SPDM messages using the context
     let mut buffer = [0u8; 4096];
     let mut message_buffer = MessageBuf::new(&mut buffer);
-    loop {
-        match spdm_context.responder_process_message(&mut message_buffer) {
-            Ok(()) => {
-                if config.verbose {
-                    println!("Successfully processed SPDM message");
-                }
-            }
-            Err(e) => {
-                if config.verbose {
-                    eprintln!("Error processing SPDM message: {:?}", e);
-                }
-                // Continue processing unless it's a fatal transport error
-                match &e {
-                    spdm_lib::error::SpdmError::Transport(_) => {
-                        if config.verbose {
-                            println!("Connection closed gracefully");
-                        }
-                        break;
-                    }
-                    _ => {
-                        // Log error but continue processing
-                        continue;
-                    }
-                }
-            }
-        }
-    }
+    // For now, we just want to show, that the VCA (Version, Capability, Auth) flow works as expected
+    // For that, we need to do the following:
+    // 1.1 Send GET_VERSION
+    // 1.2 Receive and verify VERSION
+    // 1.3 Update tracking of remote party
+    // 2.1 Send GET_CAPABILITIES
+    // 2.2 Receive and verify CAPABILITIES
+    // 2.3 Update tracking of remote party
+    // 3.1 Send GET_AUTH
 
-    if config.verbose {
-        println!("Client connection closed");
-    }
+    // For now, the send_request function uses default values for the commands payloads.
+    let ret = spdm_context.send_request(ReqRespCode::GetVersion, &mut message_buffer);
+    // .map_err(|_| Error::new(ErrorKind::Other, "could not process error"))?;
+    dbg!(&ret);
+
+    spdm_context.requester_process_message(&mut message_buffer);
+    dbg!(&ret);
+
+    // let ret = spdm_context.send_request(req, &mut message_buffer);
+
+    // spdm_context
+    //     .
+
+    // match spdm_context.process_message(&mut message_buffer) {
+    //     Ok(()) => {
+    //         if config.verbose {
+    //             println!("Successfully processed SPDM message");
+    //         }
+    //     }
+    //     Err(e) => {
+    //         if config.verbose {
+    //             eprintln!("Error processing SPDM message: {:?}", e);
+    //         }
+    //         // Continue processing unless it's a fatal transport error
+    //         match &e {
+    //             spdm_lib::error::SpdmError::Transport(_) => {
+    //                 if config.verbose {
+    //                     println!("Connection closed gracefully");
+    //                 }
+    //                 break;
+    //             }
+    //             _ => {
+    //                 // Log error but continue processing
+    //                 continue;
+    //             }
+    //         }
+    //     }
+    // }
 
     Ok(())
 }
@@ -268,7 +283,7 @@ fn print_help() {
     println!("USAGE:");
     println!("    spdm-responder-clean [OPTIONS]\n");
     println!("OPTIONS:");
-    println!("    -p, --port <PORT>              TCP port to listen on [default: 2323]");
+    println!("    -p, --port <PORT>              TCP port to connect to [default: None]");
     println!(
         "    -c, --cert <CERT_FILE>         Path to certificate file [default: device_cert.pem]"
     );
@@ -300,7 +315,6 @@ fn display_info(config: &ResponderConfig) {
         println!("  Measurements: {}", measurements);
     }
     println!("  Verbose: {}", config.verbose);
-    println!("  Raw (no TCP binding): {}", config.raw);
     println!();
 
     let capabilities = create_device_capabilities();
@@ -344,37 +358,22 @@ fn display_info(config: &ResponderConfig) {
 /// Main function
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let config = parse_args();
-
     display_info(&config);
 
-    // Create TCP listener
-    let bind_addr = format!("0.0.0.0:{}", config.port);
-    let listener = TcpListener::bind(&bind_addr)?;
+    let remote_addr = format!("0.0.0.0:{}", config.port);
+    let stream = TcpStream::connect(&remote_addr)?;
 
-    println!("Clean SPDM library responder listening on {}", bind_addr);
-    println!("Compatible with DMTF SPDM device validator and emulator clients");
-    println!("Uses unified platform implementations with no code duplication");
-    println!("Waiting for connections... (Press Ctrl+C to exit)");
-    println!();
+    println!(
+        "Clean SPDM library requester connecting to {}",
+        &remote_addr
+    );
 
-    // Accept connections
-    for stream in listener.incoming() {
-        match stream {
-            Ok(stream) => {
-                if let Ok(peer_addr) = stream.peer_addr() {
-                    println!("Connection from: {}", peer_addr);
-                }
-
-                // Handle client with real SPDM processing using platform implementations
-                if let Err(e) = handle_spdm_client(stream, &config) {
-                    eprintln!("Client handling error: {}", e);
-                }
-            }
-            Err(e) => {
-                eprintln!("Connection failed: {}", e);
-            }
-        }
+    if let Ok(peer_addr) = stream.peer_addr() {
+        println!("Connection from: {}", peer_addr);
     }
+
+    // Handle client with real SPDM processing using platform implementations
+    handle_spdm_responder(stream, &config)?;
 
     Ok(())
 }

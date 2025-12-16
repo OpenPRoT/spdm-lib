@@ -13,7 +13,7 @@ A demonstration SPDM responder application that shows how to:
 ### Usage
 
 ```bash
-# Build the example
+# Build the example responder
 cargo build --example spdm_responder --features std,crypto
 
 # Run with default settings
