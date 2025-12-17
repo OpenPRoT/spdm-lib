@@ -3,6 +3,7 @@
 // use crate::cert_mgr::DeviceCertsManager;
 use crate::chunk_ctx::LargeResponseCtx;
 use crate::codec::{Codec, MessageBuf};
+use crate::commands::capabilities::handle_capabilities_response;
 use crate::commands::error_rsp::{encode_error_response, ErrorCode};
 use crate::commands::version::handle_version_response;
 use crate::commands::{
@@ -204,9 +205,11 @@ impl<'a> SpdmContext<'a> {
         //     self.large_resp_context.reset();
         // }
 
-        match req_code {
-            ReqRespCode::Version => handle_version_response(self, buf, payload)?,
-            _ => Err((false, CommandError::UnsupportedRequest))?,
+        match resp_code {
+            ReqRespCode::Version => handle_version_response(self, resp_msg_header, resp)?,
+            _ => Err((false, CommandError::UnsupportedResponse))?,
+            ReqRespCode::Capabilities => handle_capabilities_response(self, resp_msg_header, resp)?,
+            _ => Err((false, CommandError::UnsupportedResponse))?,
         }
 
         Ok(())

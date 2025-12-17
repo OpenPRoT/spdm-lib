@@ -63,21 +63,10 @@ fn process_version<'a>(
 /// Requester function handling the parsing of the VERSION response sent by the Responder.
 pub(crate) fn handle_version_response<'a>(
     ctx: &mut SpdmContext<'a>,
-    req_buf: &mut MessageBuf<'a>,
-    payload: VersionRespCommon,
+    resp_header: SpdmMsgHdr,
+    resp: &mut MessageBuf<'a>,
 ) -> CommandResult<()> {
-    let req = req_buf;
-
-    let req_msg_header: SpdmMsgHdr =
-        SpdmMsgHdr::decode(req).map_err(|e| (false, CommandError::Codec(e)))?;
-
-    let req_code = req_msg_header
-        .req_resp_code()
-        .map_err(|_| (false, CommandError::UnsupportedResponse));
-
-    todo!()
-
-    Ok(())
+    todo!();
 }
 
 // tests
