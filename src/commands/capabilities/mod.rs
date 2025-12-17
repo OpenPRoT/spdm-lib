@@ -1,7 +1,9 @@
 // Licensed under the Apache-2.0 license
 
+mod request;
 mod response;
 
+pub(crate) use request::*;
 pub(crate) use response::*;
 
 use zerocopy::{FromBytes, Immutable, IntoBytes};
