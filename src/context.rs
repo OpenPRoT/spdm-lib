@@ -6,8 +6,8 @@ use crate::codec::{Codec, MessageBuf};
 use crate::commands::error_rsp::{encode_error_response, ErrorCode};
 use crate::commands::version::handle_version_response;
 use crate::commands::{
-    algorithms_rsp, capabilities_rsp, certificate_rsp, challenge_auth_rsp, chunk_get_rsp,
-    digests_rsp, measurements_rsp, version,
+    algorithms_rsp, capabilities, certificate_rsp, challenge_auth_rsp, chunk_get_rsp, digests_rsp,
+    measurements_rsp, version,
 };
 use crate::error::*;
 use crate::measurements::common::SpdmMeasurements;
@@ -160,7 +160,7 @@ impl<'a> SpdmContext<'a> {
         match req_code {
             ReqRespCode::GetVersion => version::handle_get_version(self, req_msg_header, req)?,
             ReqRespCode::GetCapabilities => {
-                capabilities_rsp::handle_get_capabilities(self, req_msg_header, req)?
+                capabilities::handle_get_capabilities(self, req_msg_header, req)?
             }
             ReqRespCode::NegotiateAlgorithms => {
                 algorithms_rsp::handle_negotiate_algorithms(self, req_msg_header, req)?
