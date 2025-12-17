@@ -187,13 +187,17 @@ impl<'a> SpdmContext<'a> {
     /// # Arguments
     /// * `buf`: Message buffer containing a raw response.
     fn requester_handle_response(&mut self, buf: &mut MessageBuf<'a>) -> CommandResult<()> {
-        let req = buf;
-        let req_msg_header: SpdmMsgHdr =
-            SpdmMsgHdr::decode(req).map_err(|e| (false, CommandError::Codec(e)))?;
+        let resp = buf;
+        let resp_msg_header: SpdmMsgHdr =
+            SpdmMsgHdr::decode(resp).map_err(|e| (false, CommandError::Codec(e)))?;
 
-        let req_code = req_msg_header
+        let resp_code = resp_msg_header
             .req_resp_code()
             .map_err(|_| (false, CommandError::UnsupportedRequest))?;
+
+        if resp_code.is_request() {
+            Err((false, CommandError::UnsupportedRequest))?
+        }
 
         // if req_code != ReqRespCode::ChunkGet && self.large_resp_context.in_progress() {
         //     // Reset large response context if the request is not a CHUNK_GET

@@ -75,6 +75,12 @@ impl ReqRespCode {
 
         Ok(context)
     }
+    pub(crate) fn is_response(&self) -> bool {
+        *self as u8 >= 0x00 && *self as u8 <= 0x7F
+    }
+    pub(crate) fn is_request(&self) -> bool {
+        !self.is_response()
+    }
 }
 
 #[derive(FromBytes, IntoBytes, Immutable)]
