@@ -4,10 +4,10 @@
 use crate::chunk_ctx::LargeResponseCtx;
 use crate::codec::{Codec, MessageBuf};
 use crate::commands::error_rsp::{encode_error_response, ErrorCode};
-use crate::commands::version_rq::handle_version_response;
+use crate::commands::version::handle_version_response;
 use crate::commands::{
     algorithms_rsp, capabilities_rsp, certificate_rsp, challenge_auth_rsp, chunk_get_rsp,
-    digests_rsp, measurements_rsp, version_rq, version_rsp,
+    digests_rsp, measurements_rsp, version,
 };
 use crate::error::*;
 use crate::measurements::common::SpdmMeasurements;
@@ -127,12 +127,10 @@ impl<'a> SpdmContext<'a> {
         req_buf.reset();
 
         match req {
-            ReqRespCode::GetVersion => version_rq::send_get_version(
-                self,
-                req_buf,
-                version_rq::GetVersionPayload::new(1, 1),
-            )
-            .map_err(|(_send_response, cmd_err)| SpdmError::Command(cmd_err))?,
+            ReqRespCode::GetVersion => {
+                version::send_get_version(self, req_buf, version::VersionReqPayload::new(1, 1))
+                    .map_err(|(_send_response, cmd_err)| SpdmError::Command(cmd_err))?
+            }
             _ => return Err(SpdmError::InvalidParam),
         };
 
@@ -160,7 +158,7 @@ impl<'a> SpdmContext<'a> {
         }
 
         match req_code {
-            ReqRespCode::GetVersion => version_rsp::handle_get_version(self, req_msg_header, req)?,
+            ReqRespCode::GetVersion => version::handle_get_version(self, req_msg_header, req)?,
             ReqRespCode::GetCapabilities => {
                 capabilities_rsp::handle_get_capabilities(self, req_msg_header, req)?
             }
