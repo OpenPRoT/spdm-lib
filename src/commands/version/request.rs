@@ -2,6 +2,7 @@
 
 use crate::{
     codec::{Codec, MessageBuf},
+    commands::version::VersionNumberEntry,
     context::SpdmContext,
     error::{CommandError, CommandResult},
     protocol::SpdmMsgHdr,
@@ -31,17 +32,24 @@ pub(crate) fn send_get_version<'a>(
     Ok(())
 }
 
-// Requester function for processing a VERSION response
+/// Requester function for processing a VERSION response
+///
+/// Updates the state of the context to match the selected version.
+///
+/// # Returns
+/// - The selected latest common supported version on success
+/// - [CommandError::UnsupportedResponse] when no common version is found
+/// - [CommandError::Codec] when decoding fails
 fn process_version<'a>(
     ctx: &mut SpdmContext<'a>,
     spdm_hdr: SpdmMsgHdr,
     resp_payload: &mut MessageBuf<'a>,
-) -> CommandResult<()> {
+) -> CommandResult<SpdmVersion> {
     // VERSION response must use version 1.0 per spec
     match spdm_hdr.version() {
         Ok(SpdmVersion::V10) => {}
         _ => {
-            Err(ctx.generate_error_response(resp_payload, ErrorCode::VersionMismatch, 0, None))?;
+            Err((false, CommandError::UnsupportedResponse))?;
         }
     }
 
@@ -57,7 +65,27 @@ fn process_version<'a>(
     }
 
     // Decode all version entries from the response
-    Ok(())
+    let mut latest_version = None;
+    for _ in 0..entry_count {
+        let ver = VersionNumberEntry::decode(resp_payload)
+            .map_err(|e| (false, CommandError::Codec(e)))?;
+        if let Ok(ver) = SpdmVersion::try_from(ver) {
+            if let Some(lv) = latest_version.as_mut() {
+                if *lv < ver {
+                    *lv = ver;
+                }
+            } else {
+                latest_version = Some(ver);
+            }
+        }
+    }
+
+    if let Some(ver) = latest_version {
+        ctx.state.connection_info.set_version_number(ver);
+        Ok(ver)
+    } else {
+        Err((false, CommandError::UnsupportedResponse))
+    }
 }
 
 /// Requester function handling the parsing of the VERSION response sent by the Responder.

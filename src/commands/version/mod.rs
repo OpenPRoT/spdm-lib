@@ -85,3 +85,19 @@ impl VersionNumberEntry<[u8; VERSION_ENTRY_SIZE]> {
 }
 
 impl CommonCodec for VersionNumberEntry<[u8; VERSION_ENTRY_SIZE]> {}
+
+pub struct FromVersionNumberEntryError;
+
+impl TryFrom<VersionNumberEntry<[u8; VERSION_ENTRY_SIZE]>> for SpdmVersion {
+    type Error = FromVersionNumberEntryError;
+
+    fn try_from(value: VersionNumberEntry<[u8; VERSION_ENTRY_SIZE]>) -> Result<Self, Self::Error> {
+        match (value.major(), value.minor()) {
+            (1, 0) => Ok(SpdmVersion::V10),
+            (1, 1) => Ok(SpdmVersion::V11),
+            (1, 2) => Ok(SpdmVersion::V12),
+            (1, 3) => Ok(SpdmVersion::V13),
+            (_, _) => Err(FromVersionNumberEntryError),
+        }
+    }
+}
