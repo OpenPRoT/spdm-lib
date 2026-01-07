@@ -207,7 +207,6 @@ impl<'a> SpdmContext<'a> {
 
         match resp_code {
             ReqRespCode::Version => handle_version_response(self, resp_msg_header, resp)?,
-            _ => Err((false, CommandError::UnsupportedResponse))?,
             ReqRespCode::Capabilities => handle_capabilities_response(self, resp_msg_header, resp)?,
             _ => Err((false, CommandError::UnsupportedResponse))?,
         }
