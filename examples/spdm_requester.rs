@@ -8,18 +8,26 @@ use std::net::{TcpListener, TcpStream};
 use std::process;
 
 use spdm_lib::codec::MessageBuf;
+use spdm_lib::commands::capabilities::{
+    GetCapabilitiesBase, GetCapabilitiesV11, GetCapabilitiesV12,
+};
 use spdm_lib::context::SpdmContext;
+use spdm_lib::error::{SpdmError, SpdmResult};
 use spdm_lib::protocol::algorithms::{
     AeadCipherSuite, AlgorithmPriorityTable, BaseAsymAlgo, BaseHashAlgo, DeviceAlgorithms,
     DheNamedGroup, KeySchedule, LocalDeviceAlgorithms, MeasurementHashAlgo,
     MeasurementSpecification, MelSpecification, OtherParamSupport, ReqBaseAsymAlg,
 };
-use spdm_lib::protocol::version::SpdmVersion;
+use spdm_lib::protocol::version;
 use spdm_lib::protocol::ReqRespCode;
 use spdm_lib::protocol::{CapabilityFlags, DeviceCapabilities};
+
 // Import platform implementations - no duplicates!
 mod platform;
 use platform::{DemoCertStore, DemoEvidence, Sha384Hash, SpdmSocketTransport, SystemRng};
+
+use spdm_lib::commands::capabilities::request::generate_capabilities_request_local;
+use spdm_lib::commands::version::{request::generate_get_version, VersionReqPayload};
 
 /// Responder configuration
 #[derive(Debug, Clone)]
@@ -111,6 +119,7 @@ fn create_local_algorithms<'a>() -> LocalDeviceAlgorithms<'a> {
 // Connect to SPDM Responder
 fn handle_spdm_responder(stream: TcpStream, config: &ResponderConfig) -> IoResult<()> {
     let mut transport = SpdmSocketTransport::new(stream);
+    const EID: u8 = 0;
 
     // Create platform implementations - all from platform module!
     let mut hash = Sha384Hash::new();
@@ -121,7 +130,7 @@ fn handle_spdm_responder(stream: TcpStream, config: &ResponderConfig) -> IoResul
     let evidence = DemoEvidence::new();
 
     // Create SPDM context
-    let supported_versions = [SpdmVersion::V12, SpdmVersion::V11];
+    let supported_versions = [version::SpdmVersion::V12, version::SpdmVersion::V11];
     let capabilities = create_device_capabilities();
     let algorithms = create_local_algorithms();
 
@@ -170,44 +179,58 @@ fn handle_spdm_responder(stream: TcpStream, config: &ResponderConfig) -> IoResul
     // 2.3 Update tracking of remote party
     // 3.1 Send GET_AUTH
 
-    // For now, the send_request function uses default values for the commands payloads.
-    let ret = spdm_context.send_request(ReqRespCode::GetVersion, &mut message_buffer);
-    // .map_err(|_| Error::new(ErrorKind::Other, "could not process error"))?;
-    dbg!(&ret);
+    // 1.1 Send GET_VERSION
+    generate_get_version(
+        &mut spdm_context,
+        &mut message_buffer,
+        VersionReqPayload::new(1, 1),
+    )
+    .map_err(|(_send_response, cmd_err)| SpdmError::Command(cmd_err))
+    .unwrap();
 
-    spdm_context.requester_process_message(&mut message_buffer);
-    dbg!(&ret);
+    if config.verbose {
+        println!("GET_VERSION: {:?}", &message_buffer.message_data());
+    }
 
-    // let ret = spdm_context.send_request(req, &mut message_buffer);
+    spdm_context
+        .requester_send_request(&mut message_buffer, EID)
+        .unwrap();
 
-    // spdm_context
-    //     .
+    // 1.2 Receive and verify VERSION
+    // 1.3 is done by the requester_process_message call
+    spdm_context
+        .requester_process_message(&mut message_buffer)
+        .unwrap();
 
-    // match spdm_context.process_message(&mut message_buffer) {
-    //     Ok(()) => {
-    //         if config.verbose {
-    //             println!("Successfully processed SPDM message");
-    //         }
-    //     }
-    //     Err(e) => {
-    //         if config.verbose {
-    //             eprintln!("Error processing SPDM message: {:?}", e);
-    //         }
-    //         // Continue processing unless it's a fatal transport error
-    //         match &e {
-    //             spdm_lib::error::SpdmError::Transport(_) => {
-    //                 if config.verbose {
-    //                     println!("Connection closed gracefully");
-    //                 }
-    //                 break;
-    //             }
-    //             _ => {
-    //                 // Log error but continue processing
-    //                 continue;
-    //             }
-    //         }
-    //     }
-    // }
+    if config.verbose {
+        println!("Sent GET_VERSION: {:?}", &message_buffer.message_data());
+    }
+
+    // 2.1 Send GET_CAPABILITIES
+    message_buffer.reset();
+    generate_capabilities_request_local(&mut spdm_context, &mut message_buffer).unwrap();
+
+    if config.verbose {
+        println!("GET_CAPABILITIES: {:?}", &message_buffer.message_data());
+    }
+
+    spdm_context
+        .requester_send_request(&mut message_buffer, EID)
+        .unwrap();
+
+    if config.verbose {
+        println!(
+            "Sent GET_CAPABILITIES: {:?}",
+            &message_buffer.message_data()
+        );
+    }
+
+    // 2.2 Receive and verify CAPABILITIES
+    // 2.3 is done by the requester_process_message call
+    spdm_context
+        .requester_process_message(&mut message_buffer)
+        .unwrap();
+    message_buffer.reset();
 
     Ok(())
 }

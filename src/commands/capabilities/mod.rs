@@ -1,7 +1,7 @@
 // Licensed under the Apache-2.0 license
 
-mod request;
-mod response;
+pub mod request;
+pub mod response;
 
 pub(crate) use request::*;
 pub(crate) use response::*;
@@ -13,9 +13,11 @@ use crate::{
     protocol::{CapabilityFlags, EpInfoCapability, PskCapability, SpdmVersion},
 };
 
+use crate::protocol::capabilities::DeviceCapabilities;
+
 #[derive(IntoBytes, FromBytes, Immutable, Default)]
 #[repr(C)]
-pub(crate) struct GetCapabilitiesBase {
+pub struct GetCapabilitiesBase {
     param1: u8,
     param2: u8,
 }
@@ -25,11 +27,23 @@ impl CommonCodec for GetCapabilitiesBase {}
 #[derive(IntoBytes, FromBytes, Immutable, Default)]
 #[repr(C, packed)]
 #[allow(dead_code)]
-pub(crate) struct GetCapabilitiesV11 {
+pub struct GetCapabilitiesV11 {
+    /// Reserved.
     reserved: u8,
-    ct_exponent: u8,
+
+    /// Shall be exponent of base 2, which is used to calculate CT .
+    /// The equation for CT shall be 2^{CTExponent} microseconds (μs).
+    /// # Example
+    /// CT=10 -> 2^10 = 1024 μs = 1.024 ms
+    pub ct_exponent: u8,
+
+    /// Reserved.
     reserved2: u8,
+
+    /// Reserved.
     reserved3: u8,
+
+    /// Capability flags.
     flags: CapabilityFlags,
 }
 
@@ -47,16 +61,53 @@ impl GetCapabilitiesV11 {
 
 impl CommonCodec for GetCapabilitiesV11 {}
 
+/// DSP0274, Table 11
 #[derive(IntoBytes, FromBytes, Immutable)]
 #[repr(C, packed)]
-pub(crate) struct GetCapabilitiesV12 {
+pub struct GetCapabilitiesV12 {
+    /// This field shall indicate the maximum buffer size, in
+    /// bytes, of the Requester for receiving a single and
+    /// complete SPDM message whose message size is less
+    /// than or equal to the value in this field.
     data_transfer_size: u32,
+
+    ///  If the Requester supports the Large SPDM message
+    /// transfer mechanism, this field shall indicate the
+    /// maximum size, in bytes, of the internal buffer of a
+    /// Requester used to reassemble a single and complete
+    /// Large SPDM message.
     max_spdm_msg_size: u32,
 }
 
 impl CommonCodec for GetCapabilitiesV12 {}
 
-fn req_flag_compatible(version: SpdmVersion, flags: &CapabilityFlags) -> bool {
+/// Although [GetCapabilitiesBase], [GetCapabilitiesV11] and [GetCapabilitiesV12]
+/// are more generic, the context currently uses [crate::protocol::capabilities::DeviceCapabilities].
+/// Until we refactor the context, this function translates from one to the other.
+impl From<&DeviceCapabilities> for GetCapabilitiesV11 {
+    fn from(dev_cap: &DeviceCapabilities) -> Self {
+        Self::new(dev_cap.ct_exponent, dev_cap.flags)
+    }
+}
+
+impl From<&DeviceCapabilities> for GetCapabilitiesV12 {
+    fn from(dev_cap: &DeviceCapabilities) -> Self {
+        Self {
+            data_transfer_size: dev_cap.data_transfer_size,
+            max_spdm_msg_size: dev_cap.max_spdm_msg_size,
+        }
+    }
+}
+
+/// Checks if the request capability flags are compatible with the SPDM version
+///# Arguments
+/// - `version`: SPDM version
+/// - `flags`: Capability flags from the request
+///
+/// # Returns
+/// - true if compatible
+/// - false if not compatible
+pub(crate) fn req_flag_compatible(version: SpdmVersion, flags: &CapabilityFlags) -> bool {
     // Checks common to 1.1 and higher
     if version >= SpdmVersion::V11 {
         // Illegal to return reserved values (2 and 3)
