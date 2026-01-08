@@ -1,6 +1,6 @@
 // Licensed under the Apache-2.0 license
-mod request;
-mod response;
+pub mod request;
+pub mod response;
 
 pub(crate) use request::*;
 pub(crate) use response::*;
@@ -16,13 +16,13 @@ const VERSION_ENTRY_SIZE: usize = 2;
 
 #[allow(dead_code)]
 #[derive(FromBytes, IntoBytes, Immutable)]
-pub(crate) struct VersionReqPayload {
+pub struct VersionReqPayload {
     param1: u8,
     param2: u8,
 }
 
 impl VersionReqPayload {
-    pub(crate) fn new(param1: u8, param2: u8) -> Self {
+    pub fn new(param1: u8, param2: u8) -> Self {
         Self { param1, param2 }
     }
 }

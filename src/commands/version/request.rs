@@ -6,6 +6,7 @@ use crate::{
     context::SpdmContext,
     error::{CommandError, CommandResult},
     protocol::SpdmMsgHdr,
+    state::ConnectionState,
     transcript::TranscriptContext,
 };
 
@@ -14,8 +15,8 @@ use crate::commands::version::{VersionReqPayload, VersionRespCommon};
 
 use crate::protocol::SpdmVersion;
 
-// Generate the GET_VERSION command with all the contexts information
-pub(crate) fn send_get_version<'a>(
+/// Generate the GET_VERSION command with all the contexts information
+pub fn generate_get_version<'a>(
     ctx: &mut SpdmContext<'a>,
     req_buf: &mut MessageBuf<'a>,
     payload: VersionReqPayload,
@@ -94,7 +95,22 @@ pub(crate) fn handle_version_response<'a>(
     resp_header: SpdmMsgHdr,
     resp: &mut MessageBuf<'a>,
 ) -> CommandResult<()> {
-    todo!();
+    // Verify state is correct for VERSION response
+    if ctx.state.connection_info.state() != ConnectionState::NotStarted {
+        Err((false, CommandError::UnsupportedResponse))?;
+        // TODO: is there a better error for this?
+        Err(ctx.generate_error_response(resp, ErrorCode::InvalidResponseCode, 0, None))?;
+    }
+
+    // Process VERSION response and set context information
+    process_version(ctx, resp_header, resp)?;
+
+    // Append to transcript
+    ctx.append_message_to_transcript(resp, TranscriptContext::Vca)?;
+    ctx.state
+        .connection_info
+        .set_state(ConnectionState::AfterVersion);
+    Ok(())
 }
 
 // tests

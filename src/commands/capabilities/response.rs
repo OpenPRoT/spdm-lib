@@ -75,6 +75,13 @@ fn process_get_capabilities<'a>(
             if flags.chunk_cap() == 0 && data_transfer_size != max_spdm_msg_size {
                 Err(ctx.generate_error_response(req_payload, ErrorCode::InvalidRequest, 0, None))?;
             }
+
+            // If the GET_CAPABILITIES request sets Bit 0 of Param1 to a value of 1 and the
+            // Responder does not support the Large SPDM message transfer mechanism ( CHUNK_CAP=0 ),
+            // the Responder shall send an ERROR message of ErrorCode=InvalidRequest
+            if base_req.param1 & 0b00000001 != 0 && flags.chunk_cap() == 0 {
+                Err(ctx.generate_error_response(req_payload, ErrorCode::InvalidRequest, 0, None))?;
+            }
         }
 
         if version >= SpdmVersion::V11 {
