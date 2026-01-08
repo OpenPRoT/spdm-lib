@@ -68,9 +68,9 @@ impl<'a> SpdmContext<'a> {
             device_certs_store,
             measurements: SpdmMeasurements::default(),
             large_resp_context: LargeResponseCtx::default(),
-            hash: hash,
-            rng: rng,
-            evidence: evidence,
+            hash,
+            rng,
+            evidence,
         })
     }
 
@@ -110,33 +110,34 @@ impl<'a> SpdmContext<'a> {
             .receive_response(resp_buffer)
             .map_err(|e| SpdmError::Transport(e))?;
 
-        match self.requester_handle_response(resp_buffer) {
+        match self
+            .requester_handle_response(resp_buffer)
+            .map_err(|(rsp, cmd_err)| {
+                if rsp {
+                    SpdmError::Command(cmd_err)
+                } else {
+                    SpdmError::InvalidParam
+                }
+            }) {
             Ok(()) => {}
-            Err(_) => panic!("rip requester"),
+            Err(e) => {
+                return Err(e);
+            }
         }
-
         Ok(())
     }
 
     // Use ReqRespCode as command issuer for now, until the correct state machine is in place
     // TODO: implement in transport
-    pub fn send_request(
+    pub fn requester_send_request(
         &mut self,
-        req: ReqRespCode,
         req_buf: &mut MessageBuf<'a>,
+        dst_eid: u8,
     ) -> SpdmResult<()> {
         req_buf.reset();
 
-        match req {
-            ReqRespCode::GetVersion => {
-                version::send_get_version(self, req_buf, version::VersionReqPayload::new(1, 1))
-                    .map_err(|(_send_response, cmd_err)| SpdmError::Command(cmd_err))?
-            }
-            _ => return Err(SpdmError::InvalidParam),
-        };
-
         self.transport
-            .send_request(1, req_buf)
+            .send_request(dst_eid, req_buf)
             .map_err(|_| SpdmError::InvalidParam)?;
 
         Ok(())
