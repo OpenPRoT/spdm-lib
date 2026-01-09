@@ -7,7 +7,7 @@ use crate::commands::capabilities::handle_capabilities_response;
 use crate::commands::error_rsp::{encode_error_response, ErrorCode};
 use crate::commands::version::handle_version_response;
 use crate::commands::{
-    algorithms_rsp, capabilities, certificate_rsp, challenge_auth_rsp, chunk_get_rsp, digests_rsp,
+    algorithms, capabilities, certificate_rsp, challenge_auth_rsp, chunk_get_rsp, digests_rsp,
     measurements_rsp, version,
 };
 use crate::error::*;
@@ -53,9 +53,7 @@ impl<'a> SpdmContext<'a> {
         evidence: &'a dyn SpdmEvidence,
     ) -> SpdmResult<Self> {
         validate_supported_versions(supported_versions)?;
-
         validate_device_algorithms(&local_algorithms)?;
-
         validate_cert_store(device_certs_store)?;
 
         Ok(Self {
@@ -165,7 +163,7 @@ impl<'a> SpdmContext<'a> {
                 capabilities::handle_get_capabilities(self, req_msg_header, req)?
             }
             ReqRespCode::NegotiateAlgorithms => {
-                algorithms_rsp::handle_negotiate_algorithms(self, req_msg_header, req)?
+                algorithms::handle_negotiate_algorithms(self, req_msg_header, req)?
             }
             ReqRespCode::GetDigests => digests_rsp::handle_get_digests(self, req_msg_header, req)?,
             ReqRespCode::GetCertificate => {
@@ -209,6 +207,9 @@ impl<'a> SpdmContext<'a> {
         match resp_code {
             ReqRespCode::Version => handle_version_response(self, resp_msg_header, resp)?,
             ReqRespCode::Capabilities => handle_capabilities_response(self, resp_msg_header, resp)?,
+            ReqRespCode::Algorithms => {
+                algorithms::handle_algorithms_response(self, resp_msg_header, resp)?
+            }
             _ => Err((false, CommandError::UnsupportedResponse))?,
         }
 
@@ -328,3 +329,74 @@ impl<'a> SpdmContext<'a> {
             .map_err(|e| (false, CommandError::Transcript(e)))
     }
 }
+
+/*
+#[cfg(test)]
+pub mod tests {
+    use super::*;
+
+    use crate::platform::transport::TransportResult;
+    pub struct SpdmTransportMock;
+
+    impl SpdmTransportMock {
+        pub fn new() -> Self {
+            SpdmTransportMock {}
+        }
+    }
+
+    impl SpdmTransport for SpdmTransportMock {
+        fn header_size(&self) -> usize {
+            4
+        }
+
+        fn send_request(
+            &mut self,
+            _dst_eid: u8,
+            _req_buffer: &mut MessageBuf,
+        ) -> TransportResult<()> {
+            Ok(())
+        }
+
+        fn receive_request(&mut self, _req_buffer: &mut MessageBuf) -> TransportResult<()> {
+            Ok(())
+        }
+
+        fn send_response(&mut self, _resp_buffer: &mut MessageBuf) -> TransportResult<()> {
+            Ok(())
+        }
+
+        fn receive_response(&mut self, _resp_buffer: &mut MessageBuf) -> TransportResult<()> {
+            Ok(())
+        }
+
+        fn max_message_size(&self) -> crate::platform::transport::TransportResult<usize> {
+            Ok(0 as usize)
+        }
+    }
+
+    impl<'a> SpdmContext<'a> {
+        pub fn new_mock() -> SpdmContext<'a> {
+            SpdmContext {
+                transport: &mut SpdmTransportMock::new(),
+                hash: Sha384::new(),
+                supported_versions: (),
+                state: (),
+                transcript_mgr: (),
+                rng: (),
+                local_capabilities: (),
+                local_algorithms: (),
+                device_certs_store: (),
+                measurements: (),
+                large_resp_context: (),
+                evidence: (),
+            }
+        }
+    }
+
+    #[test]
+    fn test_requester_process_message() {
+        let mut test_context = SpdmContext::new_mock();
+        test_context.requester_process_message();
+    }
+}
+*/
