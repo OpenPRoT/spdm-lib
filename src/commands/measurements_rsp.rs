@@ -3,19 +3,19 @@
 use crate::cert_store::SpdmCertStore;
 use crate::chunk_ctx::{ChunkError, LargeResponse};
 use crate::codec::{encode_u8_slice, Codec, CommonCodec, MessageBuf};
-use crate::commands::algorithms_rsp::selected_measurement_specification;
+use crate::commands::algorithms::selected_measurement_specification;
 use crate::commands::error_rsp::ErrorCode;
 use crate::context::SpdmContext;
 use crate::error::{CommandError, CommandResult, PlatformError};
 use crate::measurements::common::{
     MeasurementChangeStatus, MeasurementsError, SpdmMeasurements, SPDM_MAX_MEASUREMENT_RECORD_SIZE,
 };
+use crate::platform::evidence::SpdmEvidence;
+use crate::platform::hash::SpdmHash;
+use crate::platform::rng::SpdmRng;
 use crate::protocol::*;
 use crate::state::ConnectionState;
 use crate::transcript::{TranscriptContext, TranscriptManager};
-use crate::platform::hash::SpdmHash;
-use crate::platform::rng::SpdmRng;
-use crate::platform::evidence::SpdmEvidence;
 use bitfield::bitfield;
 use zerocopy::{FromBytes, Immutable, IntoBytes};
 
@@ -121,7 +121,12 @@ impl MeasurementsResponse {
         let raw_bitstream_requested = self.req_attr.raw_bitstream_requested() == 1;
 
         let measurement_record_len = measurements
-            .measurement_block_size(evidence, self.asym_algo, self.meas_op, raw_bitstream_requested)
+            .measurement_block_size(
+                evidence,
+                self.asym_algo,
+                self.meas_op,
+                raw_bitstream_requested,
+            )
             .map_err(|e| (false, CommandError::Measurement(e)))?;
         // Fill the chunk buffer with the appropriate response sections
         // Instead of a while loop, use a single-pass approach for clarity and efficiency.
@@ -201,8 +206,7 @@ impl MeasurementsResponse {
     ) -> CommandResult<[u8; RESPONSE_FIXED_FIELDS_SIZE]> {
         let mut fixed_rsp_fields = [0u8; RESPONSE_FIXED_FIELDS_SIZE];
         let mut fixed_rsp_buf = MessageBuf::new(&mut fixed_rsp_fields);
-        _ = self
-            .encode_response_fixed_fields(evidence, &mut fixed_rsp_buf, measurements)?;
+        _ = self.encode_response_fixed_fields(evidence, &mut fixed_rsp_buf, measurements)?;
         Ok(fixed_rsp_fields)
     }
 
@@ -261,12 +265,11 @@ impl MeasurementsResponse {
 
     fn response_variable_fields(
         &self,
-        rng: &mut dyn SpdmRng,  
-     ) -> CommandResult<([u8; MAX_RESPONSE_VARIABLE_FIELDS_SIZE], usize)> {
+        rng: &mut dyn SpdmRng,
+    ) -> CommandResult<([u8; MAX_RESPONSE_VARIABLE_FIELDS_SIZE], usize)> {
         let mut trailer_rsp = [0u8; MAX_RESPONSE_VARIABLE_FIELDS_SIZE];
         let mut trailer_buf = MessageBuf::new(&mut trailer_rsp);
-        let len = self
-            .encode_response_variable_fields(rng, &mut trailer_buf)?;
+        let len = self.encode_response_variable_fields(rng, &mut trailer_buf)?;
         Ok((trailer_rsp, len))
     }
 
@@ -305,8 +308,7 @@ impl MeasurementsResponse {
     ) -> CommandResult<[u8; ECC_P384_SIGNATURE_SIZE]> {
         let mut signature = [0u8; ECC_P384_SIGNATURE_SIZE];
         let mut signature_buf = MessageBuf::new(&mut signature);
-        let _ = self
-            .encode_l1_signature_ecc(hash, transcript, cert_store, &mut signature_buf)?;
+        let _ = self.encode_l1_signature_ecc(hash, transcript, cert_store, &mut signature_buf)?;
 
         Ok(signature)
     }
@@ -356,7 +358,11 @@ impl MeasurementsResponse {
         Ok(signature.len())
     }
 
-    fn response_size(&self, evidence: &dyn SpdmEvidence, measurements: &mut SpdmMeasurements) -> CommandResult<usize> {
+    fn response_size(
+        &self,
+        evidence: &dyn SpdmEvidence,
+        measurements: &mut SpdmMeasurements,
+    ) -> CommandResult<usize> {
         // Calculate the size of the response based on the request attributes
         let mut rsp_size = RESPONSE_FIXED_FIELDS_SIZE;
 
@@ -472,17 +478,16 @@ pub(crate) fn generate_measurements_response<'a>(
         let rsp_buf = rsp
             .data_mut(rsp_len)
             .map_err(|e| (false, CommandError::Codec(e)))?;
-        let payload_len = rsp_ctx
-            .get_chunk(
-                ctx.hash,
-                ctx.rng,
-                ctx.evidence,
-                &mut ctx.measurements,
-                &mut ctx.transcript_mgr,
-                ctx.device_certs_store,
-                0,
-                rsp_buf,
-            )?;
+        let payload_len = rsp_ctx.get_chunk(
+            ctx.hash,
+            ctx.rng,
+            ctx.evidence,
+            &mut ctx.measurements,
+            &mut ctx.transcript_mgr,
+            ctx.device_certs_store,
+            0,
+            rsp_buf,
+        )?;
         if rsp_len != payload_len {
             Err((
                 false,

@@ -1,140 +1,19 @@
 // Licensed under the Apache-2.0 license
 
-use crate::codec::{Codec, CommonCodec, MessageBuf};
+use crate::{
+    codec::{Codec, CommonCodec, MessageBuf},
+    commands::algorithms::*,
+    context::SpdmContext,
+    error::{CommandError, CommandResult, SpdmError},
+    protocol::{SpdmMsgHdr, SpdmVersion},
+    state::ConnectionState,
+    transcript::TranscriptContext,
+};
+
 use crate::commands::error_rsp::ErrorCode;
-use crate::context::SpdmContext;
-use crate::error::{CommandResult, SpdmError};
 use crate::protocol::*;
-use crate::state::ConnectionState;
-use crate::transcript::TranscriptContext;
-use bitfield::bitfield;
+
 use core::mem::size_of;
-use zerocopy::{FromBytes, Immutable, IntoBytes};
-
-// Max request length shall be 128 bytes (SPDM1.3 Table 10.4)
-const MAX_SPDM_REQUEST_LENGTH: u16 = 128;
-const MAX_SPDM_EXT_ALG_COUNT_V10: u8 = 8;
-const MAX_SPDM_EXT_ALG_COUNT_V11: u8 = 20;
-
-#[derive(IntoBytes, FromBytes, Immutable, Default, Debug)]
-#[repr(C, packed)]
-struct NegotiateAlgorithmsReq {
-    num_alg_struct_tables: u8,
-    param2: u8,
-    length: u16,
-    measurement_specification: MeasurementSpecification,
-    other_param_support: OtherParamSupport,
-    base_asym_algo: BaseAsymAlgo,
-    base_hash_algo: BaseHashAlgo,
-    reserved_1: [u8; 12],
-    ext_asyn_count: u8,
-    ext_hash_count: u8,
-    reserved_2: u8,
-    mel_specification: MelSpecification,
-}
-
-impl NegotiateAlgorithmsReq {
-    fn min_req_len(&self) -> u16 {
-        let total_alg_struct_len = size_of::<AlgStructure>() * self.num_alg_struct_tables as usize;
-        let total_ext_asym_len = size_of::<ExtendedAlgo>() * self.ext_asyn_count as usize;
-        let total_ext_hash_len = size_of::<ExtendedAlgo>() * self.ext_hash_count as usize;
-        (size_of::<NegotiateAlgorithmsReq>()
-            + total_alg_struct_len
-            + total_ext_asym_len
-            + total_ext_hash_len) as u16
-    }
-
-    fn ext_algo_size(&self) -> usize {
-        let ext_algo_count = self.ext_asyn_count as usize + self.ext_hash_count as usize;
-        size_of::<ExtendedAlgo>() * ext_algo_count
-    }
-
-    fn validate_total_ext_alg_count(
-        &self,
-        version: SpdmVersion,
-        total_ext_alg_count: u8,
-    ) -> Result<(), SpdmError> {
-        let max_count = match version {
-            SpdmVersion::V10 => MAX_SPDM_EXT_ALG_COUNT_V10,
-            _ => MAX_SPDM_EXT_ALG_COUNT_V11,
-        };
-
-        if total_ext_alg_count > max_count {
-            Err(SpdmError::InvalidParam)
-        } else {
-            Ok(())
-        }
-    }
-}
-
-impl CommonCodec for NegotiateAlgorithmsReq {}
-
-#[derive(IntoBytes, FromBytes, Immutable, Default)]
-#[repr(C, packed)]
-#[allow(dead_code)]
-struct AlgorithmsResp {
-    num_alg_struct_tables: u8,
-    reserved_1: u8,
-    length: u16,
-    measurement_specification_sel: MeasurementSpecification,
-    other_params_selection: OtherParamSupport,
-    measurement_hash_algo: MeasurementHashAlgo,
-    base_asym_sel: BaseAsymAlgo,
-    base_hash_sel: BaseHashAlgo,
-    reserved_2: [u8; 11],
-    mel_specification_sel: MelSpecification,
-    ext_asym_sel_count: u8,
-    ext_hash_sel_count: u8,
-    reserved_3: [u8; 2],
-}
-
-impl CommonCodec for AlgorithmsResp {}
-
-#[derive(IntoBytes, FromBytes, Immutable, Default)]
-#[repr(C)]
-struct ExtendedAlgo {
-    registry_id: u8,
-    reserved: u8,
-    algorithm_id: u16,
-}
-
-impl CommonCodec for ExtendedAlgo {}
-
-#[derive(Debug, Clone, Copy)]
-enum AlgType {
-    Dhe = 2,
-    AeadCipherSuite = 3,
-    ReqBaseAsymAlg = 4,
-    KeySchedule = 5,
-}
-impl TryFrom<u8> for AlgType {
-    type Error = SpdmError;
-
-    fn try_from(value: u8) -> Result<Self, Self::Error> {
-        match value {
-            2 => Ok(AlgType::Dhe),
-            3 => Ok(AlgType::AeadCipherSuite),
-            4 => Ok(AlgType::ReqBaseAsymAlg),
-            5 => Ok(AlgType::KeySchedule),
-            _ => Err(SpdmError::InvalidParam),
-        }
-    }
-}
-
-bitfield! {
-    #[derive(FromBytes, IntoBytes, Immutable, Default, Clone, Copy)]
-    #[repr(C)]
-    pub struct AlgStructure(u32);
-    impl Debug;
-    u8;
-        pub alg_type, set_alg_type: 7, 0;
-        pub ext_alg_count, set_ext_alg_count: 11, 8;
-        pub fixed_alg_count, set_fixed_alg_count: 15, 12;
-    u16;
-        pub alg_supported, set_alg_supported: 31, 16;
-}
-
-impl CommonCodec for AlgStructure {}
 
 pub(crate) fn selected_measurement_specification(ctx: &SpdmContext) -> MeasurementSpecification {
     let local_cap_flags = &ctx.local_capabilities.flags;
