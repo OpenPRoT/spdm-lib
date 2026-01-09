@@ -26,6 +26,9 @@ use spdm_lib::protocol::{CapabilityFlags, DeviceCapabilities};
 mod platform;
 use platform::{DemoCertStore, DemoEvidence, Sha384Hash, SpdmSocketTransport, SystemRng};
 
+use spdm_lib::commands::algorithms::{
+    request::generate_negotiate_algorithms_request, AlgStructure, ExtendedAlgo,
+};
 use spdm_lib::commands::capabilities::request::generate_capabilities_request_local;
 use spdm_lib::commands::version::{request::generate_get_version, VersionReqPayload};
 
@@ -116,8 +119,9 @@ fn create_local_algorithms<'a>() -> LocalDeviceAlgorithms<'a> {
     }
 }
 
-// Connect to SPDM Responder
-fn handle_spdm_responder(stream: TcpStream, config: &ResponderConfig) -> IoResult<()> {
+// Perform a VCS flow (Version, Capabilities, Algorithms)
+// using the real SPDM library processing with platform implementations.
+fn vca_flow(stream: TcpStream, config: &ResponderConfig) -> IoResult<()> {
     let mut transport = SpdmSocketTransport::new(stream);
     const EID: u8 = 0;
 
@@ -230,7 +234,32 @@ fn handle_spdm_responder(stream: TcpStream, config: &ResponderConfig) -> IoResul
     spdm_context
         .requester_process_message(&mut message_buffer)
         .unwrap();
+
     message_buffer.reset();
+
+    // 3.1 Send GET_AUTH
+    // TODO: use local algorithms from the context
+    generate_negotiate_algorithms_request(
+        &mut spdm_context,
+        &mut message_buffer,
+        None,
+        None,
+        &AlgStructure(0),
+        None,
+    )
+    .unwrap();
+
+    spdm_context
+        .requester_send_request(&mut message_buffer, EID)
+        .unwrap();
+
+    if config.verbose {
+        println!("GET_AUTH: {:?}", &message_buffer.message_data());
+    }
+
+    spdm_context
+        .requester_process_message(&mut message_buffer)
+        .unwrap();
 
     Ok(())
 }
@@ -396,7 +425,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     // Handle client with real SPDM processing using platform implementations
-    handle_spdm_responder(stream, &config)?;
+    vca_flow(stream, &config)?;
 
     Ok(())
 }

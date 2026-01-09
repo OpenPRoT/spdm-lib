@@ -1,7 +1,7 @@
 // Licensed under the Apache-2.0 license
 use crate::cert_store::MAX_CERT_SLOTS_SUPPORTED;
 use crate::codec::{Codec, CommonCodec, MessageBuf};
-use crate::commands::algorithms_rsp::selected_measurement_specification;
+use crate::commands::algorithms::selected_measurement_specification;
 use crate::commands::digests_rsp::compute_cert_chain_hash;
 use crate::commands::error_rsp::ErrorCode;
 use crate::context::SpdmContext;
@@ -210,7 +210,13 @@ fn encode_measurement_summary_hash<'a>(
 ) -> CommandResult<usize> {
     let mut meas_summary_hash = [0u8; SHA384_HASH_SIZE];
     ctx.measurements
-        .measurement_summary_hash(ctx.evidence, ctx.hash, asym_algo, meas_summary_hash_type, &mut meas_summary_hash)
+        .measurement_summary_hash(
+            ctx.evidence,
+            ctx.hash,
+            asym_algo,
+            meas_summary_hash_type,
+            &mut meas_summary_hash,
+        )
         .map_err(|e| (false, CommandError::Measurement(e)))?;
 
     let hash_len = meas_summary_hash.len();

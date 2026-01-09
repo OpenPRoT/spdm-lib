@@ -1,6 +1,6 @@
 // Licensed under the Apache-2.0 license
 
-pub mod algorithms_rsp;
+pub mod algorithms;
 pub mod capabilities;
 pub mod certificate_rsp;
 pub mod challenge_auth_rsp;

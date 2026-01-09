@@ -7,7 +7,7 @@ use crate::commands::capabilities::{
     req_flag_compatible, CapabilityFlags, GetCapabilitiesBase, GetCapabilitiesV11,
     GetCapabilitiesV12,
 };
-use crate::protocol::{ReqRespCode, SpdmVersion};
+use crate::protocol::{capabilities::DeviceCapabilities, ReqRespCode, SpdmVersion};
 
 use crate::error::{CommandError, SpdmError};
 use crate::transcript::TranscriptContext;
@@ -31,7 +31,6 @@ use crate::codec::Codec;
 /// #TODO
 /// - [ ] A Responder can report that it needs to transmit the response in smaller
 /// transfers by sending an ERROR message of ErrorCode=LargeResponse
-/// - [ ] Update the context with the negotiated capabilities? Or where should we store them?
 pub(crate) fn handle_capabilities_response<'a>(
     ctx: &mut SpdmContext<'a>,
     resp_header: SpdmMsgHdr,
@@ -55,21 +54,31 @@ pub(crate) fn handle_capabilities_response<'a>(
     // If the response misses expected fields, return an error.
     // See src/commands/capabilities/response.rs for more details.
 
+    let mut peer_capabilities = DeviceCapabilities::default();
+
     if version > SpdmVersion::V10 {
         let resp_11 = GetCapabilitiesV11::decode(resp)
             .map_err(|_| ctx.generate_error_response(resp, ErrorCode::InvalidRequest, 0, None))?;
+        peer_capabilities.ct_exponent = resp_11.ct_exponent;
 
         let flags = resp_11.flags;
         if !req_flag_compatible(version, &flags) {
             Err(ctx.generate_error_response(resp, ErrorCode::InvalidRequest, 0, None))?;
         }
+        peer_capabilities.flags = resp_11.flags;
 
         if version >= SpdmVersion::V12 {
-            let _resp_12 = GetCapabilitiesV12::decode(resp).map_err(|_| {
+            let resp_12 = GetCapabilitiesV12::decode(resp).map_err(|_| {
                 ctx.generate_error_response(resp, ErrorCode::InvalidRequest, 0, None)
             })?;
+            peer_capabilities.data_transfer_size = resp_12.data_transfer_size;
+            peer_capabilities.max_spdm_msg_size = resp_12.max_spdm_msg_size;
         }
     }
+
+    ctx.state
+        .connection_info
+        .set_peer_capabilities(peer_capabilities);
 
     Ok(())
 }
