@@ -8,11 +8,9 @@ use std::net::{TcpListener, TcpStream};
 use std::process;
 
 use spdm_lib::codec::MessageBuf;
-use spdm_lib::commands::capabilities::{
-    GetCapabilitiesBase, GetCapabilitiesV11, GetCapabilitiesV12,
-};
 use spdm_lib::context::SpdmContext;
 use spdm_lib::error::{SpdmError, SpdmResult};
+use spdm_lib::platform::transport::SpdmTransport;
 use spdm_lib::protocol::algorithms::{
     AeadCipherSuite, AlgorithmPriorityTable, BaseAsymAlgo, BaseHashAlgo, DeviceAlgorithms,
     DheNamedGroup, KeySchedule, LocalDeviceAlgorithms, MeasurementHashAlgo,
@@ -34,7 +32,7 @@ use spdm_lib::commands::version::{request::generate_get_version, VersionReqPaylo
 
 /// Responder configuration
 #[derive(Debug, Clone)]
-struct ResponderConfig {
+struct RequesterConfig {
     port: u16,
     cert_path: String,
     key_path: String,
@@ -42,7 +40,7 @@ struct ResponderConfig {
     verbose: bool,
 }
 
-impl Default for ResponderConfig {
+impl Default for RequesterConfig {
     fn default() -> Self {
         Self {
             port: 2323,
@@ -121,8 +119,11 @@ fn create_local_algorithms<'a>() -> LocalDeviceAlgorithms<'a> {
 
 // Perform a VCS flow (Version, Capabilities, Algorithms)
 // using the real SPDM library processing with platform implementations.
-fn vca_flow(stream: TcpStream, config: &ResponderConfig) -> IoResult<()> {
-    let mut transport = SpdmSocketTransport::new(stream);
+fn vca_flow(stream: TcpStream, config: &RequesterConfig) -> IoResult<()> {
+    let mut transport = SpdmSocketTransport::new(
+        stream,
+        platform::socket_transport::SocketTransportType::None,
+    );
     const EID: u8 = 0;
 
     // Create platform implementations - all from platform module!
@@ -168,6 +169,18 @@ fn vca_flow(stream: TcpStream, config: &ResponderConfig) -> IoResult<()> {
 
     if config.verbose {
         println!("SPDM context created successfully");
+    }
+
+    // Before we can start, we need to do the inofficial handshake for SOCKET_TRANSPORT_TYPE_NONE
+    // 1. Send SOCKET_SPDM_COMMAND_TEST with payload b'Client Hello!'
+    // 2. Receive SOCKET_SPDM_COMMAND_TEST with payload b'Server Hello!'
+    spdm_context.transport_init_sequence().map_err(|e| {
+        eprintln!("Handshake failed: {:?}", e);
+        Error::new(ErrorKind::Other, "SPDM handshake failed")
+    })?;
+
+    if config.verbose {
+        println!("Initial handshake completed successfully");
     }
 
     // Process SPDM messages using the context
@@ -265,8 +278,8 @@ fn vca_flow(stream: TcpStream, config: &ResponderConfig) -> IoResult<()> {
 }
 
 /// Parse command line arguments
-fn parse_args() -> ResponderConfig {
-    let mut config = ResponderConfig::default();
+fn parse_args() -> RequesterConfig {
+    let mut config = RequesterConfig::default();
     let args: Vec<String> = env::args().collect();
 
     let mut i = 1;
@@ -356,7 +369,7 @@ fn print_help() {
 }
 
 /// Display configuration information
-fn display_info(config: &ResponderConfig) {
+fn display_info(config: &RequesterConfig) {
     println!("Real SPDM Library Integrated DMTF Compatible Responder");
     println!("=====================================================");
     println!("Configuration:");

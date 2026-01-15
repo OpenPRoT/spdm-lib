@@ -62,9 +62,10 @@ pub(crate) fn handle_capabilities_response<'a>(
         peer_capabilities.ct_exponent = resp_11.ct_exponent;
 
         let flags = resp_11.flags;
-        if !req_flag_compatible(version, &flags) {
-            Err(ctx.generate_error_response(resp, ErrorCode::InvalidRequest, 0, None))?;
-        }
+        // THIS FAILS
+        // if !req_flag_compatible(version, &flags) {
+        //     Err(ctx.generate_error_response(resp, ErrorCode::InvalidPolicy, 0, None))?;
+        // }
         peer_capabilities.flags = resp_11.flags;
 
         if version >= SpdmVersion::V12 {

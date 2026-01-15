@@ -106,8 +106,13 @@ impl From<&DeviceCapabilities> for GetCapabilitiesV12 {
 ///
 /// # Returns
 /// - true if compatible
-/// - false if not compatible
+/// - false if incompatible
 pub(crate) fn req_flag_compatible(version: SpdmVersion, flags: &CapabilityFlags) -> bool {
+    // Checks specific to 1.1
+    if version == SpdmVersion::V11 && flags.mut_auth_cap() == 1 && flags.encap_cap() == 0 {
+        return false;
+    }
+
     // Checks common to 1.1 and higher
     if version >= SpdmVersion::V11 {
         // Illegal to return reserved values (2 and 3)
@@ -174,11 +179,6 @@ pub(crate) fn req_flag_compatible(version: SpdmVersion, flags: &CapabilityFlags)
                 return false;
             }
         }
-    }
-
-    // Checks specific to 1.1
-    if version == SpdmVersion::V11 && flags.mut_auth_cap() == 1 && flags.encap_cap() == 0 {
-        return false;
     }
 
     // Checks specific to 1.3 and higher

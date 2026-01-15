@@ -75,9 +75,11 @@ impl ReqRespCode {
 
         Ok(context)
     }
+
     pub(crate) fn is_response(&self) -> bool {
         *self as u8 <= 0x7F
     }
+
     pub(crate) fn is_request(&self) -> bool {
         !self.is_response()
     }
@@ -103,7 +105,8 @@ impl SpdmMsgHdr {
     }
 
     pub(crate) fn req_resp_code(&self) -> SpdmResult<ReqRespCode> {
-        self.req_resp_code.try_into()
+        // self.req_resp_code.try_into()
+        ReqRespCode::try_from(self.req_resp_code)
     }
 }
 

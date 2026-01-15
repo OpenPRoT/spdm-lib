@@ -344,6 +344,20 @@ impl TryFrom<u8> for AlgType {
     }
 }
 
+impl TryFrom<u16> for AlgType {
+    type Error = SpdmError;
+
+    fn try_from(value: u16) -> Result<Self, Self::Error> {
+        match value {
+            2 => Ok(AlgType::Dhe),
+            3 => Ok(AlgType::AeadCipherSuite),
+            4 => Ok(AlgType::ReqBaseAsymAlg),
+            5 => Ok(AlgType::KeySchedule),
+            _ => Err(SpdmError::InvalidParam),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, IntoBytes, FromBytes, Immutable, Default)]
 #[repr(C, packed)]
 /// Shall be the Requester-supported fixed algorithms.
@@ -388,9 +402,8 @@ bitfield! {
     /// by the `ExtAlgCount` field.
     /// The existence of `AlgExternal` is optional.
     // TODO: make this a structure with Option?
-    pub struct AlgStructure(u32);
+    pub struct AlgStructure(u16);
     impl Debug;
-    u8;
         /// Shall be the type of algorithm.
         ///
         /// See [AlgType] for details.
@@ -401,18 +414,36 @@ bitfield! {
         /// That means, that there is either 1 or None external algorithm structure following this header.
         pub ext_alg_count, set_ext_alg_count: 11, 8;
         pub fixed_alg_count, set_fixed_alg_count: 15, 12;
-    u16;
-        /// Shall be the bit mask for indicating a Requester- supported, Responder-selected,\
-        /// SPDM-enumerated algorithm. Responder shall set at most one bit to 1.
-        ///
-        /// Size: `FixedAlgCount` bytes, retrieved from `fixed_alg_count()` method.
-        pub alg_supported, set_alg_supported: 31, 16;
 }
 
 impl AlgStructure {
-    pub fn is_aligned(&self) -> bool {
-        self.fixed_alg_count() + 2 % 4 == 0
+    // FixedAlgCount + 2 shall be a multiple of 4
+    pub fn is_multiple(&self) -> bool {
+        ((self.fixed_alg_count() as usize) + 2) % 4 == 0
     }
 }
 
 impl CommonCodec for AlgStructure {}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_min_req_len() {
+        let req = NegotiateAlgorithmsReq {
+            num_alg_struct_tables: 2,
+            ext_asym_count: 3,
+            ext_hash_count: 4,
+            ..Default::default()
+        };
+
+        let expected_len = size_of::<NegotiateAlgorithmsReq>()
+            + (size_of::<AlgStructure>() * 2)
+            + (size_of::<ExtendedAlgo>() * 3)
+            + (size_of::<ExtendedAlgo>() * 4);
+
+        // v1.1: (66 = 66)
+        assert_eq!(req.min_req_len() as usize, expected_len);
+    }
+}
