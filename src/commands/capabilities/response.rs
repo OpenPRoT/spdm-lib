@@ -97,6 +97,7 @@ fn process_get_capabilities<'a>(
             flags: req_11.flags,
             data_transfer_size,
             max_spdm_msg_size,
+            include_supported_algorithms: (base_req.param1 & 0b00000100) != 0,
         };
 
         ctx.state
