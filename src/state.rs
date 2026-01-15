@@ -27,8 +27,8 @@ impl State {
 pub(crate) struct ConnectionInfo {
     version_number: SpdmVersion,
     state: ConnectionState,
-    peer_capabilities: DeviceCapabilities,
     peer_algorithms: DeviceAlgorithms,
+    peer_capabilities: DeviceCapabilities,
     multi_key_conn_rsp: bool,
 }
 

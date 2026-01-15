@@ -50,6 +50,12 @@ pub struct DeviceCapabilities {
     // Only used for >= SPDM 1.2
     pub data_transfer_size: u32,
     pub max_spdm_msg_size: u32,
+
+    /// Only valid for >= SPDM 1.3
+    /// The Responder shall include the Supported Algorithms Block in its CAPABILITIES
+    /// response if it supports this extended capability. If the Requester does not
+    /// support the Large SPDM message transfer mechanism ( CHUNK_CAP=0 ), this bit shall be 0.
+    pub include_supported_algorithms: bool,
 }
 
 bitfield! {

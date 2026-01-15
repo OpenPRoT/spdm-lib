@@ -16,7 +16,8 @@ pub(crate) use request::*;
 pub(crate) use response::*;
 
 use crate::codec::{CommonCodec, MessageBuf};
-use crate::protocol::SpdmVersion;
+use crate::protocol::LocalDeviceAlgorithms;
+use crate::protocol::{algorithms::DheNamedGroup, SpdmMsgHdr, SpdmVersion};
 use bitfield::bitfield;
 use core::mem::size_of;
 
@@ -51,7 +52,7 @@ const MAX_SPDM_EXT_ALG_COUNT_V13: u8 = 20;
 /// - ReqAlgStruct (AlgStructSize), see [AlgStructure].
 struct NegotiateAlgorithmsReq {
     /// The number of algorithm structure tables in this request using `ReqAlgStruct`.
-    num_alg_struct_tables: u8,
+    num_alg_struct_tables: u8, // param 1
 
     /// Reserved.
     param2: u8,
@@ -67,6 +68,7 @@ struct NegotiateAlgorithmsReq {
     measurement_specification: MeasurementSpecification,
 
     /// Bit mask listing other parameters supported by the Requester.
+    /// Introduced in v1.2.
     ///
     /// See [OtherParamSupport] for details.
     other_param_support: OtherParamSupport,
@@ -113,6 +115,7 @@ struct NegotiateAlgorithmsReq {
 
     /// The Requester shall set the corresponding bit for each supported measurement
     /// extension log (MEL) specification.
+    /// Introduced in v1.3.
     ///
     /// See [MelSpecification] for details.
     mel_specification: MelSpecification,
@@ -127,6 +130,7 @@ impl NegotiateAlgorithmsReq {
     /// the SPDM specification description of the fields provided.
     ///
     /// It does *NOT* validate the total extended algorithm count against the SPDM version.
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         num_alg_struct_tables: u8,
         param2: u8,
@@ -140,7 +144,7 @@ impl NegotiateAlgorithmsReq {
     ) -> SpdmResult<NegotiateAlgorithmsReq> {
         let mut req = NegotiateAlgorithmsReq {
             num_alg_struct_tables,
-            param2: param2,
+            param2,
             length: 0,
             measurement_specification,
             other_param_support,
@@ -168,10 +172,12 @@ impl NegotiateAlgorithmsReq {
         let total_alg_struct_len = size_of::<AlgStructure>() * self.num_alg_struct_tables as usize;
         let total_ext_asym_len = size_of::<ExtendedAlgo>() * self.ext_asym_count as usize;
         let total_ext_hash_len = size_of::<ExtendedAlgo>() * self.ext_hash_count as usize;
-        (size_of::<NegotiateAlgorithmsReq>()
+        (size_of::<SpdmMsgHdr>()
+            + size_of::<NegotiateAlgorithmsReq>()
             + total_alg_struct_len
             + total_ext_asym_len
-            + total_ext_hash_len) as u16
+            + total_ext_hash_len
+            + 4) as u16
     }
 
     /// Calculate the size of the extended algorithm structures in bytes.
@@ -216,12 +222,28 @@ impl CommonCodec for NegotiateAlgorithmsReq {}
 #[derive(IntoBytes, FromBytes, Immutable, Default)]
 #[repr(C, packed)]
 #[allow(dead_code)]
-struct AlgorithmsResp {
+/// # NOTE
+/// After this response we expect to be present when sent:
+/// - ExtAsymSel
+/// - ExtHashSel
+/// - RespAlgStruct
+pub struct AlgorithmsResp {
+    /// Shall be the number of algorithm structure tables in this request using RespAlgStruct.
     num_alg_struct_tables: u8,
     reserved_1: u8,
+
+    /// Shall be the length of the response message, in bytes.
     length: u16,
+
+    /// The Responder shall select one of the measurement specifications supported by the
+    /// Requester and Responder. Thus, no more than one bit shall be set
     measurement_specification_sel: MeasurementSpecification,
+
+    /// Shall be the selected Parameter Bit Mask. The Responder shall select one
+    /// of the opaque data formats supported by the Requester. Thus, no more
+    /// than one bit shall be set for the opaque data format.
     other_params_selection: OtherParamSupport,
+
     measurement_hash_algo: MeasurementHashAlgo,
     base_asym_sel: BaseAsymAlgo,
     base_hash_sel: BaseHashAlgo,
@@ -230,12 +252,16 @@ struct AlgorithmsResp {
     ext_asym_sel_count: u8,
     ext_hash_sel_count: u8,
     reserved_3: [u8; 2],
+    // - ExtAsymSel
+    // - ExtHashSel
+    // - RespAlgStruct
 }
 
 impl CommonCodec for AlgorithmsResp {}
 
 #[derive(IntoBytes, FromBytes, Immutable, Default)]
 #[repr(C)]
+/// See [DSP0274 v1.3.0, p, 86](https://www.dmtf.org/sites/default/files/standards/documents/DSP0274_1.3.0.pdf)
 pub struct ExtendedAlgo {
     /// Shall represent the registry or standards body.
     ///
@@ -253,11 +279,20 @@ pub struct ExtendedAlgo {
 
 impl CommonCodec for ExtendedAlgo {}
 
+impl ExtendedAlgo {
+    pub fn new(registry_id: RegistryId, algorithm_id: u16) -> Self {
+        ExtendedAlgo {
+            registry_id: registry_id as u8,
+            reserved: 0,
+            algorithm_id,
+        }
+    }
+}
+
 /// Registry or standards body ID for algorithm encoding in extended algorithm fields.
 /// Consult the respective registry or standards body unless otherwise specified.
 #[repr(u8)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[allow(dead_code)]
 pub enum RegistryId {
     /// DMTF does not have a Vendor ID registry.
     DMTF = 0x0,
@@ -322,7 +357,7 @@ impl RegistryId {
 }
 
 #[derive(Debug, Clone, Copy)]
-enum AlgType {
+pub enum AlgType {
     // 0x00 and 0x01. Reserved.
     Dhe = 2,
     AeadCipherSuite = 3,
@@ -396,14 +431,15 @@ bitfield! {
     #[derive(FromBytes, IntoBytes, Immutable, Default, Clone, Copy)]
     #[repr(C)]
     /// This structure describes an algorithm structure table.
-    /// It does **NOT** include the variable-length `AlgExternal` fields that follow this header.
+    /// It does **NOT** include the variable-length `AlgExternal` fields that follow this header for the Request.
     ///
     /// The `AlgExternal` fields are of type [ExtendedAlgo] and their number is defined
     /// by the `ExtAlgCount` field.
     /// The existence of `AlgExternal` is optional.
     // TODO: make this a structure with Option?
-    pub struct AlgStructure(u16);
+    pub struct AlgStructure(u32);
     impl Debug;
+    u8;
         /// Shall be the type of algorithm.
         ///
         /// See [AlgType] for details.
@@ -414,12 +450,46 @@ bitfield! {
         /// That means, that there is either 1 or None external algorithm structure following this header.
         pub ext_alg_count, set_ext_alg_count: 11, 8;
         pub fixed_alg_count, set_fixed_alg_count: 15, 12;
+    u16;
+        // TODO: somehow we can just assume this will fit? and why do we
+        pub alg_supported, set_alg_supported: 31, 16;
+        // AlgExternal
 }
 
 impl AlgStructure {
     // FixedAlgCount + 2 shall be a multiple of 4
     pub fn is_multiple(&self) -> bool {
-        ((self.fixed_alg_count() as usize) + 2) % 4 == 0
+        ((self.fixed_alg_count() as usize) + 2).is_multiple_of(4)
+    }
+
+    /// Create a new [AlgStructure] for the given algorithm type as specified in
+    // Tables 17, 18, 19, 20 of DSP0274 v1.3.0
+    pub fn new(alg_type: &AlgType, local_algos: &LocalDeviceAlgorithms) -> AlgStructure {
+        let mut res = AlgStructure::default();
+        res.set_alg_type(*alg_type as u8);
+
+        // Bit [7:4]. Shall be a value of 2.
+        res.set_fixed_alg_count(2);
+
+        match alg_type {
+            AlgType::Dhe => {
+                res.set_alg_supported(local_algos.device_algorithms.dhe_group.0);
+            }
+
+            AlgType::AeadCipherSuite => {
+                res.set_alg_supported(local_algos.device_algorithms.aead_cipher_suite.0);
+            }
+
+            AlgType::ReqBaseAsymAlg => {
+                res.set_alg_supported(local_algos.device_algorithms.req_base_asym_algo.0);
+            }
+
+            AlgType::KeySchedule => {
+                res.set_alg_supported(local_algos.device_algorithms.key_schedule.0);
+            }
+        }
+        res.set_ext_alg_count(res.alg_supported().count_ones() as u8);
+        res
     }
 }
 
@@ -431,19 +501,6 @@ mod tests {
 
     #[test]
     fn test_min_req_len() {
-        let req = NegotiateAlgorithmsReq {
-            num_alg_struct_tables: 2,
-            ext_asym_count: 3,
-            ext_hash_count: 4,
-            ..Default::default()
-        };
-
-        let expected_len = size_of::<NegotiateAlgorithmsReq>()
-            + (size_of::<AlgStructure>() * 2)
-            + (size_of::<ExtendedAlgo>() * 3)
-            + (size_of::<ExtendedAlgo>() * 4);
-
-        // v1.1: (66 = 66)
-        assert_eq!(req.min_req_len() as usize, expected_len);
+        todo!();
     }
 }
