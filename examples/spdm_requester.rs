@@ -25,7 +25,7 @@ mod platform;
 use platform::{DemoCertStore, DemoEvidence, Sha384Hash, SpdmSocketTransport, SystemRng};
 
 use spdm_lib::commands::algorithms::{
-    request::generate_negotiate_algorithms_request, AlgStructure, ExtendedAlgo,
+    request::generate_negotiate_algorithms_request, AlgStructure, AlgType, ExtendedAlgo, RegistryId,
 };
 use spdm_lib::commands::capabilities::request::generate_capabilities_request_local;
 use spdm_lib::commands::version::{request::generate_get_version, VersionReqPayload};
@@ -68,10 +68,18 @@ fn create_device_capabilities() -> DeviceCapabilities {
         flags,
         data_transfer_size: 1024,
         max_spdm_msg_size: 4096,
+        include_supported_algorithms: false,
     }
 }
 
 /// Create local device algorithms
+///
+/// Default values are:
+/// - Measurement Specification: DMTF (1)
+/// - Measurement Hash Algorithm: TPM_ALG_SHA_384 (1)
+/// - Base Asymmetric Algorithm: TPM_ALG_ECDSA_ECC_NIST_P384
+/// - Base Hash Algorithm: TPM_ALG_SHA_384 (1)
+/// - MEL Specification: 0
 fn create_local_algorithms<'a>() -> LocalDeviceAlgorithms<'a> {
     // Configure supported algorithms with proper bitfield construction
     let mut measurement_spec = MeasurementSpecification::default();
@@ -92,24 +100,15 @@ fn create_local_algorithms<'a>() -> LocalDeviceAlgorithms<'a> {
         measurement_hash_algo,
         base_asym_algo,
         base_hash_algo,
-        mel_specification: MelSpecification::default(),
-        dhe_group: DheNamedGroup::default(),
-        aead_cipher_suite: AeadCipherSuite::default(),
-        req_base_asym_algo: ReqBaseAsymAlg::default(),
+        mel_specification: MelSpecification(1),
+        dhe_group: DheNamedGroup(1),           // FFDHE2048
+        aead_cipher_suite: AeadCipherSuite(1), // AES_128_GCM
+        req_base_asym_algo: ReqBaseAsymAlg(1),
         key_schedule: KeySchedule::default(),
     };
 
-    let algorithm_priority_table = AlgorithmPriorityTable {
-        measurement_specification: None,
-        opaque_data_format: None,
-        base_asym_algo: None,
-        base_hash_algo: None,
-        mel_specification: None,
-        dhe_group: None,
-        aead_cipher_suite: None,
-        req_base_asym_algo: None,
-        key_schedule: None,
-    };
+    // Keep this empty for now, since we need to wait for responders answer.
+    let algorithm_priority_table = AlgorithmPriorityTable::default();
 
     LocalDeviceAlgorithms {
         device_algorithms,
@@ -135,7 +134,11 @@ fn vca_flow(stream: TcpStream, config: &RequesterConfig) -> IoResult<()> {
     let evidence = DemoEvidence::new();
 
     // Create SPDM context
-    let supported_versions = [version::SpdmVersion::V12, version::SpdmVersion::V11];
+    let supported_versions = [
+        version::SpdmVersion::V13,
+        version::SpdmVersion::V12,
+        version::SpdmVersion::V11,
+    ];
     let capabilities = create_device_capabilities();
     let algorithms = create_local_algorithms();
 
@@ -248,17 +251,39 @@ fn vca_flow(stream: TcpStream, config: &RequesterConfig) -> IoResult<()> {
         .requester_process_message(&mut message_buffer)
         .unwrap();
 
-    message_buffer.reset();
+    if config.verbose {
+        println!(
+            "Processed CAPABILITIES: {:?}",
+            &message_buffer.message_data()
+        );
+    }
 
-    // 3.1 Send GET_AUTH
-    // TODO: use local algorithms from the context
+    let ext_asym = [ExtendedAlgo::new(RegistryId::DMTF, 1)];
+    let ext_hash = [ExtendedAlgo::new(RegistryId::DMTF, 1)];
+    let alg_external = [ExtendedAlgo::new(RegistryId::DMTF, 1)];
+    // TODO: since we re-generate them there is the potential issue of TOCTOU.
+    let mut local_algorithms = create_local_algorithms();
+    local_algorithms
+        .device_algorithms
+        .base_asym_algo
+        .set_tpm_alg_rsapss_2048(1);
+    local_algorithms
+        .device_algorithms
+        .base_hash_algo
+        .set_tpm_alg_sha_256(1);
+
+    let mut alg_structure = AlgStructure::new(&AlgType::Dhe, &local_algorithms);
+    alg_structure.set_ext_alg_count(1);
+
+    // 3.1 Send GET_ALGORITHMS
+    message_buffer.reset();
     generate_negotiate_algorithms_request(
         &mut spdm_context,
         &mut message_buffer,
-        None,
-        None,
-        &AlgStructure(0),
-        None,
+        Some(&ext_asym),
+        Some(&ext_hash),
+        alg_structure,
+        Some(&alg_external),
     )
     .unwrap();
 
@@ -267,12 +292,19 @@ fn vca_flow(stream: TcpStream, config: &RequesterConfig) -> IoResult<()> {
         .unwrap();
 
     if config.verbose {
-        println!("GET_AUTH: {:?}", &message_buffer.message_data());
+        println!(
+            "NEGOTIATE_ALGORITHMS: {:x?}",
+            &message_buffer.message_data()
+        );
     }
 
     spdm_context
         .requester_process_message(&mut message_buffer)
         .unwrap();
+
+    if config.verbose {
+        println!("ALGORITHMS: {:x?}", &message_buffer.message_data());
+    }
 
     Ok(())
 }

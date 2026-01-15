@@ -161,7 +161,7 @@ pub fn generate_capabilities_request_local<'a>(
     req_buf: &mut MessageBuf<'a>,
 ) -> CommandResult<()> {
     let local_capabilities = ctx.local_capabilities;
-    let capabilities = GetCapabilitiesBase::default();
+    let mut capabilities = GetCapabilitiesBase::default();
 
     let capv11 = Some(GetCapabilitiesV11::new(
         local_capabilities.ct_exponent,
@@ -176,6 +176,10 @@ pub fn generate_capabilities_request_local<'a>(
     } else {
         None
     };
+
+    if ctx.state.connection_info.version_number() >= SpdmVersion::V13 {
+        capabilities.param1 |= (local_capabilities.include_supported_algorithms as u8) << 2;
+    }
 
     generate_capabilities_request(ctx, req_buf, capabilities, capv11, capv12)
 }

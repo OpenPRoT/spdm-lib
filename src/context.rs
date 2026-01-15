@@ -112,7 +112,7 @@ impl<'a> SpdmContext<'a> {
         resp_buffer.reset();
         self.transport
             .receive_response(resp_buffer)
-            .map_err(|e| SpdmError::Transport(e))?;
+            .map_err(SpdmError::Transport)?;
 
         match self
             .requester_handle_response(resp_buffer)
