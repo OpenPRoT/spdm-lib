@@ -32,7 +32,7 @@ pub fn handle_algorithms_response<'a>(
 ///
 /// # Returns
 /// - `Ok(())` on success.
-/// - `Err(CommandError)` on failure.
+/// - [CommandError] on failure.
 pub fn generate_negotiate_algorithms_request<'a>(
     ctx: &mut SpdmContext<'a>,
     req_buf: &mut MessageBuf<'a>,
@@ -54,7 +54,7 @@ pub fn generate_negotiate_algorithms_request<'a>(
     };
 
     let negotiate_algorithms_req = NegotiateAlgorithmsReq::new(
-        ext_algo.ext_alg_count(),
+        ext_algo.ext_alg_count() as u8,
         0, // param2
         local_algorithms.measurement_spec,
         local_algorithms.other_param_support,
@@ -74,10 +74,17 @@ pub fn generate_negotiate_algorithms_request<'a>(
         )
         .map_err(|_| (false, CommandError::UnsupportedRequest))?;
 
-    // Ensure the request buffer is large enough
-    if (negotiate_algorithms_req.min_req_len() as usize) < req_buf.capacity() {
+    if (negotiate_algorithms_req.min_req_len() as usize) > req_buf.capacity() {
         return Err((false, CommandError::BufferTooSmall));
     }
+
+    // Message Assembly
+    SpdmMsgHdr::new(
+        ctx.state.connection_info.version_number(),
+        crate::protocol::ReqRespCode::NegotiateAlgorithms,
+    )
+    .encode(req_buf)
+    .map_err(|e| (false, CommandError::Codec(e)))?;
 
     // This encoding does *NOT* yet contain the variable fields.
     negotiate_algorithms_req
@@ -101,7 +108,7 @@ pub fn generate_negotiate_algorithms_request<'a>(
         }
     }
 
-    if !ext_algo.is_aligned() {
+    if ext_algo.fixed_alg_count() != 0 && !ext_algo.is_multiple() {
         return Err((false, CommandError::UnsupportedRequest));
     }
 

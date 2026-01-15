@@ -323,12 +323,15 @@ impl SpdmSocketTransport {
         }
         .into();
 
+        dbg!(&header_bytes);
         self.stream.write_all(&header_bytes)?;
 
         // Send data if any
         if !data.is_empty() {
             self.stream.write_all(data)?;
         }
+
+        dbg!(&data);
 
         self.stream.flush()?;
         Ok(())

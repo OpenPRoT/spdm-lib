@@ -72,6 +72,12 @@ impl<'a> SpdmContext<'a> {
         })
     }
 
+    pub fn transport_init_sequence(&mut self) -> SpdmResult<()> {
+        self.transport
+            .init_sequence()
+            .map_err(|e| SpdmError::Transport(e))
+    }
+
     /// The Responder receives a request message sent by the Requester and processes it accordingly.
     pub fn responder_process_message(&mut self, msg_buf: &mut MessageBuf<'a>) -> SpdmResult<()> {
         self.transport
@@ -132,8 +138,6 @@ impl<'a> SpdmContext<'a> {
         req_buf: &mut MessageBuf<'a>,
         dst_eid: u8,
     ) -> SpdmResult<()> {
-        req_buf.reset();
-
         self.transport
             .send_request(dst_eid, req_buf)
             .map_err(|_| SpdmError::InvalidParam)?;
@@ -329,74 +333,3 @@ impl<'a> SpdmContext<'a> {
             .map_err(|e| (false, CommandError::Transcript(e)))
     }
 }
-
-/*
-#[cfg(test)]
-pub mod tests {
-    use super::*;
-
-    use crate::platform::transport::TransportResult;
-    pub struct SpdmTransportMock;
-
-    impl SpdmTransportMock {
-        pub fn new() -> Self {
-            SpdmTransportMock {}
-        }
-    }
-
-    impl SpdmTransport for SpdmTransportMock {
-        fn header_size(&self) -> usize {
-            4
-        }
-
-        fn send_request(
-            &mut self,
-            _dst_eid: u8,
-            _req_buffer: &mut MessageBuf,
-        ) -> TransportResult<()> {
-            Ok(())
-        }
-
-        fn receive_request(&mut self, _req_buffer: &mut MessageBuf) -> TransportResult<()> {
-            Ok(())
-        }
-
-        fn send_response(&mut self, _resp_buffer: &mut MessageBuf) -> TransportResult<()> {
-            Ok(())
-        }
-
-        fn receive_response(&mut self, _resp_buffer: &mut MessageBuf) -> TransportResult<()> {
-            Ok(())
-        }
-
-        fn max_message_size(&self) -> crate::platform::transport::TransportResult<usize> {
-            Ok(0 as usize)
-        }
-    }
-
-    impl<'a> SpdmContext<'a> {
-        pub fn new_mock() -> SpdmContext<'a> {
-            SpdmContext {
-                transport: &mut SpdmTransportMock::new(),
-                hash: Sha384::new(),
-                supported_versions: (),
-                state: (),
-                transcript_mgr: (),
-                rng: (),
-                local_capabilities: (),
-                local_algorithms: (),
-                device_certs_store: (),
-                measurements: (),
-                large_resp_context: (),
-                evidence: (),
-            }
-        }
-    }
-
-    #[test]
-    fn test_requester_process_message() {
-        let mut test_context = SpdmContext::new_mock();
-        test_context.requester_process_message();
-    }
-}
-*/

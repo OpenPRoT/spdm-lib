@@ -15,12 +15,19 @@ use crate::commands::version::{VersionReqPayload, VersionRespCommon};
 
 use crate::protocol::SpdmVersion;
 
-/// Generate the GET_VERSION command with all the contexts information
+/// Generate the GET_VERSION command with Header and payload.
 pub fn generate_get_version<'a>(
     ctx: &mut SpdmContext<'a>,
     req_buf: &mut MessageBuf<'a>,
     payload: VersionReqPayload,
 ) -> CommandResult<()> {
+    SpdmMsgHdr::new(
+        ctx.state.connection_info.version_number(),
+        crate::protocol::ReqRespCode::GetVersion,
+    )
+    .encode(req_buf)
+    .map_err(|e| (false, CommandError::Codec(e)))?;
+
     let len = payload
         .encode(req_buf)
         .map_err(|e| (false, CommandError::Codec(e)))?;
