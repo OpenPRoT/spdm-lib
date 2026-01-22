@@ -35,6 +35,7 @@ struct ResponderConfig {
     key_path: String,
     measurements_path: Option<String>,
     verbose: bool,
+    raw: bool,
 }
 
 impl Default for ResponderConfig {
@@ -45,6 +46,7 @@ impl Default for ResponderConfig {
             key_path: "device_key.pem".to_string(),
             measurements_path: Some("measurements.json".to_string()),
             verbose: false,
+            raw: false,
         }
     }
 }
@@ -116,7 +118,7 @@ fn create_local_algorithms<'a>() -> LocalDeviceAlgorithms<'a> {
 
 /// Handle client connection with real SPDM processing
 fn handle_spdm_client(stream: TcpStream, config: &ResponderConfig) -> IoResult<()> {
-    let mut transport = SpdmSocketTransport::new(stream);
+    let mut transport = SpdmSocketTransport::new(stream, config.raw, config.verbose);
     
     // Create platform implementations - all from platform module!
     let mut hash = Sha384Hash::new();
@@ -247,6 +249,10 @@ fn parse_args() -> ResponderConfig {
                 config.verbose = true;
                 i += 1;
             },
+            "--raw" => {
+                config.raw = true;
+                i += 1;
+            },
             "-h" | "--help" => {
                 print_help();
                 process::exit(0);
@@ -291,6 +297,7 @@ fn display_info(config: &ResponderConfig) {
         println!("  Measurements: {}", measurements);
     }
     println!("  Verbose: {}", config.verbose);
+    println!("  Raw (no TCP binding): {}", config.raw);
     println!();
     
     let capabilities = create_device_capabilities();
