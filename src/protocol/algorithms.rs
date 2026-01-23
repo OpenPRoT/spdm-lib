@@ -559,6 +559,7 @@ impl DeviceAlgorithms {
 
 // Algorithm Priority Table set by the responder
 // to indicate the priority of the selected algorithms
+#[derive(Default)]
 pub struct AlgorithmPriorityTable<'a> {
     pub measurement_specification: Option<&'a [MeasurementSpecificationType]>,
     pub opaque_data_format: Option<&'a [OpaqueDataFormatType]>,
@@ -571,6 +572,7 @@ pub struct AlgorithmPriorityTable<'a> {
     pub key_schedule: Option<&'a [KeyScheduleType]>,
 }
 
+#[derive(Default)]
 pub struct LocalDeviceAlgorithms<'a> {
     pub device_algorithms: DeviceAlgorithms,
     pub algorithm_priority_table: AlgorithmPriorityTable<'a>,
