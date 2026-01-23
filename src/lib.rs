@@ -2,33 +2,37 @@
 
 #![cfg_attr(not(test), no_std)]
 
-// Common errors
+/// Common errors
 pub mod error;
 
-// Codec and protocol buffer
+/// Codec and protocol buffer
 pub mod codec;
 
-// Spdm common message protocol handling
+/// Spdm common message protocol handling
 pub mod protocol;
 
-// Context and request handling
+/// Context and request handling
 pub mod commands;
 pub mod context;
 
-// Spdm responder state
+/// Spdm responder state
 pub mod state;
 
-// Device certificate management
+/// Device certificate management
 pub mod cert_store;
 
-// Transcript management
+/// Transcript management
 pub mod transcript;
 
-// Spdm measurements management
+/// Spdm measurements management
 pub mod measurements;
 
-// Chunking context for large messages
+/// Chunking context for large messages
 pub mod chunk_ctx;
 
-// Platform-specific traits
+/// Platform-specific traits
 pub mod platform;
+
+/// Mock implementations for unit tests
+#[cfg(test)]
+pub(crate) mod test;
