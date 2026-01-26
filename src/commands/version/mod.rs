@@ -101,3 +101,15 @@ impl TryFrom<VersionNumberEntry<[u8; VERSION_ENTRY_SIZE]>> for SpdmVersion {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::commands::version::VersionNumberEntry;
+
+    #[test]
+    fn version_number_entry_roundtrip() {
+        let entry = VersionNumberEntry::new(crate::protocol::SpdmVersion::V13);
+        assert_eq!(entry.major(), 1);
+        assert_eq!(entry.minor(), 3);
+    }
+}

@@ -2,7 +2,6 @@
 
 use crate::{
     codec::{Codec, MessageBuf},
-    commands::version::VersionNumberEntry,
     context::SpdmContext,
     error::{CommandError, CommandResult},
     protocol::SpdmMsgHdr,
@@ -11,7 +10,9 @@ use crate::{
 };
 
 use crate::commands::error_rsp::ErrorCode;
-use crate::commands::version::{VersionReqPayload, VersionRespCommon};
+use crate::commands::version::{
+    VersionNumberEntry, VersionReqPayload, VersionRespCommon, VERSION_ENTRY_SIZE,
+};
 
 use crate::protocol::SpdmVersion;
 
@@ -124,10 +125,37 @@ pub(crate) fn handle_version_response<'a>(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::{protocol::MAX_MCTP_SPDM_MSG_SIZE, test::*};
 
     #[test]
-    #[ignore]
-    fn test_process_version() {
-        todo!();
+    fn test_process_version_happy_path() {
+        let versions = versions_default();
+        let mut stack = MockResources::new();
+        let algorithms = crate::protocol::LocalDeviceAlgorithms::default();
+        let mut context = create_context(&mut stack, &versions, algorithms);
+
+        let header = SpdmMsgHdr::new(SpdmVersion::V10, crate::protocol::ReqRespCode::Version);
+
+        let mut msg_buf = [0; MAX_MCTP_SPDM_MSG_SIZE];
+        let mut msg = MessageBuf::new(&mut msg_buf);
+        let version_response = VersionRespCommon::new(2);
+        let resp_common_size = version_response.encode(&mut msg).unwrap();
+        let entr_1 = VersionNumberEntry::new(SpdmVersion::V11);
+        let e1_size = entr_1.encode(&mut msg).unwrap();
+        let entr_2 = VersionNumberEntry::new(SpdmVersion::V12);
+        let e2_size = entr_2.encode(&mut msg).unwrap();
+        msg.push_data(resp_common_size + e1_size + e2_size).unwrap(); // This has to be done at the end of encoding for some reason
+        assert_eq!(msg.data_len(), (resp_common_size + e1_size + e2_size));
+
+        let rsp = process_version(&mut context, header, &mut msg);
+        assert!(
+            rsp.is_ok(),
+            "process_version returned error: {:?}",
+            rsp.unwrap_err()
+        );
+
+        let rsp = rsp.unwrap();
+
+        assert_eq!(rsp, SpdmVersion::V12);
     }
 }
