@@ -176,11 +176,46 @@ pub fn generate_capabilities_request_local<'a>(
 
 #[cfg(test)]
 mod tests {
+
     use super::*;
+    use crate::{
+        protocol::{CapabilityFlags, MAX_MCTP_SPDM_MSG_SIZE},
+        test::*,
+    };
 
     #[test]
-    #[ignore]
-    fn test_generate_capabilities_request() {
-        todo!();
+    fn test_handle_capabilities_response_happy_path() {
+        let versions = versions_default();
+        let mut stack = MockResources::new();
+        let algorithms = crate::protocol::LocalDeviceAlgorithms::default();
+        let mut context = create_context(&mut stack, &versions, algorithms);
+
+        context
+            .state
+            .connection_info
+            .set_version_number(SpdmVersion::V12);
+        context
+            .state
+            .connection_info
+            .set_state(crate::state::ConnectionState::AfterVersion);
+
+        let header = SpdmMsgHdr::new(SpdmVersion::V12, crate::protocol::ReqRespCode::Capabilities);
+
+        let mut msg_buf = [0; MAX_MCTP_SPDM_MSG_SIZE];
+        let mut msg = MessageBuf::new(&mut msg_buf);
+        let mut len = 0;
+        let cap_base = GetCapabilitiesBase::default();
+        len += cap_base.encode(&mut msg).unwrap();
+        let cap_11 = GetCapabilitiesV11::new(10, CapabilityFlags::default());
+        len += cap_11.encode(&mut msg).unwrap();
+        let cap_12 = GetCapabilitiesV12 {
+            data_transfer_size: crate::protocol::MIN_DATA_TRANSFER_SIZE_V12,
+            max_spdm_msg_size: crate::protocol::MIN_DATA_TRANSFER_SIZE_V12,
+        };
+        len += cap_12.encode(&mut msg).unwrap();
+        msg.push_data(len).unwrap();
+
+        handle_capabilities_response(&mut context, header, &mut msg)
+            .expect("Failed to handle capabilities response");
     }
 }
