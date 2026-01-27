@@ -158,4 +158,75 @@ mod tests {
 
         assert_eq!(rsp, SpdmVersion::V12);
     }
+
+    #[test]
+    fn test_process_version_malformed_response() {
+        let versions = versions_default();
+        let mut stack = MockResources::new();
+        let algorithms = crate::protocol::LocalDeviceAlgorithms::default();
+        let mut context = create_context(&mut stack, &versions, algorithms);
+
+        // Test wrong header
+        let header = SpdmMsgHdr::new(SpdmVersion::V12, crate::protocol::ReqRespCode::Version);
+
+        let mut msg_buf = [0; MAX_MCTP_SPDM_MSG_SIZE];
+        let mut msg = MessageBuf::new(&mut msg_buf);
+        let version_response = VersionRespCommon::new(2);
+        let resp_common_size = version_response.encode(&mut msg).unwrap();
+        let entr_1 = VersionNumberEntry::new(SpdmVersion::V11);
+        let e1_size = entr_1.encode(&mut msg).unwrap();
+        msg.push_data(resp_common_size + e1_size).unwrap();
+        assert_eq!(msg.data_len(), (resp_common_size + e1_size));
+
+        let rsp = process_version(&mut context, header, &mut msg);
+        assert!(rsp.is_err_and(|e| e.1 == CommandError::UnsupportedResponse));
+
+        // Test response without entries
+        let header = SpdmMsgHdr::new(SpdmVersion::V12, crate::protocol::ReqRespCode::Version);
+
+        let mut msg_buf = [0; MAX_MCTP_SPDM_MSG_SIZE];
+        let mut msg = MessageBuf::new(&mut msg_buf);
+        let version_response = VersionRespCommon::new(0);
+        let resp_common_size = version_response.encode(&mut msg).unwrap();
+        msg.push_data(resp_common_size).unwrap();
+
+        let rsp = process_version(&mut context, header, &mut msg);
+        assert!(rsp.is_err_and(|e| e.1 == CommandError::UnsupportedResponse));
+
+        // Test unsupported version
+        let header = SpdmMsgHdr::new(SpdmVersion::V12, crate::protocol::ReqRespCode::Version);
+
+        let mut msg_buf = [0; MAX_MCTP_SPDM_MSG_SIZE];
+        let mut msg = MessageBuf::new(&mut msg_buf);
+        let version_response = VersionRespCommon::new(1);
+        let resp_common_size = version_response.encode(&mut msg).unwrap();
+        let mut entr_1 = VersionNumberEntry::new(SpdmVersion::V10);
+        entr_1.set_major(9); // unsupported version
+        let e1_size = entr_1.encode(&mut msg).unwrap();
+        msg.push_data(resp_common_size + e1_size).unwrap();
+        assert_eq!(msg.data_len(), (resp_common_size + e1_size));
+
+        let rsp = process_version(&mut context, header, &mut msg);
+        assert!(rsp.is_err_and(|e| e.1 == CommandError::UnsupportedResponse));
+    }
+
+    #[test]
+    fn validate_get_version_request() {
+        let versions = versions_default();
+        let mut stack = MockResources::new();
+        let algorithms = crate::protocol::LocalDeviceAlgorithms::default();
+        let mut context = create_context(&mut stack, &versions, algorithms);
+
+        let mut msg_buf = [0; MAX_MCTP_SPDM_MSG_SIZE];
+        let mut msg = MessageBuf::new(&mut msg_buf);
+
+        assert!(generate_get_version(&mut context, &mut msg, VersionReqPayload::new(0, 0)).is_ok());
+
+        let data = msg.total_message();
+        assert_eq!(data.len(), 4, "GET_VERSION command length mismatch");
+        let req_version: SpdmVersion = data[0].try_into().unwrap();
+        assert_eq!(req_version, SpdmVersion::V10);
+
+        assert_eq!(data[1], 0x84, "Command code doesn't match GET_VERSION");
+    }
 }
