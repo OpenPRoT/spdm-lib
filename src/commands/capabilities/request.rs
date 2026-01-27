@@ -4,24 +4,14 @@ use crate::commands::error_rsp::ErrorCode;
 use crate::{codec::MessageBuf, context::SpdmContext, error::CommandResult, protocol::SpdmMsgHdr};
 
 use crate::commands::capabilities::{
-    req_flag_compatible, CapabilityFlags, GetCapabilitiesBase, GetCapabilitiesV11,
-    GetCapabilitiesV12,
+    req_flag_compatible, GetCapabilitiesBase, GetCapabilitiesV11, GetCapabilitiesV12,
 };
 use crate::protocol::{capabilities::DeviceCapabilities, ReqRespCode, SpdmVersion};
 
-use crate::error::{CommandError, SpdmError};
+use crate::error::CommandError;
 use crate::transcript::TranscriptContext;
 
 use crate::codec::Codec;
-
-/// Generate the GET_CAPABILITIES command with all the contexts information
-// pub fn send_get_capabilities<'a>(
-//     ctx: &mut SpdmContext<'a>,
-//     req_buf: &mut MessageBuf<'a>,
-//     payload:
-// ) -> CommandResult<()> {
-//     todo!();
-// }
 
 /// Requester function handling the parsing of the CAPABILITIES response sent by the Responder.
 ///
@@ -30,24 +20,28 @@ use crate::codec::Codec;
 ///
 /// #TODO
 /// - [ ] A Responder can report that it needs to transmit the response in smaller
-/// transfers by sending an ERROR message of ErrorCode=LargeResponse
+///   transfers by sending an ERROR message of ErrorCode=LargeResponse
 pub(crate) fn handle_capabilities_response<'a>(
     ctx: &mut SpdmContext<'a>,
     resp_header: SpdmMsgHdr,
     resp: &mut MessageBuf<'a>,
 ) -> CommandResult<()> {
+    // TODO: I don't think we should call _generate_error_response_ here for every error.
+    //       Instead just returning proper error codes is probably better.
+
     let version_hdr = match resp_header.version() {
         Ok(v) => v,
         Err(_) => Err(ctx.generate_error_response(resp, ErrorCode::VersionMismatch, 0, None))?,
     };
 
     // Verify that the version is supported by both parties
+    // TODO: Should responses that don't match the negotiated version be silently accepted?
     let version = match ctx.supported_versions.iter().find(|&&v| v == version_hdr) {
         Some(&v) => v,
         None => Err(ctx.generate_error_response(resp, ErrorCode::VersionMismatch, 0, None))?,
     };
 
-    let base_resp = GetCapabilitiesBase::decode(resp)
+    let _base_resp = GetCapabilitiesBase::decode(resp)
         .map_err(|_| ctx.generate_error_response(resp, ErrorCode::OperationFailed, 0, None))?;
 
     // Based on the negotiated version, try to decode the rest of the response.
@@ -61,6 +55,7 @@ pub(crate) fn handle_capabilities_response<'a>(
             .map_err(|_| ctx.generate_error_response(resp, ErrorCode::InvalidRequest, 0, None))?;
         peer_capabilities.ct_exponent = resp_11.ct_exponent;
 
+        // TODO?
         let flags = resp_11.flags;
         // THIS FAILS
         // if !req_flag_compatible(version, &flags) {
@@ -72,6 +67,17 @@ pub(crate) fn handle_capabilities_response<'a>(
             let resp_12 = GetCapabilitiesV12::decode(resp).map_err(|_| {
                 ctx.generate_error_response(resp, ErrorCode::InvalidRequest, 0, None)
             })?;
+
+            // _DataTransferSize_ shall be equal to or greater than _MinDataTransferSize_
+            if resp_12.data_transfer_size < crate::protocol::MIN_DATA_TRANSFER_SIZE_V12 {
+                return Err((false, CommandError::InvalidResponse));
+            }
+
+            // _MaxSPDMmsgSize_ should be greater than or equal to _DataTransferSize_
+            if resp_12.max_spdm_msg_size < resp_12.data_transfer_size {
+                return Err((false, CommandError::InvalidResponse));
+            }
+
             peer_capabilities.data_transfer_size = resp_12.data_transfer_size;
             peer_capabilities.max_spdm_msg_size = resp_12.max_spdm_msg_size;
         }
