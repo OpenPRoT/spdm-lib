@@ -29,6 +29,7 @@ pub type SpdmResult<T> = Result<T, SpdmError>;
 
 pub type CommandResult<T> = Result<T, (bool, CommandError)>;
 
+#[non_exhaustive]
 #[derive(Debug, PartialEq)]
 pub enum PlatformError {
     HashError(SpdmHashError),
@@ -36,6 +37,7 @@ pub enum PlatformError {
     EvidenceError(SpdmEvidenceError),
 }
 
+#[non_exhaustive]
 #[derive(Debug, PartialEq)]
 pub enum CommandError {
     BufferTooSmall,
@@ -50,4 +52,5 @@ pub enum CommandError {
     Platform(PlatformError),
     Transcript(TranscriptError),
     Measurement(MeasurementsError),
+    InvalidResponse,
 }

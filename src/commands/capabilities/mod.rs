@@ -38,9 +38,13 @@ pub struct GetCapabilitiesV11 {
     pub ct_exponent: u8,
 
     /// Reserved.
+    ///
+    /// _TODO_: Part of the 16-bit extended flags field added in v1.4.0
     reserved2: u8,
 
     /// Reserved.
+    ///
+    /// _TODO_: Part of the 16-bit extended flags field added in v1.4.0
     reserved3: u8,
 
     /// Capability flags.
@@ -99,6 +103,15 @@ impl From<&DeviceCapabilities> for GetCapabilitiesV12 {
     }
 }
 
+impl Default for GetCapabilitiesV12 {
+    fn default() -> Self {
+        GetCapabilitiesV12 {
+            data_transfer_size: crate::protocol::MIN_DATA_TRANSFER_SIZE_V12,
+            max_spdm_msg_size: crate::protocol::MIN_DATA_TRANSFER_SIZE_V12,
+        }
+    }
+}
+
 /// Checks if the request capability flags are compatible with the SPDM version
 ///# Arguments
 /// - `version`: SPDM version
@@ -110,6 +123,12 @@ impl From<&DeviceCapabilities> for GetCapabilitiesV12 {
 pub(crate) fn req_flag_compatible(version: SpdmVersion, flags: &CapabilityFlags) -> bool {
     // Checks specific to 1.1
     if version == SpdmVersion::V11 && flags.mut_auth_cap() == 1 && flags.encap_cap() == 0 {
+        return false;
+    }
+
+    // Check if MEAS_CAP is valid
+    // 0b11 is reserved
+    if flags.meas_cap() == 0b11 {
         return false;
     }
 
