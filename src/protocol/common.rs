@@ -85,7 +85,7 @@ impl ReqRespCode {
     }
 }
 
-#[derive(FromBytes, IntoBytes, Immutable)]
+#[derive(FromBytes, IntoBytes, Immutable, Clone)]
 #[repr(C)]
 pub(crate) struct SpdmMsgHdr {
     version: u8,
