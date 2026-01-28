@@ -38,6 +38,10 @@ impl SpdmTransport for MockTransport {
     fn header_size(&self) -> usize {
         0
     }
+
+    fn init_sequence(&mut self) -> TransportResult<()> {
+        todo!()
+    }
 }
 
 struct MockHash {
