@@ -154,7 +154,7 @@ impl SpdmTransport for MockTransport {
     }
 
     fn header_size(&self) -> usize {
-        todo!()
+        0
     }
 
     fn init_sequence(&mut self) -> crate::platform::transport::TransportResult<()> {

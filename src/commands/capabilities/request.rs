@@ -182,7 +182,6 @@ pub fn generate_capabilities_request_local<'a>(
 
 #[cfg(test)]
 mod tests {
-
     use super::*;
     use crate::{
         protocol::{CapabilityFlags, MAX_MCTP_SPDM_MSG_SIZE},
@@ -223,5 +222,105 @@ mod tests {
 
         handle_capabilities_response(&mut context, header, &mut msg)
             .expect("Failed to handle capabilities response");
+    }
+
+    #[test]
+    fn test_handle_capabilities_response_error_cases() {
+        let versions = versions_default();
+        let mut stack = MockResources::new();
+        let algorithms = crate::protocol::LocalDeviceAlgorithms::default();
+        let mut context = create_context(&mut stack, &versions, algorithms);
+
+        context
+            .state
+            .connection_info
+            .set_version_number(SpdmVersion::V13);
+        context
+            .state
+            .connection_info
+            .set_state(crate::state::ConnectionState::AfterVersion);
+
+        let header = SpdmMsgHdr::new(SpdmVersion::V13, crate::protocol::ReqRespCode::Capabilities);
+
+        // Encode invalid MEAS_CAP flag
+        let mut msg_buf = [0; MAX_MCTP_SPDM_MSG_SIZE];
+        let cap_base = GetCapabilitiesBase::default();
+        let mut cap_flags = CapabilityFlags::default();
+        cap_flags.set_meas_cap(0b11); // 0x11 is reserved
+        let cap_12 = GetCapabilitiesV12::default();
+        let mut msg = prepare_response(&mut msg_buf, cap_base, cap_flags, 10, cap_12);
+
+        let res = handle_capabilities_response(&mut context, header.clone(), &mut msg);
+        if let Err((_, e)) = res {
+            assert_eq!(
+                e,
+                CommandError::ErrorCode(ErrorCode::InvalidPolicy),
+                "Expected invalid policy error, got {e:?}"
+            );
+        } else {
+            panic!("Expected invalid policy error, got OK(())")
+        }
+
+        // Test invalid v1.2 fields
+        let mut msg_buf = [0; MAX_MCTP_SPDM_MSG_SIZE];
+        let cap_base = GetCapabilitiesBase::default();
+        let cap_flags = CapabilityFlags::default();
+        let cap_12 = GetCapabilitiesV12 {
+            data_transfer_size: crate::protocol::MIN_DATA_TRANSFER_SIZE_V12 - 1,
+            max_spdm_msg_size: crate::protocol::MIN_DATA_TRANSFER_SIZE_V12,
+        };
+        let mut msg = prepare_response(&mut msg_buf, cap_base, cap_flags, 10, cap_12);
+
+        let res = handle_capabilities_response(&mut context, header.clone(), &mut msg);
+        if let Err((_, e)) = res {
+            assert_eq!(
+                e,
+                CommandError::InvalidResponse,
+                "Expected invalid response error, got {e:?}"
+            );
+        } else {
+            panic!("Expected invalid response error, got OK(())")
+        }
+
+        let mut msg_buf = [0; MAX_MCTP_SPDM_MSG_SIZE];
+        let cap_base = GetCapabilitiesBase::default();
+        let cap_flags = CapabilityFlags::default();
+        let cap_12 = GetCapabilitiesV12 {
+            data_transfer_size: crate::protocol::MIN_DATA_TRANSFER_SIZE_V12,
+            max_spdm_msg_size: crate::protocol::MIN_DATA_TRANSFER_SIZE_V12 - 1,
+        };
+        let mut msg = prepare_response(&mut msg_buf, cap_base, cap_flags, 10, cap_12);
+
+        let res = handle_capabilities_response(&mut context, header, &mut msg);
+        if let Err((_, e)) = res {
+            assert_eq!(
+                e,
+                CommandError::InvalidResponse,
+                "Expected invalid response error, got {e:?}"
+            );
+        } else {
+            panic!("Expected invalid response error, got OK(())")
+        }
+    }
+
+    fn prepare_response<'a>(
+        buf: &'a mut [u8],
+        cap_base: GetCapabilitiesBase,
+        cap_flags: CapabilityFlags,
+        ct_exp: u8,
+        cap_12: GetCapabilitiesV12,
+    ) -> MessageBuf<'a> {
+        let mut msg = MessageBuf::new(buf);
+        let mut len = 0;
+
+        len += cap_base.encode(&mut msg).unwrap();
+        len += GetCapabilitiesV11::new(ct_exp, cap_flags)
+            .encode(&mut msg)
+            .unwrap();
+        len += cap_12.encode(&mut msg).unwrap();
+
+        msg.push_data(len).unwrap();
+
+        msg
     }
 }
