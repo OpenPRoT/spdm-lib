@@ -28,6 +28,7 @@ use spdm_lib::commands::algorithms::{
     request::generate_negotiate_algorithms_request, AlgStructure, AlgType, ExtendedAlgo, RegistryId,
 };
 use spdm_lib::commands::capabilities::request::generate_capabilities_request_local;
+use spdm_lib::commands::digests::request::generate_digest_request;
 use spdm_lib::commands::version::{request::generate_get_version, VersionReqPayload};
 
 /// Responder configuration
@@ -118,7 +119,7 @@ fn create_local_algorithms<'a>() -> LocalDeviceAlgorithms<'a> {
 
 // Perform a VCS flow (Version, Capabilities, Algorithms)
 // using the real SPDM library processing with platform implementations.
-fn vca_flow(stream: TcpStream, config: &RequesterConfig) -> IoResult<()> {
+fn full_flow(stream: TcpStream, config: &RequesterConfig) -> IoResult<()> {
     let mut transport = SpdmSocketTransport::new(
         stream,
         platform::socket_transport::SocketTransportType::None,
@@ -306,6 +307,26 @@ fn vca_flow(stream: TcpStream, config: &RequesterConfig) -> IoResult<()> {
         println!("ALGORITHMS: {:x?}", &message_buffer.message_data());
     }
 
+    println!("SPDM VCA flow completed successfully");
+
+    message_buffer.reset();
+    generate_digest_request(&mut spdm_context, &mut message_buffer).unwrap();
+    spdm_context
+        .requester_send_request(&mut message_buffer, EID)
+        .unwrap();
+
+    if config.verbose {
+        println!("GET_DIGESTS: {:x?}", &message_buffer.message_data());
+    }
+
+    spdm_context
+        .requester_process_message(&mut message_buffer)
+        .unwrap();
+
+    if config.verbose {
+        println!("DIGESTS: {:x?}", &message_buffer.message_data());
+    }
+
     Ok(())
 }
 
@@ -470,7 +491,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     // Handle client with real SPDM processing using platform implementations
-    vca_flow(stream, &config)?;
+    full_flow(stream, &config)?;
 
     Ok(())
 }

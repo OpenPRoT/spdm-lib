@@ -5,12 +5,14 @@ use crate::cert_store::*;
 use crate::chunk_ctx::LargeResponseCtx;
 use crate::codec::{Codec, MessageBuf};
 use crate::commands::capabilities::handle_capabilities_response;
+use crate::commands::digests::{handle_digests_response, handle_get_digests};
 use crate::commands::error_rsp::{encode_error_response, ErrorCode};
 use crate::commands::version::handle_version_response;
 use crate::commands::{
-    algorithms, capabilities, certificate_rsp, challenge_auth_rsp, chunk_get_rsp, digests_rsp,
-    measurements_rsp, version,
+    algorithms, capabilities, certificate_rsp, challenge_auth_rsp, chunk_get_rsp, measurements_rsp,
+    version,
 };
+
 use crate::error::*;
 use crate::measurements::common::SpdmMeasurements;
 use crate::platform::evidence::SpdmEvidence;
@@ -169,7 +171,7 @@ impl<'a> SpdmContext<'a> {
             ReqRespCode::NegotiateAlgorithms => {
                 algorithms::handle_negotiate_algorithms(self, req_msg_header, req)?
             }
-            ReqRespCode::GetDigests => digests_rsp::handle_get_digests(self, req_msg_header, req)?,
+            ReqRespCode::GetDigests => handle_get_digests(self, req_msg_header, req)?,
             ReqRespCode::GetCertificate => {
                 certificate_rsp::handle_get_certificate(self, req_msg_header, req)?
             }
@@ -214,6 +216,7 @@ impl<'a> SpdmContext<'a> {
             ReqRespCode::Algorithms => {
                 algorithms::handle_algorithms_response(self, resp_msg_header, resp)?
             }
+            ReqRespCode::Digests => handle_digests_response(self, resp_msg_header, resp)?,
             _ => Err((false, CommandError::UnsupportedResponse))?,
         }
 

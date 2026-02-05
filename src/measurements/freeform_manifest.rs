@@ -150,7 +150,7 @@ impl FreeformManifest {
 
         let copied_len = evidence
             .pcr_quote(quote_slice, with_pqc_sig)
-            .map_err(|e| MeasurementsError::Evidence(e))?;
+            .map_err(MeasurementsError::Evidence)?;
         if copied_len != measurement_value_size {
             return Err(MeasurementsError::MeasurementSizeMismatch);
         }
