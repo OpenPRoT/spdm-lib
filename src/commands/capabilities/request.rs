@@ -87,7 +87,11 @@ pub(crate) fn handle_capabilities_response<'a>(
         .connection_info
         .set_peer_capabilities(peer_capabilities);
 
-    Ok(())
+    ctx.state
+        .connection_info
+        .set_state(crate::state::ConnectionState::AfterCapabilities);
+
+    ctx.append_message_to_transcript(resp, TranscriptContext::Vca)
 }
 
 /// Generate the GET_CAPABILITIES command with all the contexts information.
