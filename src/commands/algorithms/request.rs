@@ -120,7 +120,6 @@ pub fn handle_algorithms_response<'a>(
         let alg_struct = AlgStructure::decode(resp).map_err(|e| (true, CommandError::Codec(e)))?;
 
         // For each struct table, we need to decode the variable length fields.
-        // TODO: add them to state?
         for _ in 0..alg_struct.ext_alg_count() {
             let ext_algo =
                 ExtendedAlgo::decode(resp).map_err(|e| (true, CommandError::Codec(e)))?;
@@ -267,7 +266,7 @@ pub fn generate_negotiate_algorithms_request<'a>(
         }
     }
 
-    Ok(())
+    ctx.append_message_to_transcript(req_buf, crate::transcript::TranscriptContext::Vca)
 }
 
 #[cfg(test)]
