@@ -2,7 +2,7 @@
 use crate::cert_store::MAX_CERT_SLOTS_SUPPORTED;
 use crate::codec::{Codec, CommonCodec, MessageBuf};
 use crate::commands::algorithms::selected_measurement_specification;
-use crate::commands::digests_rsp::compute_cert_chain_hash;
+use crate::commands::digests::compute_cert_chain_hash;
 use crate::commands::error_rsp::ErrorCode;
 use crate::context::SpdmContext;
 use crate::error::{CommandError, CommandResult, PlatformError};
