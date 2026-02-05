@@ -37,8 +37,7 @@ pub fn generate_get_version<'a>(
         .push_data(len)
         .map_err(|_| (false, CommandError::BufferTooSmall))?;
 
-    ctx.append_message_to_transcript(req_buf, TranscriptContext::Vca)?;
-    Ok(())
+    ctx.append_message_to_transcript(req_buf, TranscriptContext::Vca)
 }
 
 /// Requester function for processing a VERSION response
