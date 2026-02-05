@@ -5,7 +5,7 @@ pub mod capabilities;
 pub mod certificate_rsp;
 pub mod challenge_auth_rsp;
 pub mod chunk_get_rsp;
-pub mod digests_rsp;
+pub mod digests;
 pub mod error_rsp;
 pub mod measurements_rsp;
 pub mod version;
