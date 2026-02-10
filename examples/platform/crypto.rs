@@ -1,13 +1,13 @@
 // Licensed under the Apache-2.0 license
 
 //! Cryptographic Platform Implementation
-//! 
+//!
 //! Provides SHA-384 hash and system RNG implementations
 
 #[cfg(feature = "crypto")]
-use sha2::{Sha384, Digest};
+use sha2::{Digest, Sha384};
 
-use spdm_lib::platform::hash::{SpdmHash, SpdmHashAlgoType, SpdmHashResult, SpdmHashError};
+use spdm_lib::platform::hash::{SpdmHash, SpdmHashAlgoType, SpdmHashError, SpdmHashResult};
 use spdm_lib::platform::rng::{SpdmRng, SpdmRngResult};
 
 /// SHA-384 hash implementation using proper cryptography
@@ -28,15 +28,20 @@ impl Sha384Hash {
 }
 
 impl SpdmHash for Sha384Hash {
-    fn hash(&mut self, hash_algo: SpdmHashAlgoType, data: &[u8], hash: &mut [u8]) -> SpdmHashResult<()> {
+    fn hash(
+        &mut self,
+        hash_algo: SpdmHashAlgoType,
+        data: &[u8],
+        hash: &mut [u8],
+    ) -> SpdmHashResult<()> {
         if hash_algo != SpdmHashAlgoType::SHA384 {
             return Err(SpdmHashError::InvalidAlgorithm);
         }
-        
+
         if hash.len() < 48 {
             return Err(SpdmHashError::BufferTooSmall);
         }
-        
+
         #[cfg(feature = "crypto")]
         {
             let mut hasher = Sha384::new();
@@ -45,7 +50,7 @@ impl SpdmHash for Sha384Hash {
             hash[..48].copy_from_slice(&result[..]);
             Ok(())
         }
-        
+
         #[cfg(not(feature = "crypto"))]
         {
             // Fallback for demo purposes when crypto feature is not enabled
@@ -61,7 +66,7 @@ impl SpdmHash for Sha384Hash {
             return Err(SpdmHashError::InvalidAlgorithm);
         }
         self.current_algo = hash_algo;
-        
+
         #[cfg(feature = "crypto")]
         {
             let mut hasher = Sha384::new();
@@ -70,7 +75,7 @@ impl SpdmHash for Sha384Hash {
             }
             self.hasher = Some(hasher);
         }
-        
+
         Ok(())
     }
 
@@ -83,7 +88,7 @@ impl SpdmHash for Sha384Hash {
                 return Err(SpdmHashError::PlatformError);
             }
         }
-        
+
         Ok(())
     }
 
@@ -91,7 +96,7 @@ impl SpdmHash for Sha384Hash {
         if hash.len() < 48 {
             return Err(SpdmHashError::BufferTooSmall);
         }
-        
+
         #[cfg(feature = "crypto")]
         {
             if let Some(hasher) = self.hasher.take() {
@@ -101,13 +106,13 @@ impl SpdmHash for Sha384Hash {
                 return Err(SpdmHashError::PlatformError);
             }
         }
-        
+
         #[cfg(not(feature = "crypto"))]
         {
             // Fallback for demo
             hash[..48].fill(0x42);
         }
-        
+
         Ok(())
     }
 

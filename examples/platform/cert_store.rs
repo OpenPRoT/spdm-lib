@@ -1,23 +1,21 @@
 // Licensed under the Apache-2.0 license
 
 //! Certificate Store Platform Implementation
-//! 
+//!
 //! Provides certificate management using static certificates with ECDSA signing
 
 use std::sync::Mutex;
 
 #[cfg(feature = "crypto")]
 use p384::{
-    ecdsa::{SigningKey, Signature, signature::hazmat::PrehashSigner}, 
-    SecretKey
+    ecdsa::{signature::hazmat::PrehashSigner, Signature, SigningKey},
+    SecretKey,
 };
 
-
-
-use spdm_lib::cert_store::{SpdmCertStore, CertStoreResult, CertStoreError};
+use super::certs::{STATIC_ATTESTATION_CERT, STATIC_ROOT_CA_CERT};
+use spdm_lib::cert_store::{CertStoreError, CertStoreResult, SpdmCertStore};
 use spdm_lib::protocol::algorithms::{AsymAlgo, ECC_P384_SIGNATURE_SIZE, SHA384_HASH_SIZE};
 use spdm_lib::protocol::certs::{CertificateInfo, KeyUsageMask};
-use super::certs::{STATIC_ROOT_CA_CERT, STATIC_ATTESTATION_CERT, ATTESTATION_PRIVATE_KEY};
 
 /// Certificate store with proper ECDSA signing
 pub struct DemoCertStore {
@@ -33,13 +31,13 @@ impl DemoCertStore {
             println!("Loading static certificate chain...");
             let (cert_chain, signing_key) = Self::generate_certificate_chain();
             println!("Static certificate chain loaded successfully");
-            
+
             Self {
                 cert_chain,
                 signing_key: Mutex::new(Some(signing_key)),
             }
         }
-        
+
         #[cfg(not(feature = "crypto"))]
         {
             // Fallback for when crypto feature is not enabled
@@ -50,26 +48,35 @@ impl DemoCertStore {
 
     #[cfg(feature = "crypto")]
     fn generate_certificate_chain() -> (Vec<u8>, SigningKey) {
+        use crate::platform::certs::ATTESTATION_PRIVATE_KEY;
+
         println!("🔧 DIRECT CERTIFICATE CHAIN - RAW CONCATENATION");
-        
+
         // SIMPLE APPROACH: Just concatenate Root CA + Attestation certificates
         // Let the SPDM library handle its own formatting
         let mut cert_chain = Vec::new();
         cert_chain.extend_from_slice(STATIC_ROOT_CA_CERT);
         cert_chain.extend_from_slice(STATIC_ATTESTATION_CERT);
-        
-        println!("  ✅ Raw certificates: Root({}) + Attestation({})", STATIC_ROOT_CA_CERT.len(), STATIC_ATTESTATION_CERT.len());
+
+        println!(
+            "  ✅ Raw certificates: Root({}) + Attestation({})",
+            STATIC_ROOT_CA_CERT.len(),
+            STATIC_ATTESTATION_CERT.len()
+        );
         println!("  Total length: {} bytes", cert_chain.len());
         println!("  Root starts: {:02x?}", &cert_chain[..4]);
-        println!("  Attestation starts: {:02x?}", &cert_chain[STATIC_ROOT_CA_CERT.len()..STATIC_ROOT_CA_CERT.len()+4]);
+        println!(
+            "  Attestation starts: {:02x?}",
+            &cert_chain[STATIC_ROOT_CA_CERT.len()..STATIC_ROOT_CA_CERT.len() + 4]
+        );
 
         let secret_key = SecretKey::from_bytes(ATTESTATION_PRIVATE_KEY.into())
             .expect("Failed to parse secret key from static data");
-        
+
         let attestation_key = SigningKey::from(secret_key);
 
         println!("🔑 Static attestation signing key loaded");
-        
+
         (cert_chain, attestation_key)
     }
 
@@ -79,15 +86,15 @@ impl DemoCertStore {
         if cert_chain.len() < 2 {
             return None;
         }
-        
+
         let mut offset = 0;
-        
+
         // Check for SEQUENCE tag (0x30)
         if cert_chain[offset] != 0x30 {
             return None;
         }
         offset += 1;
-        
+
         // Parse length and calculate total certificate size
         let (content_length, header_size) = if cert_chain[offset] & 0x80 == 0 {
             // Short form length (0-127)
@@ -101,26 +108,26 @@ impl DemoCertStore {
                 return None;
             }
             offset += 1;
-            
+
             if offset + length_octets > cert_chain.len() {
                 return None;
             }
-            
+
             let mut content_len = 0;
             for i in 0..length_octets {
                 content_len = (content_len << 8) | cert_chain[offset + i] as usize;
             }
-            
+
             let header_len = 2 + length_octets; // tag + length indicator + length bytes
             (content_len, header_len)
         };
-        
+
         let total_cert_size = header_size + content_length;
-        
+
         if total_cert_size > cert_chain.len() {
             return None;
         }
-        
+
         Some(&cert_chain[0..total_cert_size])
     }
 }
@@ -161,7 +168,7 @@ impl SpdmCertStore for DemoCertStore {
         let copy_len = remaining.min(cert_portion.len());
 
         cert_portion[..copy_len].copy_from_slice(&self.cert_chain[offset..offset + copy_len]);
-      //  println!("  Cert Chain Copy: {:02x?}", &cert_portion[..copy_len]);
+        //  println!("  Cert Chain Copy: {:02x?}", &cert_portion[..copy_len]);
         Ok(copy_len)
     }
 
@@ -177,20 +184,23 @@ impl SpdmCertStore for DemoCertStore {
 
         #[cfg(feature = "crypto")]
         {
-            use sha2::{Sha384, Digest};
+            use sha2::{Digest, Sha384};
             // Calculate proper SHA-384 hash of the root certificate
             let mut hasher = Sha384::new();
             hasher.update(STATIC_ROOT_CA_CERT);
             let hash_result = hasher.finalize();
             cert_hash.copy_from_slice(&hash_result);
-           // println!("  Fabrizio Root Hash starts: {:02x?}", &cert_hash[..4]);
+            // println!("  Fabrizio Root Hash starts: {:02x?}", &cert_hash[..4]);
         }
-        
+
         #[cfg(not(feature = "crypto"))]
         {
             // Fallback for when crypto feature is not enabled
             for (i, byte) in cert_hash.iter_mut().enumerate() {
-                *byte = STATIC_ROOT_CA_CERT.get(i % STATIC_ROOT_CA_CERT.len()).copied().unwrap_or(0);
+                *byte = STATIC_ROOT_CA_CERT
+                    .get(i % STATIC_ROOT_CA_CERT.len())
+                    .copied()
+                    .unwrap_or(0);
             }
         }
 
@@ -211,9 +221,8 @@ impl SpdmCertStore for DemoCertStore {
         {
             if let Ok(signing_key_guard) = self.signing_key.lock() {
                 if let Some(ref signing_key) = *signing_key_guard {
-                  
                     let sig: Signature = signing_key.sign_prehash(hash).unwrap();
-                    
+
                     let sig_bytes = sig.to_bytes();
                     if sig_bytes.len() <= ECC_P384_SIGNATURE_SIZE {
                         signature[..sig_bytes.len()].copy_from_slice(&sig_bytes);
@@ -224,7 +233,7 @@ impl SpdmCertStore for DemoCertStore {
             }
             Err(CertStoreError::PlatformError)
         }
-        
+
         #[cfg(not(feature = "crypto"))]
         {
             // Fallback for demo without crypto
@@ -236,7 +245,11 @@ impl SpdmCertStore for DemoCertStore {
     }
 
     fn key_pair_id(&self, slot_id: u8) -> Option<u8> {
-        if slot_id == 0 { Some(1) } else { None }
+        if slot_id == 0 {
+            Some(1)
+        } else {
+            None
+        }
     }
 
     fn cert_info(&self, slot_id: u8) -> Option<CertificateInfo> {
@@ -265,22 +278,22 @@ impl SpdmCertStore for DemoCertStore {
 #[test]
 fn test_signing() {
     use p384::ecdsa::signature::SignatureEncoding;
-    
+
     // Create a known private key
     let private_key_bytes = ATTESTATION_PRIVATE_KEY.to_vec();
     let secret_key = SecretKey::from_bytes((&private_key_bytes[..]).into()).unwrap();
     let signing_key = SigningKey::from(secret_key);
-    
+
     // Your input
     let input = hex::decode("32ac91a55d17db5e537448789486c633ecba4cd49185d0933f3d6561573fb68931f88bef4dc6ef20602df7dbeb51086b").unwrap();
-    
+
     // Test 1: Sign directly
     let sig_direct: Signature = signing_key.sign(&input);
     println!("Direct signature:");
     let sig_bytes = sig_direct.to_bytes();
     println!("  R: {}", hex::encode(&sig_bytes[..48]));
     println!("  S: {}", hex::encode(&sig_bytes[48..]));
-    
+
     // Test 2: Hash then sign
     let digest = Sha384::digest(&input);
     let sig_hashed: Signature = signing_key.sign(&digest[..]);
@@ -293,23 +306,23 @@ fn test_signing() {
 #[cfg(all(test, feature = "crypto"))]
 #[test]
 fn debug_signing_verification() {
-    use p384::ecdsa::signature::SignatureEncoding;
     use hex;
-    
+    use p384::ecdsa::signature::SignatureEncoding;
+
     // Your test data
     let input_hex = "32ac91a55d17db5e537448789486c633ecba4cd49185d0933f3d6561573fb68931f88bef4dc6ef20602df7dbeb51086b";
     let input = hex::decode(input_hex).unwrap();
-    
+
     // Create signing key
     let private_key_bytes = ATTESTATION_PRIVATE_KEY.to_vec();
     let secret_key = SecretKey::from_bytes((&private_key_bytes[..]).into()).unwrap();
     let signing_key = SigningKey::from(secret_key);
-    
+
     // Get public key
     let verifying_key = signing_key.verifying_key();
     let public_point = verifying_key.to_encoded_point(false);
     println!("Public key: {}", hex::encode(public_point.as_bytes()));
-    
+
     // Test 1: Sign directly
     println!("\n=== Test 1: Direct signing ===");
     let sig1: Signature = signing_key.sign(&input);
@@ -317,11 +330,11 @@ fn debug_signing_verification() {
     println!("Input: {}", input_hex);
     println!("Signature R: {}", hex::encode(&sig1_bytes[..48]));
     println!("Signature S: {}", hex::encode(&sig1_bytes[48..]));
-    
+
     // Verify with Rust
     let verify_result = verifying_key.verify(&input, &sig1);
     println!("Rust verification: {:?}", verify_result);
-    
+
     // Test 2: Hash then sign
     println!("\n=== Test 2: Hash then sign ===");
     let hashed = Sha384::digest(&input);
@@ -330,11 +343,11 @@ fn debug_signing_verification() {
     let sig2_bytes = sig2.to_bytes();
     println!("Signature R: {}", hex::encode(&sig2_bytes[..48]));
     println!("Signature S: {}", hex::encode(&sig2_bytes[48..]));
-    
+
     // Verify with Rust
     let verify_result2 = verifying_key.verify(&hashed, &sig2);
     println!("Rust verification of hashed: {:?}", verify_result2);
-    
+
     // Test 3: What Python expects
     println!("\n=== For Python Testing ===");
     println!("# Test direct signature");
@@ -344,7 +357,10 @@ fn debug_signing_verification() {
     println!("import binascii");
     println!();
     println!(r#"data = binascii.unhexlify("{}")"#, input_hex);
-    println!(r#"pubkey = binascii.unhexlify("{}")"#, hex::encode(public_point.as_bytes()));
+    println!(
+        r#"pubkey = binascii.unhexlify("{}")"#,
+        hex::encode(public_point.as_bytes())
+    );
     println!(r#"r1 = int("{}", 16)"#, hex::encode(&sig1_bytes[..48]));
     println!(r#"s1 = int("{}", 16)"#, hex::encode(&sig1_bytes[48..]));
     println!();

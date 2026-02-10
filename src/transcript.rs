@@ -1,7 +1,7 @@
 // Licensed under the Apache-2.0 license
 
-use crate::protocol::{SpdmVersion, SHA384_HASH_SIZE};
 use crate::platform::hash::{SpdmHash, SpdmHashError};
+use crate::protocol::{SpdmVersion, SHA384_HASH_SIZE};
 
 #[derive(Debug, PartialEq)]
 pub enum TranscriptError {
@@ -82,7 +82,7 @@ impl<'a> TranscriptManager<'a> {
             hash_ctx_m1: m1,
             m1_ctx_ready: false,
             hash_ctx_l1: l1,
-            l1_ctx_ready: false
+            l1_ctx_ready: false,
         }
     }
 
@@ -114,8 +114,14 @@ impl<'a> TranscriptManager<'a> {
     pub fn reset_context(&mut self, context: TranscriptContext) {
         match context {
             TranscriptContext::Vca => self.vca_buf.reset(),
-            TranscriptContext::M1 => { self.hash_ctx_m1.reset(); self.m1_ctx_ready = false; },
-            TranscriptContext::L1 => { self.hash_ctx_l1.reset(); self.l1_ctx_ready = false; },
+            TranscriptContext::M1 => {
+                self.hash_ctx_m1.reset();
+                self.m1_ctx_ready = false;
+            }
+            TranscriptContext::L1 => {
+                self.hash_ctx_l1.reset();
+                self.l1_ctx_ready = false;
+            }
         }
     }
 
@@ -127,11 +133,7 @@ impl<'a> TranscriptManager<'a> {
     ///
     /// # Returns
     /// * `TranscriptResult<()>` - Result indicating success or failure.
-    pub fn append(
-        &mut self,
-        context: TranscriptContext,
-        data: &[u8],
-    ) -> TranscriptResult<()> {
+    pub fn append(&mut self, context: TranscriptContext, data: &[u8]) -> TranscriptResult<()> {
         match context {
             TranscriptContext::Vca => self.vca_buf.append(data),
             TranscriptContext::M1 => self.append_m1(data),
@@ -158,11 +160,19 @@ impl<'a> TranscriptManager<'a> {
             TranscriptContext::L1 => &mut self.hash_ctx_l1,
         };
 
-        hash_ctx.finalize(hash).map_err(|e| TranscriptError::Hash(e))?;
+        hash_ctx
+            .finalize(hash)
+            .map_err(|e| TranscriptError::Hash(e))?;
 
         match context {
-            TranscriptContext::M1 =>  {self.hash_ctx_m1.reset(); self.m1_ctx_ready = false; },
-            TranscriptContext::L1 => {self.hash_ctx_l1.reset(); self.l1_ctx_ready = false; },
+            TranscriptContext::M1 => {
+                self.hash_ctx_m1.reset();
+                self.m1_ctx_ready = false;
+            }
+            TranscriptContext::L1 => {
+                self.hash_ctx_l1.reset();
+                self.l1_ctx_ready = false;
+            }
             _ => {}
         }
 
@@ -171,11 +181,17 @@ impl<'a> TranscriptManager<'a> {
 
     fn append_m1(&mut self, data: &[u8]) -> TranscriptResult<()> {
         if self.m1_ctx_ready {
-            self.hash_ctx_m1.update(data).map_err(|e| TranscriptError::Hash(e))
+            self.hash_ctx_m1
+                .update(data)
+                .map_err(|e| TranscriptError::Hash(e))
         } else {
             let vca_data = self.vca_buf.data();
-            self.hash_ctx_m1.init(self.hash_ctx_m1.algo(), Some(vca_data)).map_err(|e| TranscriptError::Hash(e))?;
-            self.hash_ctx_m1.update(data).map_err(|e| TranscriptError::Hash(e))?;
+            self.hash_ctx_m1
+                .init(self.hash_ctx_m1.algo(), Some(vca_data))
+                .map_err(|e| TranscriptError::Hash(e))?;
+            self.hash_ctx_m1
+                .update(data)
+                .map_err(|e| TranscriptError::Hash(e))?;
             self.m1_ctx_ready = true;
             Ok(())
         }
@@ -183,15 +199,21 @@ impl<'a> TranscriptManager<'a> {
 
     fn append_l1(&mut self, spdm_version: SpdmVersion, data: &[u8]) -> TranscriptResult<()> {
         if self.l1_ctx_ready {
-            self.hash_ctx_l1.update(data).map_err(|e| TranscriptError::Hash(e))
+            self.hash_ctx_l1
+                .update(data)
+                .map_err(|e| TranscriptError::Hash(e))
         } else {
             let vca_data = if spdm_version >= SpdmVersion::V12 {
                 Some(self.vca_buf.data())
             } else {
                 None
             };
-            self.hash_ctx_l1.init(self.hash_ctx_l1.algo(), vca_data).map_err(|e| TranscriptError::Hash(e))?;
-            self.hash_ctx_l1.update(data).map_err(|e| TranscriptError::Hash(e))?;
+            self.hash_ctx_l1
+                .init(self.hash_ctx_l1.algo(), vca_data)
+                .map_err(|e| TranscriptError::Hash(e))?;
+            self.hash_ctx_l1
+                .update(data)
+                .map_err(|e| TranscriptError::Hash(e))?;
 
             self.l1_ctx_ready = true;
             Ok(())

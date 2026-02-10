@@ -1,13 +1,18 @@
 pub type SpdmHashResult<T> = Result<T, SpdmHashError>;
 
 pub trait SpdmHash {
-    fn hash(&mut self, hash_algo: SpdmHashAlgoType, data: &[u8], hash: &mut [u8]) -> SpdmHashResult<()>;
+    fn hash(
+        &mut self,
+        hash_algo: SpdmHashAlgoType,
+        data: &[u8],
+        hash: &mut [u8],
+    ) -> SpdmHashResult<()>;
     fn init(&mut self, hash_algo: SpdmHashAlgoType, data: Option<&[u8]>) -> SpdmHashResult<()>;
     fn update(&mut self, data: &[u8]) -> SpdmHashResult<()>;
     fn finalize(&mut self, hash: &mut [u8]) -> SpdmHashResult<()>;
 
     fn reset(&mut self);
-    fn algo(&self) -> SpdmHashAlgoType;  
+    fn algo(&self) -> SpdmHashAlgoType;
 }
 
 #[derive(Debug, PartialEq)]

@@ -160,17 +160,16 @@ fn encode_chunk_data(
         match response {
             LargeResponse::Measurements(meas_rsp) => {
                 // Get the chunk data from the measurements response
-                meas_rsp
-                    .get_chunk(
-                        ctx.hash,
-                        ctx.rng,
-                        ctx.evidence,
-                        &mut ctx.measurements,
-                        &mut ctx.transcript_mgr,
-                        ctx.device_certs_store,
-                        offset,
-                        chunk_buf,
-                    )?;
+                meas_rsp.get_chunk(
+                    ctx.hash,
+                    ctx.rng,
+                    ctx.evidence,
+                    &mut ctx.measurements,
+                    &mut ctx.transcript_mgr,
+                    ctx.device_certs_store,
+                    offset,
+                    chunk_buf,
+                )?;
             }
         }
     } else {

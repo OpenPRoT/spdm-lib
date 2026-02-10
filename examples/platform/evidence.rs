@@ -1,7 +1,7 @@
 // Licensed under the Apache-2.0 license
 
 //! Evidence Platform Implementation
-//! 
+//!
 //! Provides device measurements and evidence functionality
 
 use spdm_lib::platform::evidence::{SpdmEvidence, SpdmEvidenceResult};

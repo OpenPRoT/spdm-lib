@@ -1,8 +1,8 @@
 // Licensed under the Apache-2.0 license
 use crate::measurements::freeform_manifest::FreeformManifest;
-use crate::protocol::{algorithms::AsymAlgo, MeasurementSpecification, SHA384_HASH_SIZE};
-use crate::platform::hash::{SpdmHash, SpdmHashError};
 use crate::platform::evidence::{SpdmEvidence, SpdmEvidenceError};
+use crate::platform::hash::{SpdmHash, SpdmHashError};
+use crate::protocol::{algorithms::AsymAlgo, MeasurementSpecification, SHA384_HASH_SIZE};
 use bitfield::bitfield;
 use zerocopy::{FromBytes, Immutable, IntoBytes};
 
@@ -102,9 +102,14 @@ impl SpdmMeasurements {
         measurement_chunk: &mut [u8],
     ) -> MeasurementsResult<usize> {
         match self {
-            SpdmMeasurements::FreeformManifest(manifest) => {
-                manifest.measurement_block(evidence, asym_algo, index, raw_bit_stream, offset, measurement_chunk)
-            }
+            SpdmMeasurements::FreeformManifest(manifest) => manifest.measurement_block(
+                evidence,
+                asym_algo,
+                index,
+                raw_bit_stream,
+                offset,
+                measurement_chunk,
+            ),
         }
     }
 
@@ -129,9 +134,13 @@ impl SpdmMeasurements {
         hash: &mut [u8; SHA384_HASH_SIZE],
     ) -> MeasurementsResult<()> {
         match self {
-            SpdmMeasurements::FreeformManifest(manifest) => {
-                manifest.measurement_summary_hash(evidence, hash_ctx, asym_algo, measurement_summary_hash_type, hash)
-            }
+            SpdmMeasurements::FreeformManifest(manifest) => manifest.measurement_summary_hash(
+                evidence,
+                hash_ctx,
+                asym_algo,
+                measurement_summary_hash_type,
+                hash,
+            ),
         }
     }
 }
