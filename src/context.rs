@@ -9,7 +9,7 @@ use crate::commands::digests::{handle_digests_response, handle_get_digests};
 use crate::commands::error_rsp::{encode_error_response, ErrorCode};
 use crate::commands::version::handle_version_response;
 use crate::commands::{
-    algorithms, capabilities, certificate_rsp, challenge_auth_rsp, chunk_get_rsp, measurements_rsp,
+    algorithms, capabilities, certificate, challenge_auth_rsp, chunk_get_rsp, measurements_rsp,
     version,
 };
 
@@ -173,7 +173,7 @@ impl<'a> SpdmContext<'a> {
             }
             ReqRespCode::GetDigests => handle_get_digests(self, req_msg_header, req)?,
             ReqRespCode::GetCertificate => {
-                certificate_rsp::handle_get_certificate(self, req_msg_header, req)?
+                certificate::handle_get_certificate(self, req_msg_header, req)?
             }
             ReqRespCode::Challenge => {
                 challenge_auth_rsp::handle_challenge(self, req_msg_header, req)?
@@ -217,6 +217,10 @@ impl<'a> SpdmContext<'a> {
                 algorithms::handle_algorithms_response(self, resp_msg_header, resp)?
             }
             ReqRespCode::Digests => handle_digests_response(self, resp_msg_header, resp)?,
+            // TODO: Implement certificate response handler
+            // ReqRespCode::Certificate => {
+            //     certificate::handle_certificate_response(self, resp_msg_header, resp)?
+            // }
             _ => Err((false, CommandError::UnsupportedResponse))?,
         }
 
