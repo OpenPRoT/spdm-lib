@@ -1,9 +1,12 @@
 // Licensed under the Apache-2.0 license
 
-use crate::codec::MessageBuf;
+use crate::codec::{Codec, MessageBuf};
+use crate::commands::certificate::{CertificateReqAttributes, GetCertificateReq, SlotId};
 use crate::context::SpdmContext;
-use crate::error::CommandResult;
-use crate::protocol::SpdmMsgHdr;
+use crate::error::{CommandError, CommandResult};
+use crate::protocol::{ReqRespCode, SpdmMsgHdr};
+use crate::state::ConnectionState;
+use crate::transcript::TranscriptContext;
 
 /// Generate the GET_CERTIFICATE request
 ///
@@ -13,24 +16,72 @@ use crate::protocol::SpdmMsgHdr;
 /// * `slot_id`: Certificate slot identifier (0-7)
 /// * `offset`: Byte offset into the certificate chain
 /// * `length`: Number of bytes to request
+/// * `slot_size_requested`: If true, request the slot size instead of certificate data (SPDM v1.3+)
 ///
 /// # Returns
 /// - () on success
 /// - [CommandError] on failure
 ///
-/// # TODO
-/// Implement GET_CERTIFICATE request generation including:
-/// - Create and encode SpdmMsgHdr with ReqRespCode::GetCertificate
-/// - Create and encode GetCertificateReq payload
-/// - Append to transcript (TranscriptContext::M1)
+/// # Connection State Requirements
+/// - Connection state must be >= AlgorithmsNegotiated
+///
+/// # Transcript
+/// - Appends request to the transcript context
 pub fn generate_get_certificate<'a>(
-    _ctx: &mut SpdmContext<'a>,
-    _req_buf: &mut MessageBuf<'a>,
-    _slot_id: u8,
-    _offset: u16,
-    _length: u16,
+    ctx: &mut SpdmContext<'a>,
+    req_buf: &mut MessageBuf<'a>,
+    slot_id: u8,
+    offset: u16,
+    length: u16,
+    slot_size_requested: bool,
 ) -> CommandResult<()> {
-    todo!("Implement GET_CERTIFICATE request generation")
+    // Validate connection state - algorithms must be negotiated first
+    if ctx.state.connection_info.state() < ConnectionState::AlgorithmsNegotiated {
+        return Err((false, CommandError::UnsupportedRequest));
+    }
+
+    // Get connection version
+    let connection_version = ctx.state.connection_info.version_number();
+
+    // Create and encode SPDM message header
+    let spdm_hdr = SpdmMsgHdr::new(connection_version, ReqRespCode::GetCertificate);
+    let mut payload_len = spdm_hdr
+        .encode(req_buf)
+        .map_err(|e| (false, CommandError::Codec(e)))?;
+
+    // Create SlotId bitfield
+    let mut slot_id_field = SlotId(0);
+    slot_id_field.set_slot_id(slot_id);
+
+    // Create CertificateReqAttributes bitfield
+    let mut req_attributes = CertificateReqAttributes(0);
+    if slot_size_requested {
+        req_attributes.set_slot_size_requested(1);
+    }
+
+    // Create GET_CERTIFICATE request payload
+    let get_cert_req = GetCertificateReq {
+        slot_id: slot_id_field,
+        param2: req_attributes,
+        offset,
+        length,
+    };
+
+    // Encode request payload
+    payload_len += get_cert_req
+        .encode(req_buf)
+        .map_err(|e| (false, CommandError::Codec(e)))?;
+
+    // Finalize message by pushing total payload length
+    req_buf
+        .push_data(payload_len)
+        .map_err(|_| (false, CommandError::BufferTooSmall))?;
+
+    // Append to transcript
+    // (TODO: M1 is incorrect here,
+    // this is a requester functionality so this has to go into M2.
+    // Change this once the TranscriptManager has been refactored.)
+    ctx.append_message_to_transcript(req_buf, TranscriptContext::M1)
 }
 
 /// Process CERTIFICATE response payload (private helper)
@@ -52,7 +103,7 @@ pub fn generate_get_certificate<'a>(
 /// - Extract and store certificate chain portion
 /// - Handle certificate chain metadata if offset is 0
 /// - Track remainder_length for multi-part transfers
-fn process_certificate<'a>(
+fn _process_certificate<'a>(
     _ctx: &mut SpdmContext<'a>,
     _spdm_hdr: SpdmMsgHdr,
     _resp_payload: &mut MessageBuf<'a>,
@@ -77,7 +128,7 @@ fn process_certificate<'a>(
 /// - Call process_certificate to parse and validate response
 /// - Append response to transcript (TranscriptContext::M1)
 /// - Update connection state to AfterCertificate if needed
-pub(crate) fn handle_certificate_response<'a>(
+pub(crate) fn _handle_certificate_response<'a>(
     _ctx: &mut SpdmContext<'a>,
     _resp_header: SpdmMsgHdr,
     _resp: &mut MessageBuf<'a>,
