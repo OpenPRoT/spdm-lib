@@ -1,7 +1,7 @@
 // Licensed under the Apache-2.0 license
 
-use crate::protocol::*;
 use crate::platform::hash::{SpdmHash, SpdmHashError};
+use crate::protocol::*;
 
 pub const NONCE_LEN: usize = 32;
 

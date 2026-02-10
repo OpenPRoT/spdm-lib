@@ -4,9 +4,9 @@ use crate::measurements::common::{
     DmtfMeasurementBlockMetadata, MeasurementValueType, MeasurementsError, MeasurementsResult,
     SPDM_MEASUREMENT_MANIFEST_INDEX,
 };
-use crate::protocol::{algorithms::AsymAlgo, SHA384_HASH_SIZE};
-use crate::platform::hash::SpdmHash;
 use crate::platform::evidence::{SpdmEvidence, PCR_QUOTE_BUFFER_SIZE};
+use crate::platform::hash::SpdmHash;
+use crate::protocol::{algorithms::AsymAlgo, SHA384_HASH_SIZE};
 use zerocopy::IntoBytes;
 
 const MAX_MEASUREMENT_RECORD_SIZE: usize =
@@ -103,23 +103,35 @@ impl FreeformManifest {
 
             if offset == 0 {
                 hash_ctx
-                    .init(hash_ctx.algo(), Some(&self.measurement_record[..chunk_size]))
+                    .init(
+                        hash_ctx.algo(),
+                        Some(&self.measurement_record[..chunk_size]),
+                    )
                     .map_err(|e| MeasurementsError::Hash(e))?;
             } else {
                 let chunk = &self.measurement_record[offset..offset + chunk_size];
-                hash_ctx.update(chunk).map_err(|e| MeasurementsError::Hash(e))?;
+                hash_ctx
+                    .update(chunk)
+                    .map_err(|e| MeasurementsError::Hash(e))?;
             }
 
             offset += chunk_size;
         }
 
-        hash_ctx.finalize(hash).map_err(|e| MeasurementsError::Hash(e))
+        hash_ctx
+            .finalize(hash)
+            .map_err(|e| MeasurementsError::Hash(e))
     }
 
-    fn refresh_measurement_record(&mut self, evidence: &dyn SpdmEvidence, asym_algo: AsymAlgo) -> MeasurementsResult<()> {
+    fn refresh_measurement_record(
+        &mut self,
+        evidence: &dyn SpdmEvidence,
+        asym_algo: AsymAlgo,
+    ) -> MeasurementsResult<()> {
         let with_pqc_sig = asym_algo != AsymAlgo::EccP384;
         let measurement_record = &mut self.measurement_record;
-        let measurement_value_size = evidence.pcr_quote_size(with_pqc_sig)
+        let measurement_value_size = evidence
+            .pcr_quote_size(with_pqc_sig)
             .map_err(|e| MeasurementsError::Evidence(e))?;
         measurement_record.fill(0);
         let metadata = DmtfMeasurementBlockMetadata::new(
@@ -136,8 +148,9 @@ impl FreeformManifest {
         let quote_slice =
             &mut measurement_record[METADATA_SIZE..METADATA_SIZE + PCR_QUOTE_BUFFER_SIZE];
 
-    let copied_len = evidence.pcr_quote(quote_slice, with_pqc_sig)
-                        .map_err(|e| MeasurementsError::Evidence(e))?;
+        let copied_len = evidence
+            .pcr_quote(quote_slice, with_pqc_sig)
+            .map_err(|e| MeasurementsError::Evidence(e))?;
         if copied_len != measurement_value_size {
             return Err(MeasurementsError::MeasurementSizeMismatch);
         }

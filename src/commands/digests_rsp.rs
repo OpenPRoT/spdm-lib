@@ -4,11 +4,11 @@ use crate::cert_store::{cert_slot_mask, SpdmCertStore};
 use crate::codec::{Codec, CommonCodec, MessageBuf};
 use crate::commands::error_rsp::ErrorCode;
 use crate::context::SpdmContext;
-use crate::error::{PlatformError, CommandError, CommandResult};
+use crate::error::{CommandError, CommandResult, PlatformError};
+use crate::platform::hash::{SpdmHash, SpdmHashAlgoType};
 use crate::protocol::*;
 use crate::state::ConnectionState;
 use crate::transcript::TranscriptContext;
-use crate::platform::hash::{SpdmHash, SpdmHashAlgoType};
 use core::mem::size_of;
 use zerocopy::{FromBytes, Immutable, IntoBytes};
 
@@ -53,7 +53,7 @@ pub(crate) fn compute_cert_chain_hash(
 
     // Length and reserved fields
     let header_bytes = header.as_bytes();
-    
+
     digest_fn
         .init(SpdmHashAlgoType::SHA384, Some(header_bytes))
         .map_err(|e| (false, CommandError::Platform(PlatformError::HashError(e))))?;
@@ -107,7 +107,13 @@ fn encode_cert_chain_digest(
         .data_mut(SHA384_HASH_SIZE)
         .map_err(|_| (false, CommandError::BufferTooSmall))?;
 
-    compute_cert_chain_hash(digest_fn, slot_id, cert_store, asym_algo, cert_chain_digest_buf)?;
+    compute_cert_chain_hash(
+        digest_fn,
+        slot_id,
+        cert_store,
+        asym_algo,
+        cert_chain_digest_buf,
+    )?;
 
     rsp.pull_data(SHA384_HASH_SIZE)
         .map_err(|_| (false, CommandError::BufferTooSmall))?;
