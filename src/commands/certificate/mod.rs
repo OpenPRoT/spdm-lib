@@ -3,7 +3,6 @@
 pub mod request;
 pub mod response;
 
-pub(crate) use request::*;
 pub(crate) use response::*;
 
 use crate::cert_store::SpdmCertStore;
@@ -20,6 +19,8 @@ pub struct GetCertificateReq {
     pub param2: CertificateReqAttributes,
     pub offset: u16,
     pub length: u16,
+    // TODO: v1.4.0 has two additional fields, LargeOffset and LargeLength, and a new SlotId field.
+    //       Strangely they are attributed to v1.3.0 in the Changelog though...
 }
 
 bitfield! {
