@@ -3,9 +3,7 @@
 use crate::commands::error_rsp::ErrorCode;
 use crate::{codec::MessageBuf, context::SpdmContext, error::CommandResult, protocol::SpdmMsgHdr};
 
-use crate::commands::capabilities::{
-    req_flag_compatible, GetCapabilitiesBase, GetCapabilitiesV11, GetCapabilitiesV12,
-};
+use crate::commands::capabilities::{GetCapabilitiesBase, GetCapabilitiesV11, GetCapabilitiesV12};
 use crate::protocol::{capabilities::DeviceCapabilities, ReqRespCode, SpdmVersion};
 
 use crate::error::CommandError;
@@ -56,7 +54,7 @@ pub(crate) fn handle_capabilities_response<'a>(
         peer_capabilities.ct_exponent = resp_11.ct_exponent;
 
         // TODO?
-        let flags = resp_11.flags;
+        let _flags = resp_11.flags;
         // THIS FAILS
         // if !req_flag_compatible(version, &flags) {
         //     Err(ctx.generate_error_response(resp, ErrorCode::InvalidPolicy, 0, None))?;

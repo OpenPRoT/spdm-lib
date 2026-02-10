@@ -1,10 +1,10 @@
 // Licensed under the Apache-2.0 license
 
 use crate::{
-    codec::{Codec, CommonCodec, MessageBuf},
+    codec::{Codec, MessageBuf},
     commands::algorithms::*,
     context::SpdmContext,
-    error::{CommandError, CommandResult, SpdmError},
+    error::CommandResult,
     protocol::{SpdmMsgHdr, SpdmVersion},
     state::ConnectionState,
     transcript::TranscriptContext,

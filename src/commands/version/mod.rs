@@ -5,10 +5,7 @@ pub mod response;
 pub(crate) use request::*;
 pub(crate) use response::*;
 
-use crate::{
-    codec::{Codec, CommonCodec, MessageBuf},
-    protocol::SpdmVersion,
-};
+use crate::{codec::CommonCodec, protocol::SpdmVersion};
 use bitfield::bitfield;
 use zerocopy::{FromBytes, Immutable, IntoBytes};
 
