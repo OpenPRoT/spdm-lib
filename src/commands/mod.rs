@@ -2,7 +2,7 @@
 
 pub mod algorithms;
 pub mod capabilities;
-pub mod certificate_rsp;
+pub mod certificate;
 pub mod challenge_auth_rsp;
 pub mod chunk_get_rsp;
 pub mod digests;
