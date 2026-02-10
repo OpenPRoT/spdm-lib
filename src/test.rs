@@ -71,26 +71,26 @@ struct StdHash;
 impl SpdmHash for StdHash {
     fn hash(
         &mut self,
-        hash_algo: crate::platform::hash::SpdmHashAlgoType,
-        data: &[u8],
-        hash: &mut [u8],
+        _hash_algo: crate::platform::hash::SpdmHashAlgoType,
+        _data: &[u8],
+        _hash: &mut [u8],
     ) -> crate::platform::hash::SpdmHashResult<()> {
         todo!()
     }
 
     fn init(
         &mut self,
-        hash_algo: crate::platform::hash::SpdmHashAlgoType,
-        data: Option<&[u8]>,
+        _hash_algo: crate::platform::hash::SpdmHashAlgoType,
+        _data: Option<&[u8]>,
     ) -> crate::platform::hash::SpdmHashResult<()> {
         todo!()
     }
 
-    fn update(&mut self, data: &[u8]) -> crate::platform::hash::SpdmHashResult<()> {
+    fn update(&mut self, _data: &[u8]) -> crate::platform::hash::SpdmHashResult<()> {
         todo!()
     }
 
-    fn finalize(&mut self, hash: &mut [u8]) -> crate::platform::hash::SpdmHashResult<()> {
+    fn finalize(&mut self, _hash: &mut [u8]) -> crate::platform::hash::SpdmHashResult<()> {
         todo!()
     }
 
@@ -106,13 +106,13 @@ impl SpdmHash for StdHash {
 struct StdRng;
 
 impl SpdmRng for StdRng {
-    fn get_random_bytes(&mut self, buf: &mut [u8]) -> crate::platform::rng::SpdmRngResult<()> {
+    fn get_random_bytes(&mut self, _buf: &mut [u8]) -> crate::platform::rng::SpdmRngResult<()> {
         todo!()
     }
 
     fn generate_random_number(
         &mut self,
-        random_number: &mut [u8],
+        _random_number: &mut [u8],
     ) -> crate::platform::rng::SpdmRngResult<()> {
         todo!()
     }
@@ -122,29 +122,29 @@ struct MockTransport;
 impl SpdmTransport for MockTransport {
     fn send_request<'a>(
         &mut self,
-        dest_eid: u8,
-        req: &mut crate::codec::MessageBuf<'a>,
+        _dest_eid: u8,
+        _req: &mut crate::codec::MessageBuf<'a>,
     ) -> crate::platform::transport::TransportResult<()> {
         todo!()
     }
 
     fn receive_response<'a>(
         &mut self,
-        rsp: &mut crate::codec::MessageBuf<'a>,
+        _rsp: &mut crate::codec::MessageBuf<'a>,
     ) -> crate::platform::transport::TransportResult<()> {
         todo!()
     }
 
     fn receive_request<'a>(
         &mut self,
-        req: &mut crate::codec::MessageBuf<'a>,
+        _req: &mut crate::codec::MessageBuf<'a>,
     ) -> crate::platform::transport::TransportResult<()> {
         todo!()
     }
 
     fn send_response<'a>(
         &mut self,
-        resp: &mut crate::codec::MessageBuf<'a>,
+        _resp: &mut crate::codec::MessageBuf<'a>,
     ) -> crate::platform::transport::TransportResult<()> {
         todo!()
     }
@@ -173,12 +173,12 @@ impl SpdmCertStore for MockCertStore {
     fn cert_chain_len(&mut self, _asym: AsymAlgo, _slot_id: u8) -> CertStoreResult<usize> {
         Ok(128)
     }
-    fn get_cert_chain<'a>(
+    fn get_cert_chain(
         &mut self,
         _slot_id: u8,
         _asym: AsymAlgo,
         _offset: usize,
-        out: &'a mut [u8],
+        out: &mut [u8],
     ) -> CertStoreResult<usize> {
         let fill = out.len().min(16);
         for b in &mut out[..fill] {
@@ -186,11 +186,11 @@ impl SpdmCertStore for MockCertStore {
         }
         Ok(fill)
     }
-    fn root_cert_hash<'a>(
+    fn root_cert_hash(
         &mut self,
         _slot_id: u8,
         _asym: AsymAlgo,
-        out: &'a mut [u8; crate::protocol::SHA384_HASH_SIZE],
+        out: &mut [u8; crate::protocol::SHA384_HASH_SIZE],
     ) -> CertStoreResult<()> {
         for b in out.iter_mut() {
             *b = 0x11;

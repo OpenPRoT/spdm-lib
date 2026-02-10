@@ -1,6 +1,7 @@
 // Licensed under the Apache-2.0 license
 
 // use crate::cert_mgr::DeviceCertsManager;
+use crate::cert_store::*;
 use crate::chunk_ctx::LargeResponseCtx;
 use crate::codec::{Codec, MessageBuf};
 use crate::commands::capabilities::handle_capabilities_response;
@@ -22,7 +23,6 @@ use crate::protocol::version::*;
 use crate::protocol::DeviceCapabilities;
 use crate::state::{ConnectionState, State};
 use crate::transcript::{TranscriptContext, TranscriptManager};
-use crate::{cert_store::*, commands, protocol};
 
 pub struct SpdmContext<'a> {
     transport: &'a mut dyn SpdmTransport,

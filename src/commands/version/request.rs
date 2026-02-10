@@ -10,9 +10,7 @@ use crate::{
 };
 
 use crate::commands::error_rsp::ErrorCode;
-use crate::commands::version::{
-    VersionNumberEntry, VersionReqPayload, VersionRespCommon, VERSION_ENTRY_SIZE,
-};
+use crate::commands::version::{VersionNumberEntry, VersionReqPayload, VersionRespCommon};
 
 use crate::protocol::SpdmVersion;
 

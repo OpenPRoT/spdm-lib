@@ -15,9 +15,9 @@ pub mod response;
 pub(crate) use request::*;
 pub(crate) use response::*;
 
-use crate::codec::{CommonCodec, MessageBuf};
+use crate::codec::CommonCodec;
 use crate::protocol::LocalDeviceAlgorithms;
-use crate::protocol::{algorithms::DheNamedGroup, SpdmMsgHdr, SpdmVersion};
+use crate::protocol::{SpdmMsgHdr, SpdmVersion};
 use bitfield::bitfield;
 use core::mem::size_of;
 
@@ -497,8 +497,9 @@ impl CommonCodec for AlgStructure {}
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    // use super::*;
 
+    #[ignore]
     #[test]
     fn test_min_req_len() {
         todo!();

@@ -5,15 +5,12 @@ use crate::{
     commands::algorithms::{AlgStructure, AlgorithmsResp, ExtendedAlgo, NegotiateAlgorithmsReq},
     commands::error_rsp::ErrorCode,
     context::SpdmContext,
-    error::{CommandError, CommandResult, SpdmError},
-    protocol::{
-        BaseAsymAlgo, BaseAsymAlgoType, BaseHashAlgo, BaseHashAlgoType, DeviceAlgorithms,
-        MeasurementSpecification, OtherParamSupport, SpdmMsgHdr, SpdmVersion,
-    },
+    error::{CommandError, CommandResult},
+    protocol::{DeviceAlgorithms, SpdmMsgHdr},
 };
 
 /// Parse and handle the NEGOTIATE_ALGORITHMS response from the Responder.
-pub fn handle_algorithms_response<'a>(
+pub(crate) fn handle_algorithms_response<'a>(
     ctx: &mut SpdmContext<'a>,
     resp_header: SpdmMsgHdr,
     resp: &mut MessageBuf<'a>,
@@ -89,12 +86,14 @@ pub fn handle_algorithms_response<'a>(
     // requires hashing operations, this value shall be set to zero. The Responder
     // shall set no more than one bit.
 
-    let mut peer_device_algorithms = DeviceAlgorithms::default();
-    peer_device_algorithms.measurement_spec = algo_resp.measurement_specification_sel;
-    peer_device_algorithms.other_param_support = algo_resp.other_params_selection;
-    peer_device_algorithms.base_asym_algo = algo_resp.base_asym_sel;
-    peer_device_algorithms.base_hash_algo = algo_resp.base_hash_sel;
-    peer_device_algorithms.mel_specification = algo_resp.mel_specification_sel;
+    let peer_device_algorithms = DeviceAlgorithms {
+        measurement_spec: algo_resp.measurement_specification_sel,
+        other_param_support: algo_resp.other_params_selection,
+        base_asym_algo: algo_resp.base_asym_sel,
+        base_hash_algo: algo_resp.base_hash_sel,
+        mel_specification: algo_resp.mel_specification_sel,
+        ..Default::default()
+    };
 
     ctx.state
         .connection_info
@@ -102,7 +101,7 @@ pub fn handle_algorithms_response<'a>(
 
     // The spec defines this is A' elem of {0, 1}
     // TODO: add them to state?
-    let ext_asym_alog = if algo_resp.ext_asym_sel_count == 1 {
+    let _ext_asym_alog = if algo_resp.ext_asym_sel_count == 1 {
         Some(ExtendedAlgo::decode(resp).map_err(|e| (true, CommandError::Codec(e)))?)
     } else {
         None
@@ -110,18 +109,18 @@ pub fn handle_algorithms_response<'a>(
 
     // The spec defines this is E' elem of {0, 1}
     // TODO: add them to state?
-    let ext_hash_algo = if algo_resp.ext_hash_sel_count == 1 {
+    let _ext_hash_algo = if algo_resp.ext_hash_sel_count == 1 {
         Some(ExtendedAlgo::decode(resp).map_err(|e| (true, CommandError::Codec(e)))?)
     } else {
         None
     };
 
-    for i in 0..algo_resp.num_alg_struct_tables {
+    for _ in 0..algo_resp.num_alg_struct_tables {
         let alg_struct = AlgStructure::decode(resp).map_err(|e| (true, CommandError::Codec(e)))?;
 
         // For each struct table, we need to decode the variable length fields.
         for _ in 0..alg_struct.ext_alg_count() {
-            let ext_algo =
+            let _ext_algo =
                 ExtendedAlgo::decode(resp).map_err(|e| (true, CommandError::Codec(e)))?;
         }
     }
@@ -271,10 +270,11 @@ pub fn generate_negotiate_algorithms_request<'a>(
 
 #[cfg(test)]
 mod tests {
-    use crate::test::MockResources;
+    // use crate::test::MockResources;
 
-    use super::*;
+    // use super::*;
 
+    #[ignore]
     #[test]
     pub fn test_parse_negotiate_algorithms() {
         todo!();
