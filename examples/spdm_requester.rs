@@ -8,6 +8,7 @@ use std::net::{TcpListener, TcpStream};
 use std::process;
 
 use spdm_lib::codec::MessageBuf;
+use spdm_lib::commands::certificate::request::generate_get_certificate;
 use spdm_lib::context::SpdmContext;
 use spdm_lib::error::{SpdmError, SpdmResult};
 use spdm_lib::platform::transport::SpdmTransport;
@@ -325,6 +326,17 @@ fn full_flow(stream: TcpStream, config: &RequesterConfig) -> IoResult<()> {
 
     if config.verbose {
         println!("DIGESTS: {:x?}", &message_buffer.message_data());
+    }
+
+    message_buffer.reset();
+    generate_get_certificate(&mut spdm_context, &mut message_buffer, 0, 0, 0x200, false).unwrap();
+    spdm_context
+        .requester_send_request(&mut message_buffer, EID)
+        .unwrap();
+    println!("requested GET_CERTIFICATE (slot 0, offset 0, length 0x200)");
+
+    if config.verbose {
+        println!("CERTIFICATE: {:x?}", &message_buffer.message_data());
     }
 
     Ok(())

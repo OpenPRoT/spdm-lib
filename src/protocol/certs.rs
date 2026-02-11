@@ -25,6 +25,40 @@ pub cert_model, set_cert_model: 0,2;
 reserved, _: 3,7;
 }
 
+/// CertModel field used in Certificate Info bitfields in DIGESTS and CERTIFICATE responses
+#[derive(Debug, Clone, Copy)]
+#[non_exhaustive]
+pub(crate) enum CertModel {
+    /// Indicates either that the certificate slot does not contain any certificates
+    /// or that the corresponding `MULTI_KEY_CONN_REQ` or `MULTI_KEY_CONN_RSP` is false.
+    None = 0,
+    /// Certificate slot uses the `DeviceCert` model.
+    DeviceCert = 1,
+    /// Certificate slot uses the `AliasCert` model.
+    AliasCert = 2,
+    /// Certificate slot uses the `GenericCert` model.
+    GenericCert = 3,
+    // TODO: Shoud we include a Reserved(u8)
+    //       to propagate the error handling further up?
+}
+
+#[derive(Debug)]
+pub(crate) struct InvalidCertModelError;
+
+impl TryFrom<u8> for CertModel {
+    type Error = InvalidCertModelError;
+
+    fn try_from(value: u8) -> Result<Self, Self::Error> {
+        match value {
+            0 => Ok(CertModel::None),
+            1 => Ok(CertModel::DeviceCert),
+            2 => Ok(CertModel::AliasCert),
+            3 => Ok(CertModel::GenericCert),
+            _ => Err(InvalidCertModelError),
+        }
+    }
+}
+
 // SPDM KeyUsageMask fields
 bitfield! {
 #[derive(FromBytes, IntoBytes, Immutable, Default)]

@@ -1,10 +1,12 @@
 // Licensed under the Apache-2.0 license
 
 use crate::codec::{Codec, MessageBuf};
-use crate::commands::certificate::{CertificateReqAttributes, GetCertificateReq, SlotId};
+use crate::commands::certificate::{
+    CertificateReqAttributes, CertificateRespCommon, GetCertificateReq, SlotId,
+};
 use crate::context::SpdmContext;
 use crate::error::{CommandError, CommandResult};
-use crate::protocol::{ReqRespCode, SpdmMsgHdr};
+use crate::protocol::{CertModel, ReqRespCode, SpdmMsgHdr, SpdmVersion};
 use crate::state::ConnectionState;
 use crate::transcript::TranscriptContext;
 
@@ -95,20 +97,66 @@ pub fn generate_get_certificate<'a>(
 /// - () on success
 /// - [CommandError] on failure
 ///
-/// # TODO
-/// Implement CERTIFICATE response processing including:
-/// - Validate version matches connection version
-/// - Decode CertificateRespCommon
-/// - Validate slot_id matches request
-/// - Extract and store certificate chain portion
-/// - Handle certificate chain metadata if offset is 0
-/// - Track remainder_length for multi-part transfers
-fn _process_certificate<'a>(
-    _ctx: &mut SpdmContext<'a>,
-    _spdm_hdr: SpdmMsgHdr,
-    _resp_payload: &mut MessageBuf<'a>,
+/// # Current Implementation
+/// - Validates version matches connection version
+/// - Decodes CertificateRespCommon structure
+/// - Reads certificate portion data (validates buffer size)
+///
+/// # Future Extensions
+/// - TODO: Validate slot_id matches request when slot tracking is implemented
+/// - TODO: Parse certificate chain metadata when offset is 0
+/// - TODO: Store certificate data in peer cert store
+/// - TODO: Implement multi-part transfer support with dedicated reassembly context
+/// - TODO: Validate root certificate hash against trust anchor
+fn process_certificate<'a>(
+    ctx: &mut SpdmContext<'a>,
+    spdm_hdr: SpdmMsgHdr,
+    resp_payload: &mut MessageBuf<'a>,
 ) -> CommandResult<()> {
-    todo!("Implement CERTIFICATE response processing")
+    // Validate version matches connection version
+    let connection_version = ctx.state.connection_info.version_number();
+    if spdm_hdr.version().ok() != Some(connection_version) {
+        return Err((false, CommandError::InvalidResponse));
+    }
+
+    // Decode CertificateRespCommon structure
+    let cert_resp =
+        CertificateRespCommon::decode(resp_payload).map_err(|e| (false, CommandError::Codec(e)))?;
+
+    // Decode CertModel from param2
+    // Seems to be available since v1.3
+    if connection_version >= SpdmVersion::V13 {
+        // Fails if a unknown CertModel is send
+        // (so we consider this to be a bug on the responder side).
+        let _cert_info: CertModel = cert_resp
+            .param2
+            .certificate_info()
+            .try_into()
+            .map_err(|_| (false, CommandError::InvalidResponse))?;
+    }
+
+    let portion_len = cert_resp.portion_length;
+    let _remainder_len = cert_resp.remainder_length; // TODO: Track for multi-part transfers
+
+    // Read the certificate portion from the payload (if any)
+    if portion_len > 0 {
+        // Validate that the buffer contains the expected certificate data
+        let _cert_data = resp_payload
+            .data(portion_len as usize)
+            .map_err(|e| (false, CommandError::Codec(e)))?;
+
+        // Advance the buffer pointer past the certificate data
+        resp_payload
+            .pull_data(portion_len as usize)
+            .map_err(|e| (false, CommandError::Codec(e)))?;
+
+        // TODO: When certificate storage is implemented:
+        // - Parse certificate chain metadata if this is the first chunk (offset=0)
+        // - Store certificate data in peer cert store or reassembly context
+        // - If remainder_len > 0, coordinate with reassembly context for next chunk
+    }
+
+    Ok(())
 }
 
 /// Requester function handling the parsing of the CERTIFICATE response sent by the Responder.
@@ -122,16 +170,34 @@ fn _process_certificate<'a>(
 /// - () on success
 /// - [CommandError] on failure
 ///
-/// # TODO
-/// Implement CERTIFICATE response handler including:
-/// - Verify connection state (should be >= AlgorithmsNegotiated)
-/// - Call process_certificate to parse and validate response
-/// - Append response to transcript (TranscriptContext::M1)
-/// - Update connection state to AfterCertificate if needed
-pub(crate) fn _handle_certificate_response<'a>(
-    _ctx: &mut SpdmContext<'a>,
-    _resp_header: SpdmMsgHdr,
-    _resp: &mut MessageBuf<'a>,
+/// # Connection State
+/// - Requires: ConnectionState >= AlgorithmsNegotiated
+/// - Sets: ConnectionState::AfterCertificate
+///
+/// # Transcript
+/// - Appends response to TranscriptContext::M1
+pub(crate) fn handle_certificate_response<'a>(
+    ctx: &mut SpdmContext<'a>,
+    resp_header: SpdmMsgHdr,
+    resp: &mut MessageBuf<'a>,
 ) -> CommandResult<()> {
-    todo!("Implement CERTIFICATE response handler")
+    // Validate connection state - algorithms must be negotiated
+    if ctx.state.connection_info.state() < ConnectionState::AlgorithmsNegotiated {
+        return Err((false, CommandError::UnsupportedResponse));
+    }
+
+    // Process the certificate response payload
+    process_certificate(ctx, resp_header, resp)?;
+
+    // Append response to transcript (M1 context for certificate exchange)
+    ctx.append_message_to_transcript(resp, TranscriptContext::M1)?;
+
+    // Update connection state to AfterCertificate if needed
+    if ctx.state.connection_info.state() < ConnectionState::AfterCertificate {
+        ctx.state
+            .connection_info
+            .set_state(ConnectionState::AfterCertificate);
+    }
+
+    Ok(())
 }
