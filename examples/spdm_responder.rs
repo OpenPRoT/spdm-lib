@@ -121,7 +121,10 @@ fn create_local_algorithms<'a>() -> LocalDeviceAlgorithms<'a> {
 
 /// Handle client connection with real SPDM processing
 fn handle_spdm_client(stream: TcpStream, config: &ResponderConfig) -> IoResult<()> {
-    let mut transport = SpdmSocketTransport::new(stream);
+    let mut transport = SpdmSocketTransport::new(
+        stream,
+        platform::socket_transport::SocketTransportType::None,
+    );
 
     // Create platform implementations - all from platform module!
     let mut hash = Sha384Hash::new();
@@ -146,7 +149,7 @@ fn handle_spdm_client(stream: TcpStream, config: &ResponderConfig) -> IoResult<(
         capabilities,
         algorithms,
         &mut cert_store,
-        ExamplePeerCertStore::default(),
+        None,
         &mut hash,
         &mut m1_hash,
         &mut l1_hash,
