@@ -217,10 +217,9 @@ impl<'a> SpdmContext<'a> {
                 algorithms::handle_algorithms_response(self, resp_msg_header, resp)?
             }
             ReqRespCode::Digests => handle_digests_response(self, resp_msg_header, resp)?,
-            // TODO: Implement certificate response handler
-            // ReqRespCode::Certificate => {
-            //     certificate::handle_certificate_response(self, resp_msg_header, resp)?
-            // }
+            ReqRespCode::Certificate => {
+                certificate::request::handle_certificate_response(self, resp_msg_header, resp)?
+            }
             _ => Err((false, CommandError::UnsupportedResponse))?,
         }
 
