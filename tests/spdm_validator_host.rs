@@ -172,6 +172,7 @@ fn spdm_validator_host() -> SpdmResult<()> {
         flags: spdm_lib::protocol::capabilities::CapabilityFlags::default(),
         data_transfer_size: 1024,
         max_spdm_msg_size: 2048,
+        include_supported_algorithms: false,
     };
 
     // Algorithms (provide trivial single-selection values)

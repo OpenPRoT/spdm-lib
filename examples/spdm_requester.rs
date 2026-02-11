@@ -4,21 +4,19 @@
 
 use std::env;
 use std::io::{Error, ErrorKind, Result as IoResult};
-use std::net::{TcpListener, TcpStream};
+use std::net::TcpStream;
 use std::process;
 
 use spdm_lib::codec::MessageBuf;
 use spdm_lib::commands::certificate::request::generate_get_certificate;
 use spdm_lib::context::SpdmContext;
-use spdm_lib::error::{SpdmError, SpdmResult};
-use spdm_lib::platform::transport::SpdmTransport;
+use spdm_lib::error::SpdmError;
 use spdm_lib::protocol::algorithms::{
     AeadCipherSuite, AlgorithmPriorityTable, BaseAsymAlgo, BaseHashAlgo, DeviceAlgorithms,
     DheNamedGroup, KeySchedule, LocalDeviceAlgorithms, MeasurementHashAlgo,
     MeasurementSpecification, MelSpecification, OtherParamSupport, ReqBaseAsymAlg,
 };
 use spdm_lib::protocol::version;
-use spdm_lib::protocol::ReqRespCode;
 use spdm_lib::protocol::{CapabilityFlags, DeviceCapabilities};
 
 // Import platform implementations - no duplicates!
