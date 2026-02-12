@@ -94,10 +94,11 @@ pub(crate) fn encode_certchain_metadata(
     let mut certchain_metadata = [0u8; SPDM_CERT_CHAIN_METADATA_LEN as usize];
 
     // Read the cert chain header first
-    let cert_chain_hdr = SpdmCertChainHeader {
-        length: total_certchain_len,
-        reserved: 0,
-    };
+    // Currently only cert chains with length <= `u16::MAX` are supported.
+    // (So this should never fail.)
+    let cert_chain_hdr = SpdmCertChainHeader::new(total_certchain_len as u32, SpdmVersion::V12)
+        .map_err(|_| (false, CommandError::InternalError))?;
+
     let cert_chain_hdr_bytes = cert_chain_hdr.as_bytes();
     certchain_metadata[..cert_chain_hdr_bytes.len()].copy_from_slice(cert_chain_hdr_bytes);
 

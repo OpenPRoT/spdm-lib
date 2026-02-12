@@ -50,10 +50,8 @@ pub(crate) fn compute_cert_chain_hash(
         .map_err(|e| (false, CommandError::CertStore(e)))?;
     let cert_chain_format_len = crt_chain_len + SPDM_CERT_CHAIN_METADATA_LEN as usize;
 
-    let header = SpdmCertChainHeader {
-        length: cert_chain_format_len as u16,
-        reserved: 0,
-    };
+    let header = SpdmCertChainHeader::new(cert_chain_format_len as u32, SpdmVersion::V13)
+        .map_err(|_| (false, CommandError::InternalError))?;
 
     // Length and reserved fields
     let header_bytes = header.as_bytes();
