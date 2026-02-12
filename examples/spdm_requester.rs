@@ -32,7 +32,7 @@ use spdm_lib::commands::capabilities::request::generate_capabilities_request_loc
 use spdm_lib::commands::digests::request::generate_digest_request;
 use spdm_lib::commands::version::{request::generate_get_version, VersionReqPayload};
 
-use crate::platform::cert_store::ExamplePeerCertStrore;
+use crate::platform::cert_store::ExamplePeerCertStore;
 
 /// Responder configuration
 #[derive(Debug, Clone)]
@@ -146,7 +146,7 @@ fn full_flow(stream: TcpStream, config: &RequesterConfig) -> IoResult<()> {
     let capabilities = create_device_capabilities();
     let algorithms = create_local_algorithms();
 
-    let mut peer_cert_store = ExamplePeerCertStrore { chain: Vec::new() };
+    let mut peer_cert_store = ExamplePeerCertStore::default();
 
     if config.verbose {
         println!("Client connected - initializing SPDM context");

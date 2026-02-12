@@ -12,13 +12,14 @@ pub const SPDM_CERT_CHAIN_METADATA_LEN: u16 =
 #[derive(Debug, PartialEq)]
 pub enum CertStoreError {
     InitFailed,
-    InvalidSlotId,
+    InvalidSlotId(u8),
     UnsupportedHashAlgo,
     BufferTooSmall,
     InvalidOffset,
     CertReadError,
     PlatformError,
 }
+
 pub type CertStoreResult<T> = Result<T, CertStoreError>;
 
 pub trait SpdmCertStore {
@@ -155,14 +156,200 @@ pub(crate) fn cert_slot_mask(cert_store: &dyn SpdmCertStore) -> (u8, u8) {
     (supported_slot_mask, provisioned_slot_mask)
 }
 
-/// Store for managing peer certificates and reassembly of received certificate chain portions
 pub trait PeerCertStore {
-    /// Get supported certificate slot count
+    /// Get supported certificate slot count.
     /// The supported slots are consecutive from 0 to slot_count - 1.
+    /// If certificate slot X exists in the responding SPDM endpoint, then all
+    /// slots with ID < X must also exist.
+    ///
+    /// For example, if slot 2 is supported, then slots 0 and 1 must also be supported.
     ///
     /// # Returns
     /// * `u8` - The number of supported certificate slots.
     fn slot_count(&self) -> u8;
+
+    /// Set the number of supported certificate slots.
+    /// This function is typically called during SPDM connection setup.
+    ///
+    /// # Arguments
+    /// * `slot_count` - The number of supported certificate slots.
+    ///
+    /// # Returns
+    /// * `CertStoreResult<()>` - Ok if the operation was successful, Err otherwise.
+    fn set_supported_slots(&mut self, supported_slot_mask: u8) -> CertStoreResult<()>;
+
+    /// Get the bitmask of supported certificate slots.
+    ///
+    /// # Returns
+    /// * `Ok(u8)` - Bitmask where each set bit indicates a supported slot.
+    ///
+    /// # Errors
+    /// * `CertStoreError::PlatformError` - If there was a platform-specific error.
+    fn get_supported_slots(&self) -> CertStoreResult<u8>;
+
+    /// Set the bitmask of provisioned certificate slots.
+    ///
+    /// # Arguments
+    /// * `provisioned_slot_mask` - Bitmask where each set bit indicates a provisioned slot.
+    ///
+    /// # Returns
+    /// * `Ok(())` - If the provisioned slot mask was stored successfully.
+    ///
+    /// # Errors
+    /// * `CertStoreError::PlatformError` - If there was a platform-specific error.
+    fn set_provisioned_slots(&mut self, provisioned_slot_mask: u8) -> CertStoreResult<()>;
+
+    /// Get the bitmask of provisioned certificate slots.
+    ///
+    /// # Returns
+    /// * `Ok(u8)` - Bitmask where each set bit indicates a provisioned slot.
+    ///
+    /// # Errors
+    /// * `CertStoreError::PlatformError` - If there was a platform-specific error.
+    fn get_provisioned_slots(&self) -> CertStoreResult<u8>;
+
+    /// Get the stored certificate chain for the given slot.
+    ///
+    /// # Arguments
+    /// * `slot_id` - The slot ID of the certificate chain.
+    ///
+    /// # Returns
+    /// * `Ok(&[u8])` - The certificate chain bytes.
+    ///
+    /// # Errors
+    /// * `CertStoreError::InvalidSlotId` - If the slot ID is out of range.
+    /// * `CertStoreError::PlatformError` - If there was a platform-specific error.
+    fn get_cert_chain(&self, slot_id: u8) -> CertStoreResult<&[u8]>;
+
+    /// Store a certificate chain in the given slot.
+    ///
+    /// # Arguments
+    /// * `slot_id` - The slot ID to store the certificate chain in.
+    /// * `cert_chain` - The certificate chain bytes to store.
+    ///
+    /// # Returns
+    /// * `Ok(())` - If the certificate chain was stored successfully.
+    ///
+    /// # Errors
+    /// * `CertStoreError::InvalidSlotId` - If the slot ID is out of range.
+    /// * `CertStoreError::BufferTooSmall` - If the internal buffer is too small for the certificate chain.
+    /// * `CertStoreError::PlatformError` - If there was a platform-specific error.
+    fn set_cert_chain(&mut self, slot_id: u8, cert_chain: &[u8]) -> CertStoreResult<()>;
+
+    /// Get the digest of the certificate chain for the given slot.
+    ///
+    /// # Arguments
+    /// * `slot_id` - The slot ID of the certificate chain.
+    ///
+    /// # Returns
+    /// * `Ok(&[u8])` - The digest bytes.
+    ///
+    /// # Errors
+    /// * `CertStoreError::InvalidSlotId` - If the slot ID is out of range.
+    /// * `CertStoreError::PlatformError` - If there was a platform-specific error.
+    fn get_digest(&self, slot_id: u8) -> CertStoreResult<&[u8]>;
+
+    /// Store the digest of the certificate chain for the given slot.
+    ///
+    /// # Arguments
+    /// * `slot_id` - The slot ID of the certificate chain.
+    /// * `digest` - The digest bytes to store.
+    ///
+    /// # Returns
+    /// * `Ok(())` - If the digest was stored successfully.
+    ///
+    /// # Errors
+    /// * `CertStoreError::InvalidSlotId` - If the slot ID is out of range.
+    /// * `CertStoreError::BufferTooSmall` - If the internal buffer is too small for the digest.
+    /// * `CertStoreError::PlatformError` - If there was a platform-specific error.
+    fn set_digest(&mut self, slot_id: u8, digest: &[u8]) -> CertStoreResult<()>;
+
+    /// Get the KeyPairID associated with the certificate chain for the given slot.
+    ///
+    /// # Arguments
+    /// * `slot_id` - The slot ID of the certificate chain.
+    ///
+    /// # Returns
+    /// * `Ok(u8)` - The KeyPairID.
+    ///
+    /// # Errors
+    /// * `CertStoreError::InvalidSlotId` - If the slot ID is out of range.
+    /// * `CertStoreError::PlatformError` - If there was a platform-specific error.
+    fn get_keypair(&self, slot_id: u8) -> CertStoreResult<u8>;
+
+    /// Set the KeyPairID associated with the certificate chain for the given slot.
+    ///
+    /// # Arguments
+    /// * `slot_id` - The slot ID of the certificate chain.
+    /// * `keypair` - The KeyPairID to associate with the slot.
+    ///
+    /// # Returns
+    /// * `Ok(())` - If the KeyPairID was stored successfully.
+    ///
+    /// # Errors
+    /// * `CertStoreError::InvalidSlotId` - If the slot ID is out of range.
+    /// * `CertStoreError::PlatformError` - If there was a platform-specific error.
+    fn set_keypair(&mut self, slot_id: u8, keypair: u8) -> CertStoreResult<()>;
+
+    /// Get the `CertificateInfo` for the given slot.
+    /// The `CertificateInfo` specifies the certificate model (such as DeviceID, Alias, or General).
+    ///
+    /// # Arguments
+    /// * `slot_id` - The slot ID of the certificate chain.
+    ///
+    /// # Returns
+    /// * `Ok(CertificateInfo)` - The certificate info for the slot.
+    ///
+    /// # Errors
+    /// * `CertStoreError::InvalidSlotId` - If the slot ID is out of range.
+    /// * `CertStoreError::PlatformError` - If there was a platform-specific error.
+    fn get_cert_info(&self, slot_id: u8) -> CertStoreResult<CertificateInfo>;
+
+    /// Set the `CertificateInfo` for the given slot.
+    ///
+    /// # Arguments
+    /// * `slot_id` - The slot ID of the certificate chain.
+    /// * `cert_info` - The `CertificateInfo` to store.
+    ///
+    /// # Returns
+    /// * `Ok(())` - If the `CertificateInfo` was stored successfully.
+    ///
+    /// # Errors
+    /// * `CertStoreError::InvalidSlotId` - If the slot ID is out of range.
+    /// * `CertStoreError::PlatformError` - If there was a platform-specific error.
+    fn set_cert_info(&mut self, slot_id: u8, cert_info: CertificateInfo) -> CertStoreResult<()>;
+
+    /// Get the `KeyUsageMask` associated with the certificate chain for the given slot.
+    /// The `KeyUsageMask` indicates the permitted key usages for the certificate's public key.
+    ///
+    /// # Arguments
+    /// * `slot_id` - The slot ID of the certificate chain.
+    ///
+    /// # Returns
+    /// * `Ok(KeyUsageMask)` - The key usage mask for the slot.
+    ///
+    /// # Errors
+    /// * `CertStoreError::InvalidSlotId` - If the slot ID is out of range.
+    /// * `CertStoreError::PlatformError` - If there was a platform-specific error.
+    fn get_key_usage_mask(&self, slot_id: u8) -> CertStoreResult<KeyUsageMask>;
+
+    /// Set the `KeyUsageMask` associated with the certificate chain for the given slot.
+    ///
+    /// # Arguments
+    /// * `slot_id` - The slot ID of the certificate chain.
+    /// * `key_usage_mask` - The `KeyUsageMask` to store.
+    ///
+    /// # Returns
+    /// * `Ok(())` - If the `KeyUsageMask` was stored successfully.
+    ///
+    /// # Errors
+    /// * `CertStoreError::InvalidSlotId` - If the slot ID is out of range.
+    /// * `CertStoreError::PlatformError` - If there was a platform-specific error.
+    fn set_key_usage_mask(
+        &mut self,
+        slot_id: u8,
+        key_usage_mask: KeyUsageMask,
+    ) -> CertStoreResult<()>;
 
     /// Add a portion of a certificate chain to the given slot
     ///

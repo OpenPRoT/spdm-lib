@@ -62,7 +62,7 @@ impl SpdmCertChainHeader {
 
 // SPDM CertificateInfo fields
 bitfield! {
-#[derive(FromBytes, IntoBytes, Immutable, Default)]
+#[derive(FromBytes, IntoBytes, Immutable, Default, Clone, Copy)]
 #[repr(C, packed)]
 pub struct CertificateInfo(u8);
 impl Debug;
@@ -107,7 +107,7 @@ impl TryFrom<u8> for CertModel {
 
 // SPDM KeyUsageMask fields
 bitfield! {
-#[derive(FromBytes, IntoBytes, Immutable, Default)]
+#[derive(FromBytes, IntoBytes, Immutable, Default, Clone, Copy)]
 #[repr(C)]
 pub struct KeyUsageMask(u16);
 impl Debug;
