@@ -1,5 +1,6 @@
 // Licensed under the Apache-2.0 license
 
+use crate::cert_store::PeerCertStore;
 use crate::codec::Codec;
 use crate::context::SpdmContext;
 use crate::error::{CommandError, CommandResult};
@@ -36,7 +37,7 @@ pub(crate) fn handle_digests_response<'a>(
     resp_payload: &mut MessageBuf<'a>,
 ) -> CommandResult<()> {
     if ctx.state.connection_info.state() < ConnectionState::AlgorithmsNegotiated {
-        return Err((false, CommandError::UnsupportedRequest));
+        return Err((true, CommandError::UnsupportedRequest));
     }
 
     let con_version = ctx.state.connection_info.version_number();
@@ -46,83 +47,109 @@ pub(crate) fn handle_digests_response<'a>(
     };
 
     let digests_resp_common =
-        GetDigestsRespCommon::decode(resp_payload).map_err(|e| (false, CommandError::Codec(e)))?;
+        GetDigestsRespCommon::decode(resp_payload).map_err(|e| (true, CommandError::Codec(e)))?;
 
-    // ATM we do not care, since we only support slot 0.
-    // Also this is a hacky way of representing the the remote slots
-    let _supported_slot_mask = digests_resp_common.supported_slot_mask;
-    let provisioned_slot_mask = digests_resp_common.provisioned_slot_mask;
+    let peer_cert_store = ctx
+        .state
+        .peer_cert_store
+        .as_mut()
+        .ok_or((true, CommandError::InvalidResponse))?;
 
-    let slot_n = provisioned_slot_mask.count_ones() as usize;
-    if slot_n == 0 {
-        return Err((false, CommandError::InvalidResponse));
+    peer_cert_store
+        .set_supported_slots(digests_resp_common.supported_slot_mask)
+        .map_err(|e| (true, CommandError::CertStore(e)))?;
+
+    for b in 0..digests_resp_common.supported_slot_mask.count_ones() {
+        if (digests_resp_common.supported_slot_mask & (1 << b)) == 1 {}
     }
 
-    for _slot_id in 0..slot_n {
+    peer_cert_store
+        .set_provisioned_slots(digests_resp_common.provisioned_slot_mask)
+        .map_err(|e| (true, CommandError::CertStore(e)))?;
+
+    let slot_n = digests_resp_common.provisioned_slot_mask.count_ones() as usize;
+    if slot_n == 0 {
+        return Err((true, CommandError::InvalidResponse));
+    }
+
+    // For now that should only be '0'.
+    for slot_id in 0..slot_n {
         if resp_payload.data_len() < SHA384_HASH_SIZE {
-            return Err((false, CommandError::InvalidResponse));
+            return Err((true, CommandError::BufferTooSmall));
         }
 
-        let _digest = resp_payload
+        let digest = resp_payload
             .data(SHA384_HASH_SIZE)
-            .map_err(|e| (false, CommandError::Codec(e)))?;
+            .map_err(|e| (true, CommandError::Codec(e)))?;
 
-        // TODO: Store the digest in context for later verification
+        peer_cert_store
+            .set_digest(slot_id as u8, digest)
+            .map_err(|e| (true, CommandError::CertStore(e)))?;
 
         resp_payload
             .pull_data(SHA384_HASH_SIZE)
-            .map_err(|e| (false, CommandError::Codec(e)))?;
+            .map_err(|e| (true, CommandError::Codec(e)))?;
     }
 
     if version >= SpdmVersion::V13 && ctx.state.connection_info.multi_key_conn_rsp() {
-        for _slot_id in 0..slot_n {
+        for slot_id in 0..slot_n {
             if resp_payload.data_len() < size_of::<u8>() {
-                return Err((false, CommandError::InvalidResponse));
+                return Err((true, CommandError::InvalidResponse));
             }
-            let _key_pair_id = resp_payload
-                .data(size_of::<u8>())
-                .map_err(|e| (false, CommandError::Codec(e)))?[0];
 
-            // TODO: Store key_pair_id in context
+            let key_pair_id = resp_payload
+                .data(size_of::<u8>())
+                .map_err(|e| (true, CommandError::Codec(e)))?[0];
+
+            peer_cert_store
+                .set_keypair(slot_id as u8, key_pair_id)
+                .map_err(|e| (true, CommandError::CertStore(e)))?;
 
             resp_payload
                 .pull_data(size_of::<u8>())
-                .map_err(|e| (false, CommandError::Codec(e)))?;
+                .map_err(|e| (true, CommandError::Codec(e)))?;
         }
 
-        for _slot_id in 0..slot_n {
+        for slot_id in 0..slot_n {
             if resp_payload.data_len() < size_of::<CertificateInfo>() {
-                return Err((false, CommandError::InvalidResponse));
+                return Err((true, CommandError::InvalidResponse));
             }
+
             let data = resp_payload
                 .data(size_of::<CertificateInfo>())
-                .map_err(|e| (false, CommandError::Codec(e)))?;
-            let _cert_info = CertificateInfo::read_from_bytes(data)
-                .map_err(|_| (false, CommandError::InvalidResponse))?;
+                .map_err(|e| (true, CommandError::Codec(e)))?;
 
-            // TODO: Store cert_info in context
+            let cert_info = CertificateInfo::read_from_bytes(data)
+                .map_err(|_| (true, CommandError::InvalidResponse))?;
+
+            peer_cert_store
+                .set_cert_info(slot_id as u8, cert_info)
+                .map_err(|e| (true, CommandError::CertStore(e)))?;
 
             resp_payload
                 .pull_data(size_of::<CertificateInfo>())
-                .map_err(|e| (false, CommandError::Codec(e)))?;
+                .map_err(|e| (true, CommandError::Codec(e)))?;
         }
 
-        // Decode KeyUsageMasks (one per slot)
-        for _slot_id in 0..slot_n {
+        for slot_id in 0..slot_n {
             if resp_payload.data_len() < size_of::<KeyUsageMask>() {
-                return Err((false, CommandError::InvalidResponse));
+                return Err((true, CommandError::InvalidResponse));
             }
+
             let data = resp_payload
                 .data(size_of::<KeyUsageMask>())
-                .map_err(|e| (false, CommandError::Codec(e)))?;
-            let _key_usage_mask = KeyUsageMask::read_from_bytes(data)
-                .map_err(|_| (false, CommandError::InvalidResponse))?;
+                .map_err(|e| (true, CommandError::Codec(e)))?;
 
-            // TODO: Store key_usage_mask in context
+            let key_usage_mask = KeyUsageMask::read_from_bytes(data)
+                .map_err(|_| (true, CommandError::InvalidResponse))?;
+
+            peer_cert_store
+                .set_key_usage_mask(slot_id as u8, key_usage_mask)
+                .map_err(|e| (true, CommandError::CertStore(e)))?;
 
             resp_payload
                 .pull_data(size_of::<KeyUsageMask>())
-                .map_err(|e| (false, CommandError::Codec(e)))?;
+                .map_err(|e| (true, CommandError::Codec(e)))?;
         }
     }
 

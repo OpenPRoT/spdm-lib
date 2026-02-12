@@ -12,6 +12,7 @@ use std::io::{Error, ErrorKind, Result as IoResult};
 use std::net::{TcpListener, TcpStream};
 use std::process;
 
+use spdm_lib::cert_store::PeerCertStore;
 use spdm_lib::codec::MessageBuf;
 use spdm_lib::context::SpdmContext;
 use spdm_lib::protocol::algorithms::{
@@ -25,6 +26,8 @@ use spdm_lib::protocol::{CapabilityFlags, DeviceCapabilities};
 // Import platform implementations - no duplicates!
 mod platform;
 use platform::{DemoCertStore, DemoEvidence, Sha384Hash, SpdmSocketTransport, SystemRng};
+
+use crate::platform::cert_store::ExamplePeerCertStore;
 
 /// Responder configuration
 #[derive(Debug, Clone)]
@@ -66,6 +69,7 @@ fn create_device_capabilities() -> DeviceCapabilities {
         flags,
         data_transfer_size: 1024,
         max_spdm_msg_size: 4096,
+        include_supported_algorithms: true,
     }
 }
 
@@ -142,6 +146,7 @@ fn handle_spdm_client(stream: TcpStream, config: &ResponderConfig) -> IoResult<(
         capabilities,
         algorithms,
         &mut cert_store,
+        ExamplePeerCertStore::default(),
         &mut hash,
         &mut m1_hash,
         &mut l1_hash,
