@@ -57,8 +57,8 @@ pub enum CommandError {
     InvalidState,
     /// This is a Bug
     ///
-    /// Used in spots which should be infailable.
+    /// Used in spots which should be infallible.
     /// This can either be a bug in this crate,
-    /// in a dependency, or a uncaught platform misbehaviour.
+    /// in a dependency, or a uncaught platform misbehavior.
     InternalError,
 }
