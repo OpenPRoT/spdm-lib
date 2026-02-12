@@ -7,10 +7,14 @@ use crate::commands::certificate::{
 use crate::context::SpdmContext;
 use crate::error::{CommandError, CommandResult};
 use crate::protocol::{CertModel, ReqRespCode, SpdmMsgHdr, SpdmVersion};
-use crate::state::ConnectionState;
+use crate::state::{ConnectionState, GetCertificateState};
 use crate::transcript::TranscriptContext;
 
-/// Generate the GET_CERTIFICATE request
+/// Generate a GET_CERTIFICATE request
+///
+/// If the state is `DuringCertificate` the following parameters will be ignored
+/// and instead be calculated from the state:
+/// `slot_id`, `offset`.
 ///
 /// # Arguments
 /// * `ctx`: The SPDM context
@@ -26,6 +30,7 @@ use crate::transcript::TranscriptContext;
 ///
 /// # Connection State Requirements
 /// - Connection state must be >= AlgorithmsNegotiated
+/// - Updates the state to `DuringCertificate` (only if `slot_size_requested` == `false`)
 ///
 /// # Transcript
 /// - Appends request to the transcript context
@@ -42,6 +47,20 @@ pub fn generate_get_certificate<'a>(
         return Err((false, CommandError::UnsupportedRequest));
     }
 
+    let state = match ctx.state.connection_info.state() {
+        ConnectionState::DuringCertificate(s) => s,
+        _ => GetCertificateState {
+            current_slot_id: slot_id,
+            offset,
+            ..Default::default()
+        },
+    };
+    if !slot_size_requested {
+        ctx.state
+            .connection_info
+            .set_state(ConnectionState::DuringCertificate(state));
+    }
+
     // Get connection version
     let connection_version = ctx.state.connection_info.version_number();
 
@@ -53,7 +72,7 @@ pub fn generate_get_certificate<'a>(
 
     // Create SlotId bitfield
     let mut slot_id_field = SlotId(0);
-    slot_id_field.set_slot_id(slot_id);
+    slot_id_field.set_slot_id(state.current_slot_id);
 
     // Create CertificateReqAttributes bitfield
     let mut req_attributes = CertificateReqAttributes(0);
@@ -65,7 +84,7 @@ pub fn generate_get_certificate<'a>(
     let get_cert_req = GetCertificateReq {
         slot_id: slot_id_field,
         param2: req_attributes,
-        offset,
+        offset: state.offset,
         length,
     };
 
@@ -100,14 +119,13 @@ pub fn generate_get_certificate<'a>(
 /// # Current Implementation
 /// - Validates version matches connection version
 /// - Decodes CertificateRespCommon structure
+/// - Validates returned slot_id against expected slot_id
 /// - Reads certificate portion data (validates buffer size)
+/// - Stores certificate portion in peer cert. store
+/// - Updates state
 ///
 /// # Future Extensions
-/// - TODO: Validate slot_id matches request when slot tracking is implemented
-/// - TODO: Parse certificate chain metadata when offset is 0
-/// - TODO: Store certificate data in peer cert store
-/// - TODO: Implement multi-part transfer support with dedicated reassembly context
-/// - TODO: Validate root certificate hash against trust anchor
+/// - TODO: Add support for SlotSizeRequested responses
 fn process_certificate<'a>(
     ctx: &mut SpdmContext<'a>,
     spdm_hdr: SpdmMsgHdr,
@@ -116,12 +134,23 @@ fn process_certificate<'a>(
     // Validate version matches connection version
     let connection_version = ctx.state.connection_info.version_number();
     if spdm_hdr.version().ok() != Some(connection_version) {
-        return Err((false, CommandError::InvalidResponse));
+        return Err((true, CommandError::InvalidResponse));
     }
+
+    let ConnectionState::DuringCertificate(mut state) = ctx.state.connection_info.state() else {
+        // TODO: Add support for SlotSizeRequested
+        return Err((false, CommandError::InvalidState));
+    };
 
     // Decode CertificateRespCommon structure
     let cert_resp =
-        CertificateRespCommon::decode(resp_payload).map_err(|e| (false, CommandError::Codec(e)))?;
+        CertificateRespCommon::decode(resp_payload).map_err(|e| (true, CommandError::Codec(e)))?;
+
+    // Check slot_id
+    let slot_id = cert_resp.slot_id.slot_id();
+    if slot_id != state.current_slot_id {
+        return Err((true, CommandError::InvalidResponse));
+    }
 
     // Decode CertModel from param2
     // Seems to be available since v1.3
@@ -132,28 +161,46 @@ fn process_certificate<'a>(
             .param2
             .certificate_info()
             .try_into()
-            .map_err(|_| (false, CommandError::InvalidResponse))?;
+            .map_err(|_| (true, CommandError::InvalidResponse))?;
     }
 
     let portion_len = cert_resp.portion_length;
-    let _remainder_len = cert_resp.remainder_length; // TODO: Track for multi-part transfers
 
     // Read the certificate portion from the payload (if any)
     if portion_len > 0 {
         // Validate that the buffer contains the expected certificate data
-        let _cert_data = resp_payload
+        let cert_data = resp_payload
             .data(portion_len as usize)
-            .map_err(|e| (false, CommandError::Codec(e)))?;
+            .map_err(|e| (true, CommandError::Codec(e)))?;
+
+        let Some(cert_store) = ctx.state.peer_cert_store.as_deref_mut() else {
+            return Err((true, CommandError::InvalidState));
+        };
+
+        match cert_store.assemble(state.current_slot_id, cert_data) {
+            Ok(_s) => {
+                // TODO: match s against remainder length
+            }
+            Err(e) => return Err((true, CommandError::CertStore(e))),
+        }
 
         // Advance the buffer pointer past the certificate data
         resp_payload
             .pull_data(portion_len as usize)
-            .map_err(|e| (false, CommandError::Codec(e)))?;
+            .map_err(|e| (true, CommandError::Codec(e)))?;
+    }
 
-        // TODO: When certificate storage is implemented:
-        // - Parse certificate chain metadata if this is the first chunk (offset=0)
-        // - Store certificate data in peer cert store or reassembly context
-        // - If remainder_len > 0, coordinate with reassembly context for next chunk
+    state.offset += portion_len;
+    state.remainder_length = Some(cert_resp.remainder_length);
+
+    if cert_resp.remainder_length > 0 {
+        ctx.state
+            .connection_info
+            .set_state(ConnectionState::DuringCertificate(state));
+    } else {
+        ctx.state
+            .connection_info
+            .set_state(ConnectionState::AfterCertificate);
     }
 
     Ok(())
@@ -172,7 +219,7 @@ fn process_certificate<'a>(
 ///
 /// # Connection State
 /// - Requires: ConnectionState >= AlgorithmsNegotiated
-/// - Sets: ConnectionState::AfterCertificate
+/// - Updates: ConnectionState to DuringCertificate or AfterCertificate
 ///
 /// # Transcript
 /// - Appends response to TranscriptContext::M1
@@ -183,7 +230,7 @@ pub(crate) fn handle_certificate_response<'a>(
 ) -> CommandResult<()> {
     // Validate connection state - algorithms must be negotiated
     if ctx.state.connection_info.state() < ConnectionState::AlgorithmsNegotiated {
-        return Err((false, CommandError::UnsupportedResponse));
+        return Err((true, CommandError::UnsupportedResponse));
     }
 
     // Process the certificate response payload
@@ -191,13 +238,6 @@ pub(crate) fn handle_certificate_response<'a>(
 
     // Append response to transcript (M1 context for certificate exchange)
     ctx.append_message_to_transcript(resp, TranscriptContext::M1)?;
-
-    // Update connection state to AfterCertificate if needed
-    if ctx.state.connection_info.state() < ConnectionState::AfterCertificate {
-        ctx.state
-            .connection_info
-            .set_state(ConnectionState::AfterCertificate);
-    }
 
     Ok(())
 }

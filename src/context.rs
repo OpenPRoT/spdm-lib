@@ -23,14 +23,14 @@ use crate::protocol::algorithms::*;
 use crate::protocol::common::{ReqRespCode, SpdmMsgHdr};
 use crate::protocol::version::*;
 use crate::protocol::DeviceCapabilities;
-use crate::state::{ConnectionState, State};
+use crate::state::{ConnectionInfo, ConnectionState, State};
 use crate::transcript::{TranscriptContext, TranscriptManager};
 
 pub struct SpdmContext<'a> {
     transport: &'a mut dyn SpdmTransport,
     pub(crate) hash: &'a mut dyn SpdmHash,
     pub(crate) supported_versions: &'a [SpdmVersion],
-    pub(crate) state: State,
+    pub(crate) state: State<'a>,
     pub(crate) transcript_mgr: TranscriptManager<'a>,
     pub(crate) rng: &'a mut dyn SpdmRng,
     pub(crate) local_capabilities: DeviceCapabilities,
@@ -48,6 +48,7 @@ impl<'a> SpdmContext<'a> {
         local_capabilities: DeviceCapabilities,
         local_algorithms: LocalDeviceAlgorithms<'a>,
         device_certs_store: &'a mut dyn SpdmCertStore,
+        peer_cert_store: Option<&'a mut dyn PeerCertStore>,
         hash: &'a mut dyn SpdmHash,
         m1: &'a mut dyn SpdmHash,
         l1: &'a mut dyn SpdmHash,
@@ -61,7 +62,7 @@ impl<'a> SpdmContext<'a> {
         Ok(Self {
             supported_versions,
             transport: spdm_transport,
-            state: State::new(),
+            state: State::new(peer_cert_store),
             transcript_mgr: TranscriptManager::new(m1, l1),
             local_capabilities,
             local_algorithms,
@@ -72,6 +73,10 @@ impl<'a> SpdmContext<'a> {
             rng,
             evidence,
         })
+    }
+
+    pub fn connection_info(&self) -> &ConnectionInfo {
+        &self.state.connection_info
     }
 
     pub fn transport_init_sequence(&mut self) -> SpdmResult<()> {

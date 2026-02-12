@@ -1,21 +1,26 @@
 // Licensed under the Apache-2.0 license
 
-use crate::protocol::{DeviceAlgorithms, DeviceCapabilities, SpdmVersion};
+use crate::{
+    cert_store::PeerCertStore,
+    protocol::{DeviceAlgorithms, DeviceCapabilities, SpdmVersion},
+};
 
-pub(crate) struct State {
+pub(crate) struct State<'a> {
     pub(crate) connection_info: ConnectionInfo,
+    pub(crate) peer_cert_store: Option<&'a mut dyn PeerCertStore>,
 }
 
-impl Default for State {
+impl<'a> Default for State<'a> {
     fn default() -> Self {
-        Self::new()
+        Self::new(None)
     }
 }
 
-impl State {
-    pub fn new() -> Self {
+impl<'a> State<'a> {
+    pub fn new(peer_cert_store: Option<&'a mut dyn PeerCertStore>) -> Self {
         Self {
             connection_info: ConnectionInfo::default(),
+            peer_cert_store,
         }
     }
 
@@ -24,7 +29,7 @@ impl State {
     }
 }
 
-pub(crate) struct ConnectionInfo {
+pub struct ConnectionInfo {
     version_number: SpdmVersion,
     state: ConnectionState,
     peer_algorithms: DeviceAlgorithms,
@@ -49,7 +54,7 @@ impl ConnectionInfo {
         self.version_number
     }
 
-    pub fn set_version_number(&mut self, version_number: SpdmVersion) {
+    pub(crate) fn set_version_number(&mut self, version_number: SpdmVersion) {
         self.version_number = version_number;
     }
 
@@ -57,11 +62,11 @@ impl ConnectionInfo {
         self.state
     }
 
-    pub fn set_state(&mut self, state: ConnectionState) {
+    pub(crate) fn set_state(&mut self, state: ConnectionState) {
         self.state = state;
     }
 
-    pub fn set_peer_capabilities(&mut self, peer_capabilities: DeviceCapabilities) {
+    pub(crate) fn set_peer_capabilities(&mut self, peer_capabilities: DeviceCapabilities) {
         self.peer_capabilities = peer_capabilities;
     }
 
@@ -70,7 +75,7 @@ impl ConnectionInfo {
         self.peer_capabilities
     }
 
-    pub fn set_peer_algorithms(&mut self, peer_algorithms: DeviceAlgorithms) {
+    pub(crate) fn set_peer_algorithms(&mut self, peer_algorithms: DeviceAlgorithms) {
         self.peer_algorithms = peer_algorithms;
     }
 
@@ -79,7 +84,7 @@ impl ConnectionInfo {
     }
 
     #[allow(dead_code)]
-    pub fn set_multi_key_conn_rsp(&mut self, multi_key_conn_rsp: bool) {
+    pub(crate) fn set_multi_key_conn_rsp(&mut self, multi_key_conn_rsp: bool) {
         self.multi_key_conn_rsp = multi_key_conn_rsp;
     }
 
@@ -102,6 +107,15 @@ pub enum ConnectionState {
     AfterCapabilities,
     AlgorithmsNegotiated,
     AfterDigest,
+    /// Cert chain retrieval in process
+    DuringCertificate(GetCertificateState),
     AfterCertificate,
     Authenticated,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, PartialOrd, Default)]
+pub struct GetCertificateState {
+    pub current_slot_id: u8,
+    pub offset: u16,
+    pub remainder_length: Option<u16>,
 }
