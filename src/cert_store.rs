@@ -154,3 +154,44 @@ pub(crate) fn cert_slot_mask(cert_store: &dyn SpdmCertStore) -> (u8, u8) {
 
     (supported_slot_mask, provisioned_slot_mask)
 }
+
+/// Store for managing peer certificates and reassembly of received certificate chain portions
+pub trait PeerCertStore {
+    /// Get supported certificate slot count
+    /// The supported slots are consecutive from 0 to slot_count - 1.
+    ///
+    /// # Returns
+    /// * `u8` - The number of supported certificate slots.
+    fn slot_count(&self) -> u8;
+
+    /// Add a portion of a certificate chain to the given slot
+    ///
+    /// # Returns
+    /// - `Ok(ReassemblyStatus)` when the portion was added successfully
+    /// - `Err(ReassemblyError)` when the portion could not be added
+    fn assemble(&mut self, slot_id: u8, portion: &[u8])
+        -> Result<ReassemblyStatus, CertStoreError>;
+
+    /// Reset a slot
+    ///
+    /// Removes all certificate data from the given slot.
+    fn reset(&mut self, slot_id: u8);
+
+    /// Get the root hash of a peer certificate
+    ///
+    /// # Returns
+    /// - The digest of the Root Certificate if available
+    fn get_root_hash(&self, slot_id: u8) -> Option<&[u8]>;
+
+    /// Get a complete certificate chain consisting of one or more ASN.1 DER-encoded X.509 v3 certificates
+    fn get_raw_chain(&self, slot_id: u8) -> Option<&[u8]>;
+}
+
+pub enum ReassemblyStatus {
+    /// Slot is empty
+    NotStarted,
+    /// Reassembly still in progress
+    InProgress,
+    /// Reassembly finished
+    Done,
+}

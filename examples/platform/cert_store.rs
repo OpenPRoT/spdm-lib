@@ -13,7 +13,7 @@ use p384::{
 };
 
 use super::certs::{STATIC_ATTESTATION_CERT, STATIC_ROOT_CA_CERT};
-use spdm_lib::cert_store::{CertStoreError, CertStoreResult, SpdmCertStore};
+use spdm_lib::cert_store::{CertStoreError, CertStoreResult, PeerCertStore, SpdmCertStore};
 use spdm_lib::protocol::algorithms::{AsymAlgo, ECC_P384_SIGNATURE_SIZE, SHA384_HASH_SIZE};
 use spdm_lib::protocol::certs::{CertificateInfo, KeyUsageMask};
 
@@ -377,4 +377,35 @@ fn debug_signing_verification() {
     println!("    public_key.verify(sig1, data, ec.ECDSA(hashes.SHA384()))");
     println!("    print('✓ Sig1 valid with SHA384')");
     println!("except: print('✗ Sig1 invalid with SHA384')");
+}
+
+pub struct ExamplePeerCertStrore {
+    pub chain: Vec<u8>,
+}
+
+impl PeerCertStore for ExamplePeerCertStrore {
+    fn slot_count(&self) -> u8 {
+        1
+    }
+
+    fn assemble(
+        &mut self,
+        _slot_id: u8,
+        portion: &[u8],
+    ) -> Result<spdm_lib::cert_store::ReassemblyStatus, CertStoreError> {
+        self.chain.extend_from_slice(portion);
+        Ok(spdm_lib::cert_store::ReassemblyStatus::InProgress)
+    }
+
+    fn reset(&mut self, slot_id: u8) {
+        todo!()
+    }
+
+    fn get_root_hash(&self, slot_id: u8) -> Option<&[u8]> {
+        todo!()
+    }
+
+    fn get_raw_chain(&self, slot_id: u8) -> Option<&[u8]> {
+        todo!()
+    }
 }

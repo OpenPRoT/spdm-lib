@@ -32,6 +32,8 @@ use spdm_lib::commands::capabilities::request::generate_capabilities_request_loc
 use spdm_lib::commands::digests::request::generate_digest_request;
 use spdm_lib::commands::version::{request::generate_get_version, VersionReqPayload};
 
+use crate::platform::cert_store::ExamplePeerCertStrore;
+
 /// Responder configuration
 #[derive(Debug, Clone)]
 struct RequesterConfig {
@@ -144,6 +146,8 @@ fn full_flow(stream: TcpStream, config: &RequesterConfig) -> IoResult<()> {
     let capabilities = create_device_capabilities();
     let algorithms = create_local_algorithms();
 
+    let mut peer_cert_store = ExamplePeerCertStrore { chain: Vec::new() };
+
     if config.verbose {
         println!("Client connected - initializing SPDM context");
     }
@@ -159,6 +163,7 @@ fn full_flow(stream: TcpStream, config: &RequesterConfig) -> IoResult<()> {
         capabilities,
         algorithms,
         &mut cert_store,
+        Some(&mut peer_cert_store),
         &mut hash,
         &mut m1_hash,
         &mut l1_hash,
@@ -328,16 +333,31 @@ fn full_flow(stream: TcpStream, config: &RequesterConfig) -> IoResult<()> {
         println!("DIGESTS: {:x?}", &message_buffer.message_data());
     }
 
-    message_buffer.reset();
-    generate_get_certificate(&mut spdm_context, &mut message_buffer, 0, 0, 0x200, false).unwrap();
-    spdm_context
-        .requester_send_request(&mut message_buffer, EID)
-        .unwrap();
-    println!("requested GET_CERTIFICATE (slot 0, offset 0, length 0x200)");
+    // Get peer certificate chain
+    loop {
+        message_buffer.reset();
+        generate_get_certificate(&mut spdm_context, &mut message_buffer, 0, 0, 0x200, false)
+            .unwrap();
+        spdm_context
+            .requester_send_request(&mut message_buffer, EID)
+            .unwrap();
+        println!("requested GET_CERTIFICATE");
+        println!("state: {:?}", spdm_context.connection_info().state());
 
-    if config.verbose {
-        println!("CERTIFICATE: {:x?}", &message_buffer.message_data());
+        spdm_context
+            .requester_process_message(&mut message_buffer)
+            .unwrap();
+        if config.verbose {
+            println!("CERTIFICATE: {:x?}", &message_buffer.message_data());
+        }
+        if !matches!(
+            spdm_context.connection_info().state(),
+            spdm_lib::state::ConnectionState::DuringCertificate(_)
+        ) {
+            break;
+        }
     }
+    println!("sucessfully retrieved peer cert chain");
 
     Ok(())
 }
