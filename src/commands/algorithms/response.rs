@@ -160,7 +160,8 @@ fn process_negotiate_algorithms_request<'a>(
         .set_peer_algorithms(peer_algorithms);
 
     // Append NEGOTIATE_ALGORITHMS to the transcript VCA context
-    ctx.append_message_to_transcript(req_payload, TranscriptContext::Vca)
+    // ctx.append_message_to_transcript(req_payload, TranscriptContext::Vca)
+    ctx.append_message_to_transcript(req_payload, TranscriptContext::M1)
 }
 
 fn generate_algorithms_response<'a>(
@@ -253,7 +254,8 @@ fn generate_algorithms_response<'a>(
         .map_err(|_| ctx.generate_error_response(rsp, ErrorCode::InvalidRequest, 0, None))?;
 
     // Add the ALGORITHMS to the transcript VCA context
-    ctx.append_message_to_transcript(rsp, TranscriptContext::Vca)
+    // ctx.append_message_to_transcript(rsp, TranscriptContext::Vca)
+    ctx.append_message_to_transcript(rsp, TranscriptContext::M1)
 }
 
 fn encode_alg_struct_table(

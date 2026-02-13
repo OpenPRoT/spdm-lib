@@ -70,7 +70,6 @@ impl ConnectionInfo {
         self.peer_capabilities = peer_capabilities;
     }
 
-    #[allow(dead_code)]
     pub fn peer_capabilities(&self) -> DeviceCapabilities {
         self.peer_capabilities
     }
@@ -83,7 +82,6 @@ impl ConnectionInfo {
         &self.peer_algorithms
     }
 
-    #[allow(dead_code)]
     pub(crate) fn set_multi_key_conn_rsp(&mut self, multi_key_conn_rsp: bool) {
         self.multi_key_conn_rsp = multi_key_conn_rsp;
     }

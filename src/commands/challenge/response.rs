@@ -2,6 +2,7 @@
 use crate::cert_store::MAX_CERT_SLOTS_SUPPORTED;
 use crate::codec::{Codec, CommonCodec, MessageBuf};
 use crate::commands::algorithms::selected_measurement_specification;
+use crate::commands::challenge::{ChallengeAuthRspBase, ChallengeReq, MeasurementSummaryHashType};
 use crate::commands::digests::compute_cert_chain_hash;
 use crate::commands::error_rsp::ErrorCode;
 use crate::context::SpdmContext;
@@ -13,51 +14,11 @@ use crate::transcript::TranscriptContext;
 use bitfield::bitfield;
 use zerocopy::{FromBytes, Immutable, IntoBytes};
 
-#[derive(FromBytes, IntoBytes, Immutable)]
-#[repr(C)]
-struct ChallengeReqBase {
-    slot_id: u8,
-    measurement_hash_type: u8,
-    nonce: [u8; NONCE_LEN],
-}
-impl CommonCodec for ChallengeReqBase {}
-
-#[derive(FromBytes, IntoBytes, Immutable)]
-#[repr(C)]
-struct ChallengeAuthRspBase {
-    challenge_auth_attr: ChallengeAuthAttr,
-    slot_mask: u8,
-    cert_chain_hash: [u8; SHA384_HASH_SIZE],
-    nonce: [u8; NONCE_LEN],
-}
-impl CommonCodec for ChallengeAuthRspBase {}
-
-impl ChallengeAuthRspBase {
-    fn new(slot_id: u8) -> Self {
-        Self {
-            challenge_auth_attr: ChallengeAuthAttr(slot_id),
-            slot_mask: 1 << slot_id,
-            cert_chain_hash: [0; SHA384_HASH_SIZE],
-            nonce: [0; NONCE_LEN],
-        }
-    }
-}
-
-bitfield! {
-    #[derive(FromBytes, IntoBytes, Immutable)]
-    #[repr(C)]
-    struct ChallengeAuthAttr(u8);
-    impl Debug;
-    u8;
-    pub slot_id, set_slot_id: 3, 0;
-    reserved, _: 7, 4;
-}
-
 fn process_challenge<'a>(
     ctx: &mut SpdmContext<'a>,
     spdm_hdr: SpdmMsgHdr,
     req_payload: &mut MessageBuf<'a>,
-) -> CommandResult<(u8, u8, Option<RequesterContext>)> {
+) -> CommandResult<(u8, MeasurementSummaryHashType, Option<RequesterContext>)> {
     // Validate the version
     let connection_version = ctx.state.connection_info.version_number();
     if spdm_hdr.version().ok() != Some(connection_version) {
@@ -69,7 +30,7 @@ fn process_challenge<'a>(
         .map_err(|_| ctx.generate_error_response(req_payload, ErrorCode::Unspecified, 0, None))?;
 
     // Decode the CHALLENGE request payload
-    let challenge_req = ChallengeReqBase::decode(req_payload).map_err(|_| {
+    let challenge_req = ChallengeReq::decode(req_payload).map_err(|_| {
         ctx.generate_error_response(req_payload, ErrorCode::InvalidRequest, 0, None)
     })?;
 
@@ -104,11 +65,12 @@ fn process_challenge<'a>(
     // Append the CHALLENGE request to the M1 transcript
     ctx.append_message_to_transcript(req_payload, TranscriptContext::M1)?;
 
-    Ok((
-        challenge_req.slot_id,
-        challenge_req.measurement_hash_type,
-        requester_context,
-    ))
+    let meas_hash_type =
+        MeasurementSummaryHashType::try_from(challenge_req.measurement_hash_type).map_err(|_| {
+            ctx.generate_error_response(req_payload, ErrorCode::InvalidRequest, 0, None)
+        })?;
+
+    Ok((challenge_req.slot_id, meas_hash_type, requester_context))
 }
 
 fn encode_m1_signature<'a>(
@@ -205,7 +167,7 @@ fn encode_challenge_auth_rsp_base<'a>(
 fn encode_measurement_summary_hash<'a>(
     ctx: &mut SpdmContext<'a>,
     asym_algo: AsymAlgo,
-    meas_summary_hash_type: u8,
+    meas_summary_hash_type: MeasurementSummaryHashType,
     rsp: &mut MessageBuf<'a>,
 ) -> CommandResult<usize> {
     let mut meas_summary_hash = [0u8; SHA384_HASH_SIZE];
@@ -245,7 +207,7 @@ fn encode_opaque_data(rsp: &mut MessageBuf<'_>) -> CommandResult<usize> {
 fn generate_challenge_auth_response<'a>(
     ctx: &mut SpdmContext<'a>,
     slot_id: u8,
-    meas_summary_hash_type: u8,
+    meas_summary_hash_type: MeasurementSummaryHashType,
     requester_context: Option<RequesterContext>,
     rsp: &mut MessageBuf<'a>,
 ) -> CommandResult<()> {
@@ -266,7 +228,7 @@ fn generate_challenge_auth_response<'a>(
     payload_len += encode_challenge_auth_rsp_base(ctx, slot_id, asym_algo, rsp)?;
 
     // Get the measurement summary hash
-    if meas_summary_hash_type != 0 {
+    if meas_summary_hash_type != MeasurementSummaryHashType::None {
         payload_len +=
             encode_measurement_summary_hash(ctx, asym_algo, meas_summary_hash_type, rsp)?;
     }

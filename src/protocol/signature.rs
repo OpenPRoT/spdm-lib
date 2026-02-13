@@ -1,5 +1,6 @@
 // Licensed under the Apache-2.0 license
 
+use crate::context::SpdmContext;
 use crate::platform::hash::{SpdmHash, SpdmHashError};
 use crate::protocol::*;
 
@@ -21,9 +22,16 @@ pub enum SignCtxError {
     Platform(SpdmHashError),
 }
 
+#[derive(Debug, PartialEq)]
+pub enum SignatureError {
+    InvalidSignature,
+}
+
 pub type SignatureCtxResult<T> = Result<T, SignCtxError>;
 
-pub(crate) fn create_responder_signing_context(
+pub type SignatureResult<T> = Result<T, SignCtxError>;
+
+pub fn create_responder_signing_context(
     spdm_version: SpdmVersion,
     opcode: ReqRespCode,
 ) -> SignatureCtxResult<[u8; SPDM_SIGNING_CONTEXT_LEN]> {

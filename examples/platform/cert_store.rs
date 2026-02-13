@@ -13,6 +13,7 @@ use p384::{
 use zerocopy::FromBytes;
 
 use super::certs::{STATIC_ATTESTATION_CERT, STATIC_ROOT_CA_CERT};
+use spdm_lib::commands::challenge::MeasurementSummaryHashType;
 use spdm_lib::protocol::{
     algorithms::{AsymAlgo, ECC_P384_SIGNATURE_SIZE, SHA384_HASH_SIZE},
     SpdmCertChainHeader,
@@ -368,6 +369,8 @@ pub struct PeerSlot {
 
     /// KeyUsageMask[K], retrieved in `DIGESTS` response if the corresponding `MULTI_KEY_CONN_REQ` or `MULTI_KEY_CONN_RSP` is true.
     pub key_usage_mask: Option<KeyUsageMask>,
+
+    pub requested_msh_type: Option<MeasurementSummaryHashType>,
 }
 
 impl Default for PeerSlot {
@@ -378,6 +381,7 @@ impl Default for PeerSlot {
             keypair_id: None,
             certificate_info: None,
             key_usage_mask: None,
+            requested_msh_type: None,
         }
     }
 }
@@ -472,7 +476,7 @@ impl PeerCertStore for ExamplePeerCertStore {
         }
     }
 
-    fn get_raw_chain(&self, slot_id: u8) -> Result<&[u8], CertStoreError> {
+    fn get_raw_chain(&self, slot_id: u8) -> CertStoreResult<&[u8]> {
         let slot = self
             .peer_slots
             .get(slot_id as usize)
@@ -642,5 +646,32 @@ impl PeerCertStore for ExamplePeerCertStore {
             .ok_or(CertStoreError::PlatformError)?;
         slot.get_root_hash(hash_algo)
             .ok_or(CertStoreError::CertReadError)
+    }
+
+    fn get_requested_msh_type(&self, slot_id: u8) -> CertStoreResult<MeasurementSummaryHashType> {
+        self.peer_slots
+            .get(slot_id as usize)
+            .ok_or(CertStoreError::InvalidSlotId(slot_id))?
+            .as_ref()
+            .ok_or(CertStoreError::PlatformError)?
+            .requested_msh_type
+            .clone()
+            .ok_or(CertStoreError::Undefined)
+    }
+
+    fn set_requested_msh_type(
+        &mut self,
+        slot_id: u8,
+        msh_type: MeasurementSummaryHashType,
+    ) -> CertStoreResult<()> {
+        let slot = self
+            .peer_slots
+            .get_mut(slot_id as usize)
+            .ok_or(CertStoreError::InvalidSlotId(slot_id))?
+            .as_mut()
+            .ok_or(CertStoreError::PlatformError)?;
+        slot.requested_msh_type = Some(msh_type);
+
+        Ok(())
     }
 }

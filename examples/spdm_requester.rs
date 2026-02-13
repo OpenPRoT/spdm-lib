@@ -8,8 +8,13 @@ use std::net::TcpStream;
 use std::process;
 
 use der::{Decode, Encode};
+use p384::ecdsa::{Signature, VerifyingKey};
+use signature::hazmat::PrehashVerifier;
 use spdm_lib::codec::MessageBuf;
 use spdm_lib::commands::certificate::request::generate_get_certificate;
+use spdm_lib::commands::challenge::{
+    request::generate_challenge_request, MeasurementSummaryHashType,
+};
 use spdm_lib::context::SpdmContext;
 use spdm_lib::error::SpdmError;
 use spdm_lib::protocol::algorithms::{
@@ -17,7 +22,8 @@ use spdm_lib::protocol::algorithms::{
     DheNamedGroup, KeySchedule, LocalDeviceAlgorithms, MeasurementHashAlgo,
     MeasurementSpecification, MelSpecification, OtherParamSupport, ReqBaseAsymAlg,
 };
-use spdm_lib::protocol::{version, BaseHashAlgoType};
+use spdm_lib::protocol::signature::NONCE_LEN;
+use spdm_lib::protocol::{self, version, BaseHashAlgoType};
 use spdm_lib::protocol::{CapabilityFlags, DeviceCapabilities};
 
 // Import platform implementations - no duplicates!
@@ -32,6 +38,7 @@ use spdm_lib::commands::digests::request::generate_digest_request;
 use spdm_lib::commands::version::{request::generate_get_version, VersionReqPayload};
 
 use crate::platform::cert_store::ExamplePeerCertStore;
+use spdm_lib::transcript::TranscriptContext;
 
 use x509_cert::Certificate;
 
@@ -401,6 +408,76 @@ fn full_flow(stream: TcpStream, config: &RequesterConfig) -> IoResult<()> {
         }
     }
 
+    let mut nonce = [0u8; NONCE_LEN];
+    spdm_context.get_random_bytes(&mut nonce).unwrap();
+
+    if config.verbose {
+        println!("CHALLENGE: Nonce = {:x?}", nonce);
+    }
+
+    // GET_CHALLENGE
+    message_buffer.reset();
+    generate_challenge_request(
+        &mut spdm_context,
+        &mut message_buffer,
+        0,
+        MeasurementSummaryHashType::All,
+        nonce,
+        None,
+    )
+    .unwrap();
+
+    spdm_context
+        .requester_send_request(&mut message_buffer, EID)
+        .unwrap();
+
+    if config.verbose {
+        println!("CHALLENGE: {:?}", &message_buffer.message_data());
+    }
+
+    // CHALLENGE_AUTH
+    spdm_context
+        .requester_process_message(&mut message_buffer)
+        .unwrap();
+
+    if config.verbose {
+        println!("CHALLENGE_AUTH: {:x?}", &message_buffer.message_data());
+    }
+
+    if let Some(store) = spdm_context.peer_cert_store() {
+        let hash_algo: BaseHashAlgoType = spdm_context
+            .connection_info()
+            .peer_algorithms()
+            .base_hash_algo
+            .try_into()
+            .unwrap();
+
+        let cert_chain = store.get_cert_chain(0, hash_algo).unwrap();
+
+        // get pub key from first cert in chain and verify signature of challenge auth
+        let (cert, _) = Certificate::from_der_partial(cert_chain).unwrap();
+        let pub_key = VerifyingKey::from_sec1_bytes(
+            cert.tbs_certificate()
+                .subject_public_key_info()
+                .subject_public_key
+                .as_bytes()
+                .unwrap(),
+        )
+        .unwrap();
+
+        // get all the remaining bytes from the message buffer as the signature
+        let sig_raw = message_buffer.data(96).unwrap();
+        let sig = Signature::from_slice(sig_raw).unwrap();
+
+        if !verify_challenge_auth_signature(&mut spdm_context, pub_key, sig) {
+            eprintln!("CHALLENGE_AUTH signature verification failed");
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::Other,
+                "CHALLENGE_AUTH signature verification failed",
+            ));
+        }
+    }
+
     Ok(())
 }
 
@@ -609,4 +686,44 @@ fn verify_cert_chain(chain: &[Certificate]) -> bool {
         .unwrap();
     }
     true
+}
+
+/// Currently only p384 support required
+/// Here we verify that the responder and we created the same m2 transcript and
+/// that the signature is correct.
+///
+/// The transcript hash will be retrieved from the context.
+/// The signature will be verified using the public key from the responder's certificate chain (which we already verified).
+pub fn verify_challenge_auth_signature(
+    ctx: &mut SpdmContext,
+    pubkey: VerifyingKey,
+    signature: Signature,
+) -> bool {
+    use signature::Verifier;
+
+    // since we verify the responder-generated signature, we have to use the same "responder-" context constant.
+    let sig_combined_context = protocol::signature::create_responder_signing_context(
+        ctx.connection_info().version_number(),
+        protocol::ReqRespCode::ChallengeAuth,
+    )
+    .unwrap();
+
+    // Get the M1 transcript hash (which is the hash of messages A, B, C) and verify the signature over it.
+    let mut transcript_hash = [0u8; 48];
+    ctx.transcript_hash(TranscriptContext::M1, &mut transcript_hash)
+        .unwrap();
+
+    // M denotes the message that is signed. M shall be the concatenation of the combined_spdm_prefix and unverified_message_hash.
+    let m = [sig_combined_context.as_slice(), &transcript_hash].concat();
+
+    dbg!(
+        &sig_combined_context,
+        &transcript_hash,
+        &m,
+        pubkey,
+        &signature
+    );
+
+    // pubkey.verify_prehash(&m, &signature).is_ok()
+    pubkey.verify(&m, &signature).is_ok()
 }

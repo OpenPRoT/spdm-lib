@@ -5,19 +5,19 @@ use crate::cert_store::*;
 use crate::chunk_ctx::LargeResponseCtx;
 use crate::codec::{Codec, MessageBuf};
 use crate::commands::capabilities::handle_capabilities_response;
+use crate::commands::challenge::handle_challenge_auth_response;
 use crate::commands::digests::{handle_digests_response, handle_get_digests};
 use crate::commands::error_rsp::{encode_error_response, ErrorCode};
 use crate::commands::version::handle_version_response;
 use crate::commands::{
-    algorithms, capabilities, certificate, challenge_auth_rsp, chunk_get_rsp, measurements_rsp,
-    version,
+    algorithms, capabilities, certificate, challenge, chunk_get_rsp, measurements_rsp, version,
 };
 
 use crate::error::*;
 use crate::measurements::common::SpdmMeasurements;
 use crate::platform::evidence::SpdmEvidence;
 use crate::platform::hash::SpdmHash;
-use crate::platform::rng::SpdmRng;
+use crate::platform::rng::{SpdmRng, SpdmRngResult};
 use crate::platform::transport::SpdmTransport;
 use crate::protocol::algorithms::*;
 use crate::protocol::common::{ReqRespCode, SpdmMsgHdr};
@@ -180,9 +180,7 @@ impl<'a> SpdmContext<'a> {
             ReqRespCode::GetCertificate => {
                 certificate::handle_get_certificate(self, req_msg_header, req)?
             }
-            ReqRespCode::Challenge => {
-                challenge_auth_rsp::handle_challenge(self, req_msg_header, req)?
-            }
+            ReqRespCode::Challenge => challenge::handle_challenge(self, req_msg_header, req)?,
             ReqRespCode::GetMeasurements => {
                 measurements_rsp::handle_get_measurements(self, req_msg_header, req)?
             }
@@ -224,6 +222,9 @@ impl<'a> SpdmContext<'a> {
             ReqRespCode::Digests => handle_digests_response(self, resp_msg_header, resp)?,
             ReqRespCode::Certificate => {
                 certificate::request::handle_certificate_response(self, resp_msg_header, resp)?
+            }
+            ReqRespCode::ChallengeAuth => {
+                handle_challenge_auth_response(self, resp_msg_header, resp)?
             }
             _ => Err((false, CommandError::UnsupportedResponse))?,
         }
@@ -346,5 +347,54 @@ impl<'a> SpdmContext<'a> {
 
     pub fn peer_cert_store(&self) -> Option<&dyn PeerCertStore> {
         self.state.peer_cert_store.as_deref()
+    }
+
+    /// To safeguard the user-facing API, we prohibit the retrieval of hashes unless the context is in a valid state.
+    /// These states are:
+    /// - [`ConnectionState::AfterCertificate`] for the M1 transcript context
+    /// - [`ConnectionState::Authenticated`] for the L2 transcript context
+    ///
+    /// # Arguments
+    /// - `transcript_context`: The transcript context for which the hash is being requested.
+    pub fn transcript_hash(
+        &mut self,
+        transcript_context: TranscriptContext,
+        hash: &mut [u8],
+    ) -> CommandResult<()> {
+        match transcript_context {
+            TranscriptContext::M1 => {
+                if self.state.connection_info.state() < ConnectionState::AfterCertificate {
+                    return Err((false, CommandError::InvalidState));
+                }
+            }
+            TranscriptContext::L1 => {
+                if self.state.connection_info.state() < ConnectionState::Authenticated {
+                    return Err((false, CommandError::InvalidState));
+                }
+            }
+            TranscriptContext::Vca => {
+                return Err((false, CommandError::InvalidState));
+            }
+        }
+
+        let mut hash_out_max = [0u8; 48];
+        self.transcript_mgr
+            .hash(transcript_context, &mut hash_out_max)
+            .map_err(|e| (false, CommandError::Transcript(e)))?;
+
+        if hash.len() > hash_out_max.len() {
+            return Err((false, CommandError::BufferTooSmall));
+        }
+
+        hash.copy_from_slice(&hash_out_max[..hash.len()]);
+        Ok(())
+    }
+
+    /// Expose the `SystemRng` function `get_random_bytes` to context.
+    ///
+    /// # Arguments
+    /// - `dest`: Destination buffer that holds the random bytes.
+    pub fn get_random_bytes(&mut self, dest: &mut [u8]) -> SpdmRngResult<()> {
+        self.rng.get_random_bytes(dest)
     }
 }
