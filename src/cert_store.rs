@@ -5,6 +5,8 @@ use crate::protocol::algorithms::{AsymAlgo, ECC_P384_SIGNATURE_SIZE, SHA384_HASH
 use crate::protocol::certs::{CertificateInfo, KeyUsageMask};
 use crate::protocol::{BaseHashAlgoType, SpdmCertChainHeader};
 
+use crate::commands::challenge::MeasurementSummaryHashType;
+
 pub const MAX_CERT_SLOTS_SUPPORTED: u8 = 2;
 pub const SPDM_CERT_CHAIN_METADATA_LEN: u16 =
     size_of::<SpdmCertChainHeader>() as u16 + SHA384_HASH_SIZE as u16;
@@ -18,6 +20,7 @@ pub enum CertStoreError {
     InvalidOffset,
     CertReadError,
     PlatformError,
+    Undefined,
 }
 
 pub type CertStoreResult<T> = Result<T, CertStoreError>;
@@ -376,8 +379,48 @@ pub trait PeerCertStore {
     /// * The digest of the Root Certificate if available
     fn get_root_hash(&self, slot_id: u8, hash_algo: BaseHashAlgoType) -> CertStoreResult<&[u8]>;
 
-    /// Get the raw cert chain, including the length header and root hash
+    /// Get a complete certificate chain consisting of one or more ASN.1 DER-encoded X.509 v3 certificates.
     fn get_raw_chain(&self, slot_id: u8) -> CertStoreResult<&[u8]>;
+
+    /// In protocol message `CHALLENGE`, the requester can specify the `MeasurementSummaryHashType`
+    /// to indicate the type of measurement summary hash it wants the responder
+    /// to include in the `CHALLENGE_AUTH` response.
+    /// This is done by encoding the `MeasurementSummaryHashType` value in the `Param2`
+    /// field of the `CHALLENGE` request.
+    ///
+    /// The responder can then retrieve this value from the request and use it to determine
+    /// which type of measurement summary hash to include in its response.
+    ///
+    /// The requester can then retrieve it to parse the measurement summary hash
+    /// in the response correctly.
+    ///
+    /// # Arguments
+    /// * `slot_id` - The slot ID of the certificate chain.
+    ///
+    /// # Returns
+    /// * `Ok(MeasurementSummaryHashType)` - The `MeasurementSummaryHashType` value requested
+    /// by the peer in the `CHALLENGE` request, or `None` if not set.
+    /// - Ok(None) if the requester did not specify a `MeasurementSummaryHashType`,
+    ///
+    /// # Errors
+    /// * `CertStoreError::InvalidSlotId` - If the slot ID is out of range.
+    /// * `CertStoreError::PlatformError` - If there was a platform-specific error.
+    /// * `CertStoreError::Undefined` - If the `MeasurementSummaryHashType` has not been set by a previous `CHALLENGE` request.
+    fn get_requested_msh_type(&self, slot_id: u8) -> CertStoreResult<MeasurementSummaryHashType>;
+
+    /// Set the `MeasurementSummaryHashType` requested by the peer in the `CHALLENGE` request.
+    ///
+    /// # Arguments
+    /// * `msh_type` - The `MeasurementSummaryHashType` value to set.
+    ///
+    /// # Returns
+    /// * `Ok(())` - If the value was stored successfully.
+    /// * `Err(CertStoreError)` - If there was an error storing the value.
+    fn set_requested_msh_type(
+        &mut self,
+        slot_id: u8,
+        msh_type: MeasurementSummaryHashType,
+    ) -> CertStoreResult<()>;
 }
 
 pub enum ReassemblyStatus {

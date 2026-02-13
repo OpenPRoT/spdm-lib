@@ -11,6 +11,8 @@ use zerocopy::FromBytes;
 
 use super::*;
 
+/// Generate a GET_DIGESTS request and append it to the transcript context.
+/// See [crate::transcript::TranscriptContext::M1] for details on the transcript context used.
 pub fn generate_digest_request(
     ctx: &mut SpdmContext,
     message_buffer: &mut MessageBuf,
@@ -27,9 +29,12 @@ pub fn generate_digest_request(
         .encode(message_buffer)
         .map_err(|e| (false, CommandError::Codec(e)))?;
 
-    ctx.append_message_to_transcript(message_buffer, crate::transcript::TranscriptContext::L1)
+    // Message M1.B = Concatenate(GET_DIGESTS, DIGESTS, GET_CERTIFICATE, CERTIFICATE)
+    ctx.append_message_to_transcript(message_buffer, crate::transcript::TranscriptContext::M1)
 }
 
+/// Process a DIGESTS response, updating the peer certificate store and transcript context accordingly.
+/// See [crate::transcript::TranscriptContext::M1] for details on the transcript context used.
 pub(crate) fn handle_digests_response<'a>(
     ctx: &mut SpdmContext<'a>,
     spdm_hdr: SpdmMsgHdr,
@@ -158,7 +163,8 @@ pub(crate) fn handle_digests_response<'a>(
             .set_state(ConnectionState::AfterDigest);
     }
 
-    ctx.append_message_to_transcript(resp_payload, TranscriptContext::L1)
+    // Message M1.B = Concatenate(GET_DIGESTS, DIGESTS, GET_CERTIFICATE, CERTIFICATE)
+    ctx.append_message_to_transcript(resp_payload, TranscriptContext::M1)
 }
 
 #[cfg(test)]

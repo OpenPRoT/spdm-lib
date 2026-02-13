@@ -1,5 +1,6 @@
 // Licensed under the Apache-2.0 license
 
+use crate::commands::challenge::MeasurementSummaryHashType;
 use crate::measurements::common::{
     DmtfMeasurementBlockMetadata, MeasurementValueType, MeasurementsError, MeasurementsResult,
     SPDM_MEASUREMENT_MANIFEST_INDEX,
@@ -91,7 +92,7 @@ impl FreeformManifest {
         evidence: &dyn SpdmEvidence,
         hash_ctx: &mut dyn SpdmHash,
         asym_algo: AsymAlgo,
-        _measurement_summary_hash_type: u8,
+        _measurement_summary_hash_type: MeasurementSummaryHashType,
         hash: &mut [u8; SHA384_HASH_SIZE],
     ) -> MeasurementsResult<()> {
         self.refresh_measurement_record(evidence, asym_algo)?;

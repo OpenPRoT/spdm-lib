@@ -129,7 +129,8 @@ pub(crate) fn handle_algorithms_response<'a>(
         .connection_info
         .set_state(crate::state::ConnectionState::AlgorithmsNegotiated);
 
-    Ok(())
+    // ctx.append_message_to_transcript(resp, crate::transcript::TranscriptContext::Vca)?;
+    ctx.append_message_to_transcript(resp, crate::transcript::TranscriptContext::M1)
 }
 
 /// Generate the NEGOTIATE_ALGORITHMS request with all the contexts local information.
@@ -265,7 +266,8 @@ pub fn generate_negotiate_algorithms_request<'a>(
         }
     }
 
-    ctx.append_message_to_transcript(req_buf, crate::transcript::TranscriptContext::Vca)
+    // ctx.append_message_to_transcript(req_buf, crate::transcript::TranscriptContext::Vca)
+    ctx.append_message_to_transcript(req_buf, crate::transcript::TranscriptContext::M1)
 }
 
 #[cfg(test)]

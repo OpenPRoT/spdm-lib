@@ -2,6 +2,7 @@
 
 use crate::{
     codec::{Codec, MessageBuf},
+    commands::capabilities::req_flag_compatible,
     context::SpdmContext,
     error::{CommandError, CommandResult},
     protocol::SpdmMsgHdr,
@@ -14,7 +15,8 @@ use crate::commands::version::{VersionNumberEntry, VersionReqPayload, VersionRes
 
 use crate::protocol::SpdmVersion;
 
-/// Generate the GET_VERSION command with Header and payload.
+/// Generate the GET_VERSION command with Header and payload and append it to the transcript context
+/// See [crate::transcript::TranscriptContext::Vca] and [crate::transcript::TranscriptContext::M1] for details on the transcript context used.
 pub fn generate_get_version<'a>(
     ctx: &mut SpdmContext<'a>,
     req_buf: &mut MessageBuf<'a>,
@@ -35,7 +37,8 @@ pub fn generate_get_version<'a>(
         .push_data(len)
         .map_err(|_| (false, CommandError::BufferTooSmall))?;
 
-    ctx.append_message_to_transcript(req_buf, TranscriptContext::Vca)
+    // ctx.append_message_to_transcript(req_buf, TranscriptContext::Vca)
+    ctx.append_message_to_transcript(req_buf, TranscriptContext::M1)
 }
 
 /// Requester function for processing a VERSION response
@@ -95,6 +98,8 @@ fn process_version<'a>(
 }
 
 /// Requester function handling the parsing of the VERSION response sent by the Responder.
+/// Updates the context with the selected version and appends the response to the transcript context.
+/// See [crate::transcript::TranscriptContext::Vca] for details on the transcript context used.
 pub(crate) fn handle_version_response<'a>(
     ctx: &mut SpdmContext<'a>,
     resp_header: SpdmMsgHdr,
@@ -107,15 +112,14 @@ pub(crate) fn handle_version_response<'a>(
         Err(ctx.generate_error_response(resp, ErrorCode::InvalidResponseCode, 0, None))?;
     }
 
-    // Process VERSION response and set context information
     process_version(ctx, resp_header, resp)?;
 
-    // Append to transcript
-    ctx.append_message_to_transcript(resp, TranscriptContext::Vca)?;
     ctx.state
         .connection_info
         .set_state(ConnectionState::AfterVersion);
-    Ok(())
+
+    // ctx.append_message_to_transcript(resp, TranscriptContext::Vca)
+    ctx.append_message_to_transcript(resp, TranscriptContext::M1)
 }
 
 // tests

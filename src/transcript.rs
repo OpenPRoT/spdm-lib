@@ -48,8 +48,31 @@ impl VcaBuffer {
 }
 
 pub enum TranscriptContext {
+    /// # VCA
+    /// VCA: Version, Capabilities, and Algorithms transcript context, containing
+    /// messages related to version negotiation, capabilities exchange, and algorithm negotiation.
+    /// VCA = Concatenate (GET_VERSION, VERSION, GET_CAPABILITIES, CAPABILITIES, NEGOTIATE_ALGORITHMS, ALGORITHMS)
+    ///
+    /// VCA is the same as message A in the M1 transcript.
     Vca,
+
+    /// # M1
+    /// M1=Concatenate(A, B, C)
+    /// where
+    /// - A: VCA = Concatenate (GET_VERSION, VERSION, GET_CAPABILITIES, CAPABILITIES,
+    /// NEGOTIATE_ALGORITHMS, ALGORITHMS)
+    /// - B: Certificate Exchange = Concatenate (GET_DIGESTS, DIGESTS, GET_CERTIFICATE
+    /// CERTIFICATE)
+    /// - C = Concatenate (CHALLENGE, CHALLENGE_AUTH excluding signature)
     M1,
+
+    /// # L1
+    /// SPDM Version 1.2 and later: L1 = Concatenate(A, M) where
+    /// - A: VCA = Concatenate (GET_VERSION, VERSION, GET_CAPABILITIES, NEGOTIATE_ALGORITHMS, ALGORITHMS)
+    /// - M: Concatenate (GET_MEASUREMENTS, MEASUREMENTS without signature)
+    ///
+    /// SPDM Version 1.0 and 1.1: L1 = Concatenate(M) where
+    /// - M: Concatenate (GET_MEASUREMENTS, MEASUREMENTS without signature)
     L1,
 }
 

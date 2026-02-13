@@ -2,6 +2,7 @@
 use crate::measurements::freeform_manifest::FreeformManifest;
 use crate::platform::evidence::{SpdmEvidence, SpdmEvidenceError};
 use crate::platform::hash::{SpdmHash, SpdmHashError};
+use crate::commands::challenge::MeasurementSummaryHashType;
 use crate::protocol::{algorithms::AsymAlgo, MeasurementSpecification, SHA384_HASH_SIZE};
 use bitfield::bitfield;
 use zerocopy::{FromBytes, Immutable, IntoBytes};
@@ -130,7 +131,7 @@ impl SpdmMeasurements {
         evidence: &dyn SpdmEvidence,
         hash_ctx: &mut dyn SpdmHash,
         asym_algo: AsymAlgo,
-        measurement_summary_hash_type: u8,
+        measurement_summary_hash_type: MeasurementSummaryHashType,
         hash: &mut [u8; SHA384_HASH_SIZE],
     ) -> MeasurementsResult<()> {
         match self {

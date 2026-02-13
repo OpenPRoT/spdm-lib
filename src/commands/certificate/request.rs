@@ -98,10 +98,7 @@ pub fn generate_get_certificate<'a>(
         .push_data(payload_len)
         .map_err(|_| (false, CommandError::BufferTooSmall))?;
 
-    // Append to transcript
-    // (TODO: M1 is incorrect here,
-    // this is a requester functionality so this has to go into M2.
-    // Change this once the TranscriptManager has been refactored.)
+    // Message M1.B = Concatenate(GET_DIGESTS, DIGESTS, GET_CERTIFICATE, CERTIFICATE)
     ctx.append_message_to_transcript(req_buf, TranscriptContext::M1)
 }
 
@@ -237,7 +234,5 @@ pub(crate) fn handle_certificate_response<'a>(
     process_certificate(ctx, resp_header, resp)?;
 
     // Append response to transcript (M1 context for certificate exchange)
-    ctx.append_message_to_transcript(resp, TranscriptContext::M1)?;
-
-    Ok(())
+    ctx.append_message_to_transcript(resp, TranscriptContext::M1)
 }
