@@ -47,6 +47,7 @@ pub fn create_context<'a>(
         DeviceCapabilities::default(),
         algorithms,
         &mut stack.cert_store,
+        None,
         &mut stack.hasher,
         &mut stack.m1,
         &mut stack.l1,

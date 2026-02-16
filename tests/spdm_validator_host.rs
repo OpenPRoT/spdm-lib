@@ -218,6 +218,7 @@ fn spdm_validator_host() -> SpdmResult<()> {
         dev_caps,
         local_algos,
         &mut certs,
+        None,
         &mut hash_main,
         &mut hash_m1,
         &mut hash_l1,

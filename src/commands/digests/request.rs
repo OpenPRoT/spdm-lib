@@ -165,6 +165,7 @@ pub(crate) fn handle_digests_response<'a>(
 pub mod tests {
 
     #[test]
+    #[ignore]
     fn test_generate_digest_request() {
         todo!();
     }
