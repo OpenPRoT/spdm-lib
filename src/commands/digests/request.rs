@@ -1,6 +1,5 @@
 // Licensed under the Apache-2.0 license
 
-use crate::cert_store::PeerCertStore;
 use crate::codec::Codec;
 use crate::context::SpdmContext;
 use crate::error::{CommandError, CommandResult};

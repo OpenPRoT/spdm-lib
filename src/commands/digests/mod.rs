@@ -1,7 +1,7 @@
 // Licensed under the Apache-2.0 license
 
-use crate::cert_store::{cert_slot_mask, SpdmCertStore};
-use crate::codec::{Codec, CommonCodec, MessageBuf};
+use crate::cert_store::SpdmCertStore;
+use crate::codec::{CommonCodec, MessageBuf};
 use crate::context::SpdmContext;
 use crate::error::{CommandError, CommandResult, PlatformError};
 use crate::platform::hash::{SpdmHash, SpdmHashAlgoType};
