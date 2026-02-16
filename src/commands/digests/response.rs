@@ -1,14 +1,12 @@
 // Licensed under the Apache-2.0 license
 
-use crate::cert_store::{cert_slot_mask, SpdmCertStore};
-use crate::codec::{Codec, CommonCodec, MessageBuf};
+use crate::cert_store::cert_slot_mask;
+use crate::codec::{Codec, MessageBuf};
 use crate::commands::error_rsp::ErrorCode;
 use crate::context::SpdmContext;
-use crate::error::{CommandError, CommandResult, PlatformError};
-use crate::platform::hash::{SpdmHash, SpdmHashAlgoType};
+use crate::error::{CommandError, CommandResult};
 use crate::state::ConnectionState;
 use crate::transcript::TranscriptContext;
-use zerocopy::{FromBytes, Immutable, IntoBytes};
 
 use super::*;
 
