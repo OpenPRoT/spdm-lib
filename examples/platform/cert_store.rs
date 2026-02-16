@@ -462,15 +462,15 @@ impl PeerCertStore for ExamplePeerCertStore {
         Ok(spdm_lib::cert_store::ReassemblyStatus::InProgress)
     }
 
-    fn reset(&mut self, slot_id: u8) {
+    fn reset(&mut self, _slot_id: u8) {
         todo!()
     }
 
-    fn get_root_hash(&self, slot_id: u8) -> Option<&[u8]> {
+    fn get_root_hash(&self, _slot_id: u8) -> Option<&[u8]> {
         todo!()
     }
 
-    fn get_raw_chain(&self, slot_id: u8) -> Option<&[u8]> {
+    fn get_raw_chain(&self, _slot_id: u8) -> Option<&[u8]> {
         todo!()
     }
 

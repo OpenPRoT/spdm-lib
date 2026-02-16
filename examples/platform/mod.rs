@@ -5,6 +5,9 @@
 //! This module provides working platform implementations that can be easily
 //! swapped out for production implementations.
 
+#![allow(unused_imports)]
+#![allow(dead_code)]
+
 pub mod cert_store;
 pub mod certs;
 pub mod crypto;
