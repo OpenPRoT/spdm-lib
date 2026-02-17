@@ -343,4 +343,8 @@ impl<'a> SpdmContext<'a> {
             .append(transcript_context, msg)
             .map_err(|e| (false, CommandError::Transcript(e)))
     }
+
+    pub fn peer_cert_store(&self) -> Option<&dyn PeerCertStore> {
+        self.state.peer_cert_store.as_deref()
+    }
 }
