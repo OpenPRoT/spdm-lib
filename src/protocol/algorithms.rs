@@ -289,15 +289,16 @@ impl Prioritize<BaseHashAlgoType> for BaseHashAlgo {
     }
 }
 
+/// BaseHashAlgo variants
 #[derive(Debug, Clone, Copy)]
 pub enum BaseHashAlgoType {
-    TpmAlgSha256,
-    TpmAlgSha384,
-    TpmAlgSha512,
-    TpmAlgSha3_256,
-    TpmAlgSha3_384,
-    TpmAlgSha3_512,
-    TpmAlgSm3_256,
+    TpmAlgSha256 = 1,
+    TpmAlgSha384 = 2,
+    TpmAlgSha512 = 4,
+    TpmAlgSha3_256 = 8,
+    TpmAlgSha3_384 = 16,
+    TpmAlgSha3_512 = 32,
+    TpmAlgSm3_256 = 64,
 }
 
 impl TryFrom<u8> for BaseHashAlgoType {
@@ -305,15 +306,44 @@ impl TryFrom<u8> for BaseHashAlgoType {
 
     fn try_from(value: u8) -> Result<Self, SpdmError> {
         match value {
-            0 => Ok(BaseHashAlgoType::TpmAlgSha256),
-            1 => Ok(BaseHashAlgoType::TpmAlgSha384),
-            2 => Ok(BaseHashAlgoType::TpmAlgSha512),
-            3 => Ok(BaseHashAlgoType::TpmAlgSha3_256),
-            4 => Ok(BaseHashAlgoType::TpmAlgSha3_384),
-            5 => Ok(BaseHashAlgoType::TpmAlgSha3_512),
-            6 => Ok(BaseHashAlgoType::TpmAlgSm3_256),
+            1 => Ok(BaseHashAlgoType::TpmAlgSha256),
+            2 => Ok(BaseHashAlgoType::TpmAlgSha384),
+            4 => Ok(BaseHashAlgoType::TpmAlgSha512),
+            8 => Ok(BaseHashAlgoType::TpmAlgSha3_256),
+            16 => Ok(BaseHashAlgoType::TpmAlgSha3_384),
+            32 => Ok(BaseHashAlgoType::TpmAlgSha3_512),
+            64 => Ok(BaseHashAlgoType::TpmAlgSm3_256),
             _ => Err(SpdmError::InvalidParam),
         }
+    }
+}
+
+impl BaseHashAlgoType {
+    /// The size of the digest in bytes
+    pub fn hash_byte_size(&self) -> usize {
+        match self {
+            BaseHashAlgoType::TpmAlgSha256 => 32,
+            BaseHashAlgoType::TpmAlgSha384 => 48,
+            BaseHashAlgoType::TpmAlgSha512 => 64,
+            BaseHashAlgoType::TpmAlgSha3_256 => 32,
+            BaseHashAlgoType::TpmAlgSha3_384 => 48,
+            BaseHashAlgoType::TpmAlgSha3_512 => 64,
+            BaseHashAlgoType::TpmAlgSm3_256 => 32,
+        }
+    }
+}
+
+#[derive(Debug)]
+pub struct InvalidBashHashAlgo;
+
+impl TryFrom<BaseHashAlgo> for BaseHashAlgoType {
+    type Error = InvalidBashHashAlgo;
+
+    fn try_from(value: BaseHashAlgo) -> Result<Self, Self::Error> {
+        if value.0 > u8::MAX as u32 {
+            return Err(InvalidBashHashAlgo);
+        }
+        Self::try_from(value.0 as u8).map_err(|_| InvalidBashHashAlgo)
     }
 }
 

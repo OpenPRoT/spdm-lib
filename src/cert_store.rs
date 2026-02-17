@@ -3,7 +3,7 @@
 use crate::error::{SpdmError, SpdmResult};
 use crate::protocol::algorithms::{AsymAlgo, ECC_P384_SIGNATURE_SIZE, SHA384_HASH_SIZE};
 use crate::protocol::certs::{CertificateInfo, KeyUsageMask};
-use crate::protocol::SpdmCertChainHeader;
+use crate::protocol::{BaseHashAlgoType, SpdmCertChainHeader};
 
 pub const MAX_CERT_SLOTS_SUPPORTED: u8 = 2;
 pub const SPDM_CERT_CHAIN_METADATA_LEN: u16 =
@@ -208,18 +208,20 @@ pub trait PeerCertStore {
     /// * `CertStoreError::PlatformError` - If there was a platform-specific error.
     fn get_provisioned_slots(&self) -> CertStoreResult<u8>;
 
-    /// Get the stored certificate chain for the given slot.
+    /// Get the stored certificate chain for the given slot,
+    /// consisting of one or more ASN.1 DER-encoded X.509 v3 certificates.
     ///
     /// # Arguments
     /// * `slot_id` - The slot ID of the certificate chain.
+    /// * `hash_algo` - The hash algorithm that was negotiated with the peer.
     ///
     /// # Returns
-    /// * `Ok(&[u8])` - The certificate chain bytes.
+    /// * `Ok(&[u8])` - The certificate chain bytes, not including the length and root hash header.
     ///
     /// # Errors
     /// * `CertStoreError::InvalidSlotId` - If the slot ID is out of range.
     /// * `CertStoreError::PlatformError` - If there was a platform-specific error.
-    fn get_cert_chain(&self, slot_id: u8) -> CertStoreResult<&[u8]>;
+    fn get_cert_chain(&self, slot_id: u8, hash_algo: BaseHashAlgoType) -> CertStoreResult<&[u8]>;
 
     /// Store a certificate chain in the given slot.
     ///
@@ -366,12 +368,16 @@ pub trait PeerCertStore {
 
     /// Get the root hash of a peer certificate
     ///
+    /// # Arguments
+    /// * `slot_id` - The Slot ID of the certificate chain
+    /// * `hash_algo` - The hash algorithm that was negotiated with the peer.
+    ///
     /// # Returns
-    /// - The digest of the Root Certificate if available
-    fn get_root_hash(&self, slot_id: u8) -> Option<&[u8]>;
+    /// * The digest of the Root Certificate if available
+    fn get_root_hash(&self, slot_id: u8, hash_algo: BaseHashAlgoType) -> CertStoreResult<&[u8]>;
 
-    /// Get a complete certificate chain consisting of one or more ASN.1 DER-encoded X.509 v3 certificates
-    fn get_raw_chain(&self, slot_id: u8) -> Option<&[u8]>;
+    /// Get the raw cert chain, including the length header and root hash
+    fn get_raw_chain(&self, slot_id: u8) -> CertStoreResult<&[u8]>;
 }
 
 pub enum ReassemblyStatus {

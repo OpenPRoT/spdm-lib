@@ -16,7 +16,7 @@ use spdm_lib::protocol::algorithms::{
     DheNamedGroup, KeySchedule, LocalDeviceAlgorithms, MeasurementHashAlgo,
     MeasurementSpecification, MelSpecification, OtherParamSupport, ReqBaseAsymAlg,
 };
-use spdm_lib::protocol::version;
+use spdm_lib::protocol::{version, BaseHashAlgoType};
 use spdm_lib::protocol::{CapabilityFlags, DeviceCapabilities};
 
 // Import platform implementations - no duplicates!
@@ -356,6 +356,22 @@ fn full_flow(stream: TcpStream, config: &RequesterConfig) -> IoResult<()> {
         }
     }
     println!("sucessfully retrieved peer cert chain");
+    if let Some(store) = spdm_context.peer_cert_store() {
+        let hash_algo: BaseHashAlgoType = spdm_context
+            .connection_info()
+            .peer_algorithms()
+            .base_hash_algo
+            .try_into()
+            .unwrap();
+        println!(
+            "slot 0 root hash: {:02x?}",
+            store.get_root_hash(0, hash_algo).unwrap()
+        );
+        println!(
+            "slot 0 cert chain: {:02x?}",
+            store.get_cert_chain(0, hash_algo).unwrap()
+        );
+    }
 
     Ok(())
 }
