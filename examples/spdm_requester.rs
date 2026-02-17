@@ -7,7 +7,7 @@ use std::io::{Error, ErrorKind, Result as IoResult};
 use std::net::TcpStream;
 use std::process;
 
-use der::Decode;
+use der::{Decode, Encode};
 use spdm_lib::codec::MessageBuf;
 use spdm_lib::commands::certificate::request::generate_get_certificate;
 use spdm_lib::context::SpdmContext;
@@ -34,6 +34,9 @@ use spdm_lib::commands::version::{request::generate_get_version, VersionReqPaylo
 use crate::platform::cert_store::ExamplePeerCertStore;
 
 use x509_cert::Certificate;
+
+/// ECP384 CA cert from spdm-emu
+const CA_CERT: &[u8] = include_bytes!("cert/ecp384_ca.cert.der");
 
 /// Responder configuration
 #[derive(Debug, Clone)]
@@ -372,19 +375,29 @@ fn full_flow(stream: TcpStream, config: &RequesterConfig) -> IoResult<()> {
             root_hash.len(),
             root_hash
         );
-        let mut cert_chain = store.get_cert_chain(0, hash_algo).unwrap();
+        let cert_chain = store.get_cert_chain(0, hash_algo).unwrap();
 
         println!("slot 0: Parsing {} bytes cert chain:", cert_chain.len());
+        let mut certs = Vec::new();
+        let mut rest = cert_chain;
         loop {
-            let (cert, rest) = Certificate::from_der_partial(cert_chain).unwrap();
-            cert_chain = rest;
-            println!(
-                "Cert with subject CN {:?}",
-                cert.tbs_certificate().subject().common_name()
-            );
+            let (cert, r) = Certificate::from_der_partial(rest).unwrap();
+            rest = r;
+            println!("Cert with subject {}", cert.tbs_certificate().subject());
+            println!("    signature alg. id: {}", cert.signature_algorithm().oid);
+            certs.push(cert);
             if rest.is_empty() {
                 break;
             }
+        }
+
+        if !certs.is_empty() {
+            let ca_cert = Certificate::from_der(CA_CERT).unwrap();
+            let ca_cert_sig = ca_cert.signature().as_bytes().unwrap();
+            assert_eq!(certs[0].signature().as_bytes().unwrap(), ca_cert_sig);
+            println!("CA cert signature matches expected CA signature");
+            assert!(verify_cert_chain(&certs));
+            println!("Cert chain signatures successfully verified!");
         }
     }
 
@@ -555,4 +568,45 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     full_flow(stream, &config)?;
 
     Ok(())
+}
+
+/// Verifies the provided certificate chain
+///
+/// Assumes that the fist certificate in the chain is
+/// an already verified trusted certificate (e.g. the root CA cert).
+/// Only checks the validity of the signatures (does not check CRL, validity period, ...).
+fn verify_cert_chain(chain: &[Certificate]) -> bool {
+    use p384::ecdsa::{Signature, VerifyingKey};
+    use signature::Verifier;
+    let mut pub_key = VerifyingKey::from_sec1_bytes(
+        chain
+            .first()
+            .unwrap()
+            .tbs_certificate()
+            .subject_public_key_info()
+            .subject_public_key
+            .as_bytes()
+            .unwrap(),
+    )
+    .unwrap();
+    for cert in chain.iter().skip(1) {
+        let sig = Signature::from_der(cert.signature().as_bytes().unwrap()).unwrap();
+        if !pub_key
+            .verify(&cert.tbs_certificate().to_der().unwrap(), &sig)
+            .is_ok()
+        {
+            return false;
+        }
+
+        println!("Verified {}", cert.tbs_certificate().subject());
+        pub_key = VerifyingKey::from_sec1_bytes(
+            cert.tbs_certificate()
+                .subject_public_key_info()
+                .subject_public_key
+                .as_bytes()
+                .unwrap(),
+        )
+        .unwrap();
+    }
+    true
 }
