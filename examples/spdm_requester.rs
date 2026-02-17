@@ -7,6 +7,7 @@ use std::io::{Error, ErrorKind, Result as IoResult};
 use std::net::TcpStream;
 use std::process;
 
+use der::Decode;
 use spdm_lib::codec::MessageBuf;
 use spdm_lib::commands::certificate::request::generate_get_certificate;
 use spdm_lib::context::SpdmContext;
@@ -31,6 +32,8 @@ use spdm_lib::commands::digests::request::generate_digest_request;
 use spdm_lib::commands::version::{request::generate_get_version, VersionReqPayload};
 
 use crate::platform::cert_store::ExamplePeerCertStore;
+
+use x509_cert::Certificate;
 
 /// Responder configuration
 #[derive(Debug, Clone)]
@@ -346,7 +349,7 @@ fn full_flow(stream: TcpStream, config: &RequesterConfig) -> IoResult<()> {
             .requester_process_message(&mut message_buffer)
             .unwrap();
         if config.verbose {
-            println!("CERTIFICATE: {:x?}", &message_buffer.message_data());
+            println!("CERTIFICATE: Ok ({} bytes)", &message_buffer.msg_len(),);
         }
         if !matches!(
             spdm_context.connection_info().state(),
@@ -363,14 +366,26 @@ fn full_flow(stream: TcpStream, config: &RequesterConfig) -> IoResult<()> {
             .base_hash_algo
             .try_into()
             .unwrap();
+        let root_hash = store.get_root_hash(0, hash_algo).unwrap();
         println!(
-            "slot 0 root hash: {:02x?}",
-            store.get_root_hash(0, hash_algo).unwrap()
+            "slot 0: Root hash ({hash_algo:?}, {} bytes): {:02x?}",
+            root_hash.len(),
+            root_hash
         );
-        println!(
-            "slot 0 cert chain: {:02x?}",
-            store.get_cert_chain(0, hash_algo).unwrap()
-        );
+        let mut cert_chain = store.get_cert_chain(0, hash_algo).unwrap();
+
+        println!("slot 0: Parsing {} bytes cert chain:", cert_chain.len());
+        loop {
+            let (cert, rest) = Certificate::from_der_partial(cert_chain).unwrap();
+            cert_chain = rest;
+            println!(
+                "Cert with subject CN {:?}",
+                cert.tbs_certificate().subject().common_name()
+            );
+            if rest.is_empty() {
+                break;
+            }
+        }
     }
 
     Ok(())
