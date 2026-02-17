@@ -21,7 +21,8 @@ sha2 = { version = "0.10"}
 p384 = { version = "0.13", features = ["ecdsa", "pem"] }
 digest = { version = "0.10"}
 hex = "0.4.3"
-x509-cert = "0.2.5"
+der = "0.8.0-rc.10"
+x509-cert = "0.3.0-rc.4"
 
 # Examples
 [[example]]
