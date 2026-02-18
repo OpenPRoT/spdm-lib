@@ -11,13 +11,3 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
-
-pub mod algorithms;
-pub mod capabilities;
-pub mod certificate;
-pub mod challenge;
-pub mod chunk_get_rsp;
-pub mod digests;
-pub mod error_rsp;
-pub mod measurements;
-pub mod version;

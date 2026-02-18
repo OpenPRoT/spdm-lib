@@ -14,88 +14,165 @@
 
 use crate::cert_store::SpdmCertStore;
 use crate::chunk_ctx::{ChunkError, LargeResponse};
-use crate::codec::{encode_u8_slice, Codec, CommonCodec, MessageBuf};
 use crate::commands::algorithms::selected_measurement_specification;
-use crate::commands::error_rsp::ErrorCode;
-use crate::context::SpdmContext;
-use crate::error::{CommandError, CommandResult, PlatformError};
-use crate::measurements::common::{
-    MeasurementChangeStatus, MeasurementsError, SpdmMeasurements, SPDM_MAX_MEASUREMENT_RECORD_SIZE,
-};
-use crate::platform::evidence::SpdmEvidence;
-use crate::platform::hash::SpdmHash;
-use crate::platform::rng::SpdmRng;
+use crate::commands::measurements::*;
+use crate::measurements::common::*;
+use crate::platform::{evidence::SpdmEvidence, hash::SpdmHash, rng::SpdmRng};
 use crate::protocol::*;
 use crate::state::ConnectionState;
 use crate::transcript::{TranscriptContext, TranscriptManager};
-use bitfield::bitfield;
-use zerocopy::{FromBytes, Immutable, IntoBytes};
+use crate::{
+    codec::{encode_u8_slice, Codec, MessageBuf},
+    commands::error_rsp::ErrorCode,
+    context::SpdmContext,
+    error::{CommandError, CommandResult, PlatformError},
+};
 
-const RESPONSE_FIXED_FIELDS_SIZE: usize = 8;
-const MAX_RESPONSE_VARIABLE_FIELDS_SIZE: usize =
-    NONCE_LEN + size_of::<u32>() + size_of::<RequesterContext>();
+fn process_get_measurements<'a>(
+    ctx: &mut SpdmContext<'a>,
+    spdm_hdr: SpdmMsgHdr,
+    req_payload: &mut MessageBuf<'a>,
+) -> CommandResult<MeasurementsResponse> {
+    // Validate the version
+    let connection_version = ctx.state.connection_info.version_number();
+    if spdm_hdr.version().ok() != Some(connection_version) {
+        Err(ctx.generate_error_response(req_payload, ErrorCode::VersionMismatch, 0, None))?;
+    }
 
-#[derive(FromBytes, IntoBytes, Immutable)]
-#[repr(C)]
-struct GetMeasurementsReqCommon {
-    req_attr: GetMeasurementsReqAttr,
-    meas_op: u8,
+    // Decode the request
+    let req_common = GetMeasurementsReqCommon::decode(req_payload).map_err(|_| {
+        ctx.generate_error_response(req_payload, ErrorCode::InvalidRequest, 0, None)
+    })?;
+
+    let slot_id = if req_common.req_attr.signature_requested() == 0 {
+        None
+    } else {
+        // check if responder capabilities support signature
+        if ctx.local_capabilities.flags.meas_cap()
+            != MeasCapability::MeasurementsWithSignature as u8
+        {
+            Err(ctx.generate_error_response(req_payload, ErrorCode::UnsupportedRequest, 0, None))?;
+        }
+
+        // Decode the requester nonce and slot ID
+        let req_signature_fields =
+            GetMeasurementsReqSignature::decode(req_payload).map_err(|_| {
+                ctx.generate_error_response(req_payload, ErrorCode::InvalidRequest, 0, None)
+            })?;
+        Some(req_signature_fields.slot_id)
+    };
+
+    // Decode the requester context if version is >= 1.3
+    let requester_context = if connection_version >= SpdmVersion::V13 {
+        Some(RequesterContext::decode(req_payload).map_err(|_| {
+            ctx.generate_error_response(req_payload, ErrorCode::InvalidRequest, 0, None)
+        })?)
+    } else {
+        None
+    };
+
+    // Reset the transcript for the GET_MEASUREMENTS request
+    ctx.reset_transcript_via_req_code(ReqRespCode::GetMeasurements);
+
+    // Append the request to the transcript
+    ctx.append_message_to_transcript(req_payload, TranscriptContext::L1)?;
+
+    let asym_algo = ctx.selected_base_asym_algo().map_err(|_| {
+        ctx.generate_error_response(req_payload, ErrorCode::InvalidRequest, 0, None)
+    })?;
+
+    let get_meas_req_context = MeasurementsResponse {
+        spdm_version: connection_version,
+        req_attr: req_common.req_attr,
+        meas_op: req_common.meas_op,
+        slot_id,
+        requester_context,
+        asym_algo,
+    };
+
+    Ok(get_meas_req_context)
 }
-impl CommonCodec for GetMeasurementsReqCommon {}
 
-#[derive(FromBytes, IntoBytes, Immutable)]
-#[repr(C)]
-struct GetMeasurementsReqSignature {
-    requester_nonce: [u8; NONCE_LEN],
-    slot_id: u8,
-}
-impl CommonCodec for GetMeasurementsReqSignature {}
+pub(crate) fn generate_measurements_response<'a>(
+    ctx: &mut SpdmContext<'a>,
+    rsp_ctx: MeasurementsResponse,
+    rsp: &mut MessageBuf<'a>,
+) -> CommandResult<()> {
+    let rsp_len = rsp_ctx.response_size(ctx.evidence, &mut ctx.measurements)?;
 
-bitfield! {
-    #[derive(FromBytes, IntoBytes, Immutable)]
-    #[repr(C)]
-    struct GetMeasurementsReqAttr(u8);
-    impl Debug;
-    u8;
-    pub signature_requested, _: 0, 0;
-    pub raw_bitstream_requested, _: 1, 1;
-    pub new_measurement_requested, _: 2, 2;
-    reserved, _: 7, 3;
-}
+    if rsp_len > ctx.min_data_transfer_size() {
+        // If the response is larger than the minimum data transfer size, use chunked response
+        let large_rsp = LargeResponse::Measurements(rsp_ctx);
+        let handle = ctx.large_resp_context.init(large_rsp, rsp_len);
+        Err(ctx.generate_error_response(rsp, ErrorCode::LargeResponse, handle, None))?
+    } else {
+        // If the response fits in a single message, prepare it directly
+        ctx.prepare_response_buffer(rsp)?;
 
-bitfield! {
-    #[derive(FromBytes, IntoBytes, Immutable)]
-    #[repr(C)]
-    struct MeasurementsRspFixed([u8]);
-    impl Debug;
-    u8;
-    pub spdm_version, set_spdm_version: 7, 0;
-    pub req_resp_code, set_req_resp_code: 15, 8;
-    pub total_measurement_indices, set_total_measurement_indices: 23, 16;
-    pub slot_id, set_slot_id: 27, 24;
-    pub content_changed, set_content_changed: 29, 28;
-    reserved, _: 31, 30;
-    pub num_blocks, set_num_blocks: 39, 32;
-    pub measurement_record_len_byte0, set_measurement_record_len_byte0: 47, 40;
-    pub measurement_record_len_byte1, set_measurement_record_len_byte1: 55, 48;
-    pub measurement_record_len_byte2, set_measurement_record_len_byte2: 63, 56;
-}
+        // Encode the response fixed fields
+        rsp.put_data(rsp_len)
+            .map_err(|e| (false, CommandError::Codec(e)))?;
+        let rsp_buf = rsp
+            .data_mut(rsp_len)
+            .map_err(|e| (false, CommandError::Codec(e)))?;
+        let payload_len = rsp_ctx.get_chunk(
+            ctx.hash,
+            ctx.rng,
+            ctx.evidence,
+            &mut ctx.measurements,
+            &mut ctx.transcript_mgr,
+            ctx.device_certs_store,
+            0,
+            rsp_buf,
+        )?;
+        if rsp_len != payload_len {
+            Err((
+                false,
+                CommandError::Measurement(MeasurementsError::InvalidBuffer),
+            ))?;
+        }
+        rsp.pull_data(payload_len)
+            .map_err(|e| (false, CommandError::Codec(e)))?;
 
-impl MeasurementsRspFixed<[u8; RESPONSE_FIXED_FIELDS_SIZE]> {
-    pub fn set_measurement_record_len(&mut self, len: u32) {
-        self.set_measurement_record_len_byte0((len & 0xFF) as u8);
-        self.set_measurement_record_len_byte1(((len >> 8) & 0xFF) as u8);
-        self.set_measurement_record_len_byte2(((len >> 16) & 0xFF) as u8);
+        rsp.push_data(payload_len)
+            .map_err(|e| (false, CommandError::Codec(e)))
     }
 }
 
-impl Default for MeasurementsRspFixed<[u8; RESPONSE_FIXED_FIELDS_SIZE]> {
-    fn default() -> Self {
-        Self([0; RESPONSE_FIXED_FIELDS_SIZE])
+pub(crate) fn handle_get_measurements<'a>(
+    ctx: &mut SpdmContext<'a>,
+    spdm_hdr: SpdmMsgHdr,
+    req_payload: &mut MessageBuf<'a>,
+) -> CommandResult<()> {
+    // Check that the connection state is Negotiated
+    if ctx.state.connection_info.state() < ConnectionState::AlgorithmsNegotiated {
+        Err(ctx.generate_error_response(req_payload, ErrorCode::UnexpectedRequest, 0, None))?;
     }
-}
 
-impl CommonCodec for MeasurementsRspFixed<[u8; RESPONSE_FIXED_FIELDS_SIZE]> {}
+    // Check if the measurement capability is supported
+    if ctx.local_capabilities.flags.meas_cap() == MeasCapability::NoMeasurement as u8 {
+        return Err(ctx.generate_error_response(
+            req_payload,
+            ErrorCode::UnsupportedRequest,
+            0,
+            None,
+        ));
+    }
+
+    // Verify that the DMTF measurement spec is selected and the measurement hash algorithm is SHA384
+    let meas_spec_sel = selected_measurement_specification(ctx);
+    if meas_spec_sel.dmtf_measurement_spec() == 0 || ctx.verify_selected_hash_algo().is_err() {
+        Err(ctx.generate_error_response(req_payload, ErrorCode::UnexpectedRequest, 0, None))?;
+    }
+
+    // Process GET_MEASUREMENTS request
+    let rsp_ctx = process_get_measurements(ctx, spdm_hdr, req_payload)?;
+
+    // Generate MEASUREMENTS response
+    ctx.prepare_response_buffer(req_payload)?;
+    generate_measurements_response(ctx, rsp_ctx, req_payload)?;
+    Ok(())
+}
 
 #[derive(Debug)]
 pub(crate) struct MeasurementsResponse {
@@ -401,150 +478,4 @@ impl MeasurementsResponse {
         }
         Ok(rsp_size)
     }
-}
-
-fn process_get_measurements<'a>(
-    ctx: &mut SpdmContext<'a>,
-    spdm_hdr: SpdmMsgHdr,
-    req_payload: &mut MessageBuf<'a>,
-) -> CommandResult<MeasurementsResponse> {
-    // Validate the version
-    let connection_version = ctx.state.connection_info.version_number();
-    if spdm_hdr.version().ok() != Some(connection_version) {
-        Err(ctx.generate_error_response(req_payload, ErrorCode::VersionMismatch, 0, None))?;
-    }
-
-    // Decode the request
-    let req_common = GetMeasurementsReqCommon::decode(req_payload).map_err(|_| {
-        ctx.generate_error_response(req_payload, ErrorCode::InvalidRequest, 0, None)
-    })?;
-
-    let slot_id = if req_common.req_attr.signature_requested() == 0 {
-        None
-    } else {
-        // check if responder capabilities support signature
-        if ctx.local_capabilities.flags.meas_cap()
-            != MeasCapability::MeasurementsWithSignature as u8
-        {
-            Err(ctx.generate_error_response(req_payload, ErrorCode::UnsupportedRequest, 0, None))?;
-        }
-
-        // Decode the requester nonce and slot ID
-        let req_signature_fields =
-            GetMeasurementsReqSignature::decode(req_payload).map_err(|_| {
-                ctx.generate_error_response(req_payload, ErrorCode::InvalidRequest, 0, None)
-            })?;
-        Some(req_signature_fields.slot_id)
-    };
-
-    // Decode the requester context if version is >= 1.3
-    let requester_context = if connection_version >= SpdmVersion::V13 {
-        Some(RequesterContext::decode(req_payload).map_err(|_| {
-            ctx.generate_error_response(req_payload, ErrorCode::InvalidRequest, 0, None)
-        })?)
-    } else {
-        None
-    };
-
-    // Reset the transcript for the GET_MEASUREMENTS request
-    ctx.reset_transcript_via_req_code(ReqRespCode::GetMeasurements);
-
-    // Append the request to the transcript
-    ctx.append_message_to_transcript(req_payload, TranscriptContext::L1)?;
-
-    let asym_algo = ctx.selected_base_asym_algo().map_err(|_| {
-        ctx.generate_error_response(req_payload, ErrorCode::InvalidRequest, 0, None)
-    })?;
-
-    let get_meas_req_context = MeasurementsResponse {
-        spdm_version: connection_version,
-        req_attr: req_common.req_attr,
-        meas_op: req_common.meas_op,
-        slot_id,
-        requester_context,
-        asym_algo,
-    };
-
-    Ok(get_meas_req_context)
-}
-
-pub(crate) fn generate_measurements_response<'a>(
-    ctx: &mut SpdmContext<'a>,
-    rsp_ctx: MeasurementsResponse,
-    rsp: &mut MessageBuf<'a>,
-) -> CommandResult<()> {
-    let rsp_len = rsp_ctx.response_size(ctx.evidence, &mut ctx.measurements)?;
-
-    if rsp_len > ctx.min_data_transfer_size() {
-        // If the response is larger than the minimum data transfer size, use chunked response
-        let large_rsp = LargeResponse::Measurements(rsp_ctx);
-        let handle = ctx.large_resp_context.init(large_rsp, rsp_len);
-        Err(ctx.generate_error_response(rsp, ErrorCode::LargeResponse, handle, None))?
-    } else {
-        // If the response fits in a single message, prepare it directly
-        ctx.prepare_response_buffer(rsp)?;
-
-        // Encode the response fixed fields
-        rsp.put_data(rsp_len)
-            .map_err(|e| (false, CommandError::Codec(e)))?;
-        let rsp_buf = rsp
-            .data_mut(rsp_len)
-            .map_err(|e| (false, CommandError::Codec(e)))?;
-        let payload_len = rsp_ctx.get_chunk(
-            ctx.hash,
-            ctx.rng,
-            ctx.evidence,
-            &mut ctx.measurements,
-            &mut ctx.transcript_mgr,
-            ctx.device_certs_store,
-            0,
-            rsp_buf,
-        )?;
-        if rsp_len != payload_len {
-            Err((
-                false,
-                CommandError::Measurement(MeasurementsError::InvalidBuffer),
-            ))?;
-        }
-        rsp.pull_data(payload_len)
-            .map_err(|e| (false, CommandError::Codec(e)))?;
-
-        rsp.push_data(payload_len)
-            .map_err(|e| (false, CommandError::Codec(e)))
-    }
-}
-
-pub(crate) fn handle_get_measurements<'a>(
-    ctx: &mut SpdmContext<'a>,
-    spdm_hdr: SpdmMsgHdr,
-    req_payload: &mut MessageBuf<'a>,
-) -> CommandResult<()> {
-    // Check that the connection state is Negotiated
-    if ctx.state.connection_info.state() < ConnectionState::AlgorithmsNegotiated {
-        Err(ctx.generate_error_response(req_payload, ErrorCode::UnexpectedRequest, 0, None))?;
-    }
-
-    // Check if the measurement capability is supported
-    if ctx.local_capabilities.flags.meas_cap() == MeasCapability::NoMeasurement as u8 {
-        return Err(ctx.generate_error_response(
-            req_payload,
-            ErrorCode::UnsupportedRequest,
-            0,
-            None,
-        ));
-    }
-
-    // Verify that the DMTF measurement spec is selected and the measurement hash algorithm is SHA384
-    let meas_spec_sel = selected_measurement_specification(ctx);
-    if meas_spec_sel.dmtf_measurement_spec() == 0 || ctx.verify_selected_hash_algo().is_err() {
-        Err(ctx.generate_error_response(req_payload, ErrorCode::UnexpectedRequest, 0, None))?;
-    }
-
-    // Process GET_MEASUREMENTS request
-    let rsp_ctx = process_get_measurements(ctx, spdm_hdr, req_payload)?;
-
-    // Generate MEASUREMENTS response
-    ctx.prepare_response_buffer(req_payload)?;
-    generate_measurements_response(ctx, rsp_ctx, req_payload)?;
-    Ok(())
 }

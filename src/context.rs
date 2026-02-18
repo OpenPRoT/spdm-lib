@@ -22,7 +22,7 @@ use crate::commands::digests::{handle_digests_response, handle_get_digests};
 use crate::commands::error_rsp::{encode_error_response, ErrorCode};
 use crate::commands::version::handle_version_response;
 use crate::commands::{
-    algorithms, capabilities, certificate, challenge, chunk_get_rsp, measurements_rsp, version,
+    algorithms, capabilities, certificate, challenge, chunk_get_rsp, measurements, version,
 };
 
 use crate::error::*;
@@ -194,7 +194,7 @@ impl<'a> SpdmContext<'a> {
             }
             ReqRespCode::Challenge => challenge::handle_challenge(self, req_msg_header, req)?,
             ReqRespCode::GetMeasurements => {
-                measurements_rsp::handle_get_measurements(self, req_msg_header, req)?
+                measurements::response::handle_get_measurements(self, req_msg_header, req)?
             }
             ReqRespCode::ChunkGet => chunk_get_rsp::handle_chunk_get(self, req_msg_header, req)?,
 
