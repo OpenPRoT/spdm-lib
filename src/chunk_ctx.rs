@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::commands::measurements_rsp::MeasurementsResponse;
+use crate::commands::measurements::response::MeasurementsResponse;
 
 #[derive(Debug, PartialEq)]
 pub enum ChunkError {
