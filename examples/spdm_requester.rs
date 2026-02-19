@@ -589,7 +589,7 @@ fn verify_cert_chain(chain: &[Certificate]) -> bool {
             .unwrap(),
     )
     .unwrap();
-    for cert in chain.iter().skip(1) {
+    for cert in chain.iter() {
         let sig = Signature::from_der(cert.signature().as_bytes().unwrap()).unwrap();
         if !pub_key
             .verify(&cert.tbs_certificate().to_der().unwrap(), &sig)
