@@ -30,7 +30,3 @@ signature = "2"
 name = "spdm_responder"
 path = "examples/spdm_responder.rs"
 required-features = ["crypto"]
-
-[[example]]
-name = "test_static_certs"
-path = "examples/test_static_certs.rs"
