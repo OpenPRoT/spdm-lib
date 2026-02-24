@@ -9,7 +9,6 @@ use std::process;
 
 use der::{Decode, Encode};
 use p384::ecdsa::{Signature, VerifyingKey};
-use signature::hazmat::PrehashVerifier;
 use spdm_lib::codec::MessageBuf;
 use spdm_lib::commands::certificate::request::generate_get_certificate;
 use spdm_lib::commands::challenge::{
@@ -369,6 +368,7 @@ fn full_flow(stream: TcpStream, config: &RequesterConfig) -> IoResult<()> {
         }
     }
     println!("sucessfully retrieved peer cert chain");
+    let mut peer_leaf_cert = None;
     if let Some(store) = spdm_context.peer_cert_store() {
         let hash_algo: BaseHashAlgoType = spdm_context
             .connection_info()
@@ -406,6 +406,7 @@ fn full_flow(stream: TcpStream, config: &RequesterConfig) -> IoResult<()> {
             assert!(verify_cert_chain(&certs));
             println!("Cert chain signatures successfully verified!");
         }
+        peer_leaf_cert = certs.last().cloned();
     }
 
     let mut nonce = [0u8; NONCE_LEN];
@@ -444,18 +445,7 @@ fn full_flow(stream: TcpStream, config: &RequesterConfig) -> IoResult<()> {
         println!("CHALLENGE_AUTH: {:x?}", &message_buffer.message_data());
     }
 
-    if let Some(store) = spdm_context.peer_cert_store() {
-        let hash_algo: BaseHashAlgoType = spdm_context
-            .connection_info()
-            .peer_algorithms()
-            .base_hash_algo
-            .try_into()
-            .unwrap();
-
-        let cert_chain = store.get_cert_chain(0, hash_algo).unwrap();
-
-        // get pub key from first cert in chain and verify signature of challenge auth
-        let (cert, _) = Certificate::from_der_partial(cert_chain).unwrap();
+    if let Some(cert) = peer_leaf_cert {
         let pub_key = VerifyingKey::from_sec1_bytes(
             cert.tbs_certificate()
                 .subject_public_key_info()
@@ -468,14 +458,18 @@ fn full_flow(stream: TcpStream, config: &RequesterConfig) -> IoResult<()> {
         // get all the remaining bytes from the message buffer as the signature
         let sig_raw = message_buffer.data(96).unwrap();
         let sig = Signature::from_slice(sig_raw).unwrap();
+        if config.verbose {
+            println!("signature: {sig}");
+        }
 
-        if !verify_challenge_auth_signature(&mut spdm_context, pub_key, sig) {
+        if !verify_challenge_auth_signature(&mut spdm_context, pub_key, sig, config) {
             eprintln!("CHALLENGE_AUTH signature verification failed");
             return Err(std::io::Error::new(
                 std::io::ErrorKind::Other,
                 "CHALLENGE_AUTH signature verification failed",
             ));
         }
+        println!("CHALLENGE_AUTH signature verification successfull");
     }
 
     Ok(())
@@ -694,10 +688,11 @@ fn verify_cert_chain(chain: &[Certificate]) -> bool {
 ///
 /// The transcript hash will be retrieved from the context.
 /// The signature will be verified using the public key from the responder's certificate chain (which we already verified).
-pub fn verify_challenge_auth_signature(
+fn verify_challenge_auth_signature(
     ctx: &mut SpdmContext,
     pubkey: VerifyingKey,
     signature: Signature,
+    config: &RequesterConfig,
 ) -> bool {
     use signature::Verifier;
 
@@ -707,23 +702,23 @@ pub fn verify_challenge_auth_signature(
         protocol::ReqRespCode::ChallengeAuth,
     )
     .unwrap();
+    if config.verbose {
+        println!(
+            "comb_ctx string: '{}'",
+            String::from_utf8_lossy(&sig_combined_context)
+        );
+    }
 
     // Get the M1 transcript hash (which is the hash of messages A, B, C) and verify the signature over it.
     let mut transcript_hash = [0u8; 48];
     ctx.transcript_hash(TranscriptContext::M1, &mut transcript_hash)
         .unwrap();
+    if config.verbose {
+        println!("M1/2 hash: {transcript_hash:02x?}");
+    }
 
     // M denotes the message that is signed. M shall be the concatenation of the combined_spdm_prefix and unverified_message_hash.
     let m = [sig_combined_context.as_slice(), &transcript_hash].concat();
 
-    dbg!(
-        &sig_combined_context,
-        &transcript_hash,
-        &m,
-        pubkey,
-        &signature
-    );
-
-    // pubkey.verify_prehash(&m, &signature).is_ok()
     pubkey.verify(&m, &signature).is_ok()
 }
