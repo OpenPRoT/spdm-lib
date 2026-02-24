@@ -1,6 +1,5 @@
 // Licensed under the Apache-2.0 license
 
-use crate::context::SpdmContext;
 use crate::platform::hash::{SpdmHash, SpdmHashError};
 use crate::protocol::*;
 
