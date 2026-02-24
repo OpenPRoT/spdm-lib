@@ -6,7 +6,6 @@
 
 use std::sync::Mutex;
 
-#[cfg(feature = "crypto")]
 use p384::{
     ecdsa::{signature::hazmat::PrehashSigner, Signature, SigningKey},
     SecretKey,
@@ -30,33 +29,21 @@ use spdm_lib::{
 /// Certificate store with proper ECDSA signing
 pub struct DemoCertStore {
     cert_chain: Vec<u8>,
-    #[cfg(feature = "crypto")]
     signing_key: Mutex<Option<SigningKey>>,
 }
 
 impl DemoCertStore {
     pub fn new() -> Self {
-        #[cfg(feature = "crypto")]
-        {
-            println!("Loading static certificate chain...");
-            let (cert_chain, signing_key) = Self::generate_certificate_chain();
-            println!("Static certificate chain loaded successfully");
+        println!("Loading static certificate chain...");
+        let (cert_chain, signing_key) = Self::generate_certificate_chain();
+        println!("Static certificate chain loaded successfully");
 
-            Self {
-                cert_chain,
-                signing_key: Mutex::new(Some(signing_key)),
-            }
-        }
-
-        #[cfg(not(feature = "crypto"))]
-        {
-            // Fallback for when crypto feature is not enabled
-            let cert_chain = b"DEMO_CERTIFICATE_CHAIN_DATA".to_vec();
-            Self { cert_chain }
+        Self {
+            cert_chain,
+            signing_key: Mutex::new(Some(signing_key)),
         }
     }
 
-    #[cfg(feature = "crypto")]
     fn generate_certificate_chain() -> (Vec<u8>, SigningKey) {
         use crate::platform::certs::ATTESTATION_PRIVATE_KEY;
 
@@ -192,27 +179,13 @@ impl SpdmCertStore for DemoCertStore {
             return Err(CertStoreError::InvalidSlotId(slot_id));
         }
 
-        #[cfg(feature = "crypto")]
-        {
-            use sha2::{Digest, Sha384};
-            // Calculate proper SHA-384 hash of the root certificate
-            let mut hasher = Sha384::new();
-            hasher.update(STATIC_ROOT_CA_CERT);
-            let hash_result = hasher.finalize();
-            cert_hash.copy_from_slice(&hash_result);
-            // println!("  Fabrizio Root Hash starts: {:02x?}", &cert_hash[..4]);
-        }
-
-        #[cfg(not(feature = "crypto"))]
-        {
-            // Fallback for when crypto feature is not enabled
-            for (i, byte) in cert_hash.iter_mut().enumerate() {
-                *byte = STATIC_ROOT_CA_CERT
-                    .get(i % STATIC_ROOT_CA_CERT.len())
-                    .copied()
-                    .unwrap_or(0);
-            }
-        }
+        use sha2::{Digest, Sha384};
+        // Calculate proper SHA-384 hash of the root certificate
+        let mut hasher = Sha384::new();
+        hasher.update(STATIC_ROOT_CA_CERT);
+        let hash_result = hasher.finalize();
+        cert_hash.copy_from_slice(&hash_result);
+        // println!("  Fabrizio Root Hash starts: {:02x?}", &cert_hash[..4]);
 
         Ok(())
     }
@@ -227,31 +200,19 @@ impl SpdmCertStore for DemoCertStore {
             return Err(CertStoreError::InvalidSlotId(slot_id));
         }
 
-        #[cfg(feature = "crypto")]
-        {
-            if let Ok(signing_key_guard) = self.signing_key.lock() {
-                if let Some(ref signing_key) = *signing_key_guard {
-                    let sig: Signature = signing_key.sign_prehash(hash).unwrap();
+        if let Ok(signing_key_guard) = self.signing_key.lock() {
+            if let Some(ref signing_key) = *signing_key_guard {
+                let sig: Signature = signing_key.sign_prehash(hash).unwrap();
 
-                    let sig_bytes = sig.to_bytes();
-                    if sig_bytes.len() <= ECC_P384_SIGNATURE_SIZE {
-                        signature[..sig_bytes.len()].copy_from_slice(&sig_bytes);
-                        return Ok(());
-                    }
-                    return Err(CertStoreError::PlatformError);
+                let sig_bytes = sig.to_bytes();
+                if sig_bytes.len() <= ECC_P384_SIGNATURE_SIZE {
+                    signature[..sig_bytes.len()].copy_from_slice(&sig_bytes);
+                    return Ok(());
                 }
+                return Err(CertStoreError::PlatformError);
             }
-            Err(CertStoreError::PlatformError)
         }
-
-        #[cfg(not(feature = "crypto"))]
-        {
-            // Fallback for demo without crypto
-            for (i, byte) in signature.iter_mut().enumerate() {
-                *byte = hash[i % SHA384_HASH_SIZE] ^ ((i as u8).wrapping_mul(73));
-            }
-            Ok(())
-        }
+        Err(CertStoreError::PlatformError)
     }
 
     fn key_pair_id(&self, slot_id: u8) -> Option<u8> {
@@ -284,7 +245,6 @@ impl SpdmCertStore for DemoCertStore {
     }
 }
 
-#[cfg(all(test, feature = "crypto"))]
 #[test]
 fn test_signing() {
     use p384::ecdsa::signature::SignatureEncoding;
@@ -313,7 +273,6 @@ fn test_signing() {
     println!("  S: {}", hex::encode(&sig_bytes_hashed[48..]));
 }
 
-#[cfg(all(test, feature = "crypto"))]
 #[test]
 fn debug_signing_verification() {
     use hex;

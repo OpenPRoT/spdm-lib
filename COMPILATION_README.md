@@ -52,30 +52,25 @@ spdm-lib/
 ### Build the Library
 
 ```bash
-cargo build --features std,crypto
+cargo build
 ```
 
 ### Build Examples
 
 Build the main SPDM responder:
 ```bash
-cargo build --example spdm_responder --features std,crypto
-```
-
-Build the certificate test:
-```bash
-cargo build --example test_static_certs --features std
+cargo build --example spdm_responder
 ```
 
 Build all examples:
 ```bash
-cargo build --examples --features std,crypto
+cargo build --examples
 ```
 
 ### Release Build (Optimized)
 
 ```bash
-cargo build --release --example spdm_responder --features std,crypto
+cargo build --release --example spdm_responder
 ```
 
 ## Running Tests
@@ -84,36 +79,7 @@ cargo build --release --example spdm_responder --features std,crypto
 
 Run all library unit tests:
 ```bash
-cargo test --features crypto
-```
-
-### Static Certificate Verification
-
-Test that the static certificates are properly formatted:
-```bash
-cargo run --example test_static_certs
-```
-
-Expected output:
-```
-Static Certificate Test
-=======================
-Root CA Certificate: 419 bytes
-Attestation Certificate: 453 bytes
-Certificate Chain: 872 bytes
-✓ Certificate chain length matches individual certificates
-✓ Certificate chain starts with root CA
-✓ Certificate chain ends with attestation certificate
-✓ Both certificates have proper X.509 DER format (SEQUENCE tag)
-
-Static certificates are ready for use!
-```
-
-### Integration Tests
-
-Run integration tests:
-```bash
-cargo test --test integration --features crypto
+cargo test
 ```
 
 ## Running the SPDM Responder
@@ -122,25 +88,25 @@ cargo test --test integration --features crypto
 
 Start the SPDM responder on default port 2323:
 ```bash
-cargo run --example spdm_responder --features crypto
+cargo run --example spdm_responder
 ```
 
 ### With Custom Port
 
 ```bash
-cargo run --example spdm_responder --features crypto -- --port 8080
+cargo run --example spdm_responder -- --port 8080
 ```
 
 ### With Verbose Logging
 
 ```bash
-cargo run --example spdm_responder --features crypto -- --verbose
+cargo run --example spdm_responder -- --verbose
 ```
 
 ### All Options
 
 ```bash
-cargo run --example spdm_responder --features crypto -- \
+cargo run --example spdm_responder -- \
     --port 2323 \
     --cert device_cert.pem \
     --key device_key.pem \
@@ -165,7 +131,7 @@ The responder is compatible with the DMTF SPDM device validator:
 
 1. **Start the responder:**
    ```bash
-   cargo run --example spdm_responder --features crypto -- --verbose
+   cargo run --example spdm_responder -- --verbose
    ```
 
 2. **In another terminal, test with nc (netcat):**
@@ -200,7 +166,7 @@ openssl verify -CAfile root_ca.pem attestation.pem
 
 1. Create a new file in `examples/`
 2. Add necessary dependencies to `Cargo.toml` if needed
-3. Build with: `cargo build --example your_example --features crypto`
+3. Build with: `cargo build --example your_example`
 
 ### Modifying Certificates
 
@@ -210,7 +176,7 @@ The static certificates are in `examples/platform/certs.rs`. They were generated
 
 Enable verbose logging to see detailed SPDM message processing:
 ```bash
-RUST_LOG=debug cargo run --example spdm_responder --features crypto -- --verbose
+RUST_LOG=debug cargo run --example spdm_responder -- --verbose
 ```
 
 ## Troubleshooting
@@ -221,7 +187,6 @@ If you encounter build errors:
 
 1. **Update Rust**: `rustup update`
 2. **Clean build**: `cargo clean && cargo build`
-3. **Check features**: Ensure you're using `--features crypto`
 
 ### Connection Issues
 
@@ -249,7 +214,7 @@ Licensed under the Apache-2.0 license. See LICENSE file for details.
 2. Create a feature branch
 3. Make your changes
 4. Add tests if applicable  
-5. Run `cargo test --features crypto`
+5. Run `cargo test`
 6. Submit a pull request
 
 ## Support
