@@ -89,8 +89,7 @@ pub(crate) fn handle_capabilities_response<'a>(
         .connection_info
         .set_state(crate::state::ConnectionState::AfterCapabilities);
 
-    // ctx.append_message_to_transcript(resp, TranscriptContext::Vca)
-    ctx.append_message_to_transcript(resp, TranscriptContext::M1)
+    ctx.append_message_to_transcript(resp, TranscriptContext::Vca)
 }
 
 /// Generate the GET_CAPABILITIES command with all the contexts information.
@@ -149,8 +148,8 @@ fn generate_capabilities_request<'a>(
         .map_err(|_| (false, CommandError::BufferTooSmall))?;
 
     // Append response to VCA transcript
-    // ctx.append_message_to_transcript(req_buf, TranscriptContext::Vca)
-    ctx.append_message_to_transcript(req_buf, TranscriptContext::M1)
+    ctx.append_message_to_transcript(req_buf, TranscriptContext::Vca)
+    // ctx.append_message_to_transcript(req_buf, TranscriptContext::M1)
 }
 
 /// Generate the GET_CAPABILITIES command using the local capabilities from the context.

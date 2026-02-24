@@ -31,6 +31,7 @@ pub type SignatureCtxResult<T> = Result<T, SignCtxError>;
 
 pub type SignatureResult<T> = Result<T, SignCtxError>;
 
+/// Creates the `combined_spdm_prefix`
 pub fn create_responder_signing_context(
     spdm_version: SpdmVersion,
     opcode: ReqRespCode,

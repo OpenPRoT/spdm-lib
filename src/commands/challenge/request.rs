@@ -173,6 +173,19 @@ pub fn handle_challenge_auth_response<'a>(
         .pull_data(8)
         .map_err(|e| (true, CommandError::Codec(e)))?;
 
+    // We have to use this ugly hack to bring the message buffer into the right form to exclude the signature.
+    // This message buffer thing is totally fucked up...
+    // Come on, why do you have to call multiple badly named functions to remove data?
+    // And then there `message_data`, `data`, `total_message`, ... are you kidding me?
+    let tail = resp_payload.data_len();
+    resp_payload
+        .trim(0)
+        .map_err(|e| (true, CommandError::Codec(e)))?;
     // Append the entire message (excluding the signature) to the transcript before signature verification, as required by SPDM 1.2 and later.
-    ctx.append_message_to_transcript(resp_payload, TranscriptContext::M1)
+    ctx.append_message_to_transcript(resp_payload, TranscriptContext::M1)?;
+    resp_payload
+        .trim(tail - resp_payload.data_len())
+        .map_err(|e| (true, CommandError::Codec(e)))?;
+
+    Ok(())
 }

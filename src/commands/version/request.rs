@@ -37,8 +37,8 @@ pub fn generate_get_version<'a>(
         .push_data(len)
         .map_err(|_| (false, CommandError::BufferTooSmall))?;
 
-    // ctx.append_message_to_transcript(req_buf, TranscriptContext::Vca)
-    ctx.append_message_to_transcript(req_buf, TranscriptContext::M1)
+    ctx.append_message_to_transcript(req_buf, TranscriptContext::Vca)
+    // ctx.append_message_to_transcript(req_buf, TranscriptContext::M1)
 }
 
 /// Requester function for processing a VERSION response
@@ -118,8 +118,8 @@ pub(crate) fn handle_version_response<'a>(
         .connection_info
         .set_state(ConnectionState::AfterVersion);
 
-    // ctx.append_message_to_transcript(resp, TranscriptContext::Vca)
-    ctx.append_message_to_transcript(resp, TranscriptContext::M1)
+    ctx.append_message_to_transcript(resp, TranscriptContext::Vca)
+    // ctx.append_message_to_transcript(resp, TranscriptContext::M1)
 }
 
 // tests

@@ -1,7 +1,7 @@
 // Licensed under the Apache-2.0 license
 
-use crate::codec::{Codec, CommonCodec, MessageBuf};
-use crate::protocol::{SpdmVersion, SHA384_HASH_SIZE};
+use crate::codec::CommonCodec;
+use crate::protocol::SHA384_HASH_SIZE;
 use bitfield::bitfield;
 use zerocopy::{FromBytes, Immutable, IntoBytes};
 
@@ -145,5 +145,3 @@ bitfield! {
     pub slot_id, set_slot_id: 3, 0;
     reserved, _: 7, 4;
 }
-
-pub(crate) fn challenge_auth_sig_verify() {}

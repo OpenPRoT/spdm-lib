@@ -47,6 +47,7 @@ impl VcaBuffer {
     }
 }
 
+#[derive(Debug)]
 pub enum TranscriptContext {
     /// # VCA
     /// VCA: Version, Capabilities, and Algorithms transcript context, containing
