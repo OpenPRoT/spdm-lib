@@ -4,7 +4,6 @@
 //!
 //! Provides SHA-384 hash and system RNG implementations
 
-#[cfg(feature = "crypto")]
 use sha2::{Digest, Sha384};
 
 use spdm_lib::platform::hash::{SpdmHash, SpdmHashAlgoType, SpdmHashError, SpdmHashResult};
@@ -13,7 +12,6 @@ use spdm_lib::platform::rng::{SpdmRng, SpdmRngResult};
 /// SHA-384 hash implementation using proper cryptography
 pub struct Sha384Hash {
     current_algo: SpdmHashAlgoType,
-    #[cfg(feature = "crypto")]
     hasher: Option<Sha384>,
 }
 
@@ -21,7 +19,6 @@ impl Sha384Hash {
     pub fn new() -> Self {
         Self {
             current_algo: SpdmHashAlgoType::SHA384,
-            #[cfg(feature = "crypto")]
             hasher: None,
         }
     }
@@ -42,23 +39,11 @@ impl SpdmHash for Sha384Hash {
             return Err(SpdmHashError::BufferTooSmall);
         }
 
-        #[cfg(feature = "crypto")]
-        {
-            let mut hasher = Sha384::new();
-            hasher.update(data);
-            let result = hasher.finalize();
-            hash[..48].copy_from_slice(&result[..]);
-            Ok(())
-        }
-
-        #[cfg(not(feature = "crypto"))]
-        {
-            // Fallback for demo purposes when crypto feature is not enabled
-            for (i, &byte) in data.iter().enumerate() {
-                hash[i % 48] ^= byte;
-            }
-            Ok(())
-        }
+        let mut hasher = Sha384::new();
+        hasher.update(data);
+        let result = hasher.finalize();
+        hash[..48].copy_from_slice(&result[..]);
+        Ok(())
     }
 
     fn init(&mut self, hash_algo: SpdmHashAlgoType, data: Option<&[u8]>) -> SpdmHashResult<()> {
@@ -67,26 +52,20 @@ impl SpdmHash for Sha384Hash {
         }
         self.current_algo = hash_algo;
 
-        #[cfg(feature = "crypto")]
-        {
-            let mut hasher = Sha384::new();
-            if let Some(initial_data) = data {
-                hasher.update(initial_data);
-            }
-            self.hasher = Some(hasher);
+        let mut hasher = Sha384::new();
+        if let Some(initial_data) = data {
+            hasher.update(initial_data);
         }
+        self.hasher = Some(hasher);
 
         Ok(())
     }
 
     fn update(&mut self, data: &[u8]) -> SpdmHashResult<()> {
-        #[cfg(feature = "crypto")]
-        {
-            if let Some(ref mut hasher) = self.hasher {
-                hasher.update(data);
-            } else {
-                return Err(SpdmHashError::PlatformError);
-            }
+        if let Some(ref mut hasher) = self.hasher {
+            hasher.update(data);
+        } else {
+            return Err(SpdmHashError::PlatformError);
         }
 
         Ok(())
@@ -97,31 +76,19 @@ impl SpdmHash for Sha384Hash {
             return Err(SpdmHashError::BufferTooSmall);
         }
 
-        #[cfg(feature = "crypto")]
-        {
-            if let Some(hasher) = self.hasher.take() {
-                let result = hasher.finalize();
-                hash[..48].copy_from_slice(&result[..]);
-            } else {
-                return Err(SpdmHashError::PlatformError);
-            }
-        }
-
-        #[cfg(not(feature = "crypto"))]
-        {
-            // Fallback for demo
-            hash[..48].fill(0x42);
+        if let Some(hasher) = self.hasher.take() {
+            let result = hasher.finalize();
+            hash[..48].copy_from_slice(&result[..]);
+        } else {
+            return Err(SpdmHashError::PlatformError);
         }
 
         Ok(())
     }
 
     fn reset(&mut self) {
-        #[cfg(feature = "crypto")]
-        {
-            if self.current_algo == SpdmHashAlgoType::SHA384 {
-                self.hasher = Some(Sha384::new());
-            }
+        if self.current_algo == SpdmHashAlgoType::SHA384 {
+            self.hasher = Some(Sha384::new());
         }
     }
 

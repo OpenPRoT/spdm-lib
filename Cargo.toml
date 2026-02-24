@@ -8,7 +8,6 @@ edition = "2021"
 
 [features]
 default = []
-crypto = []
 
 [dependencies]
 bitfield = "0.14.0"
@@ -29,4 +28,3 @@ signature = "2"
 [[example]]
 name = "spdm_responder"
 path = "examples/spdm_responder.rs"
-required-features = ["crypto"]
