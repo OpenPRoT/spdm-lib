@@ -1,12 +1,11 @@
-use crate::cert_store::{CertStoreError, CertStoreResult, PeerCertStore, SpdmCertStore};
 // Licensed under the Apache-2.0 license
-use crate::codec::{Codec, CommonCodec, MessageBuf};
+use crate::codec::{Codec, MessageBuf};
 use crate::commands::challenge::{
     ChallengeAuthRspBase, ChallengeReq, MeasurementSummaryHashType, CONTEXT_LEN, NONCE_LEN,
     OPAQUE_DATA_MAX,
 };
 use crate::context::SpdmContext;
-use crate::error::{CommandError, CommandResult, PlatformError};
+use crate::error::{CommandError, CommandResult};
 use crate::protocol::*;
 use crate::state::ConnectionState;
 use crate::transcript::TranscriptContext;
@@ -71,7 +70,7 @@ pub fn generate_challenge_request<'a>(
 ///  has to be appended to the transcript context before signature verification, as required by SPDM 1.2 and later.
 /// 2. The signature verification has to be done in the application, as it requires
 /// access to the public key from the responder's certificate chain (which we already verified) and the transcript hash.
-pub fn handle_challenge_auth_response<'a>(
+pub(crate) fn handle_challenge_auth_response<'a>(
     ctx: &mut SpdmContext<'a>,
     spdm_hdr: SpdmMsgHdr,
     resp_payload: &mut MessageBuf<'a>,

@@ -2,7 +2,6 @@
 
 use crate::{
     codec::{Codec, MessageBuf},
-    commands::capabilities::req_flag_compatible,
     context::SpdmContext,
     error::{CommandError, CommandResult},
     protocol::SpdmMsgHdr,

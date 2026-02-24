@@ -1,6 +1,6 @@
 // Licensed under the Apache-2.0 license
 use crate::cert_store::MAX_CERT_SLOTS_SUPPORTED;
-use crate::codec::{Codec, CommonCodec, MessageBuf};
+use crate::codec::{Codec, MessageBuf};
 use crate::commands::algorithms::selected_measurement_specification;
 use crate::commands::challenge::{ChallengeAuthRspBase, ChallengeReq, MeasurementSummaryHashType};
 use crate::commands::digests::compute_cert_chain_hash;
@@ -11,8 +11,6 @@ use crate::platform::hash::SpdmHashAlgoType;
 use crate::protocol::*;
 use crate::state::ConnectionState;
 use crate::transcript::TranscriptContext;
-use bitfield::bitfield;
-use zerocopy::{FromBytes, Immutable, IntoBytes};
 
 fn process_challenge<'a>(
     ctx: &mut SpdmContext<'a>,
@@ -65,8 +63,8 @@ fn process_challenge<'a>(
     // Append the CHALLENGE request to the M1 transcript
     ctx.append_message_to_transcript(req_payload, TranscriptContext::M1)?;
 
-    let meas_hash_type =
-        MeasurementSummaryHashType::try_from(challenge_req.measurement_hash_type).map_err(|_| {
+    let meas_hash_type = MeasurementSummaryHashType::try_from(challenge_req.measurement_hash_type)
+        .map_err(|_| {
             ctx.generate_error_response(req_payload, ErrorCode::InvalidRequest, 0, None)
         })?;
 

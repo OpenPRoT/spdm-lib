@@ -82,6 +82,7 @@ impl ConnectionInfo {
         &self.peer_algorithms
     }
 
+    #[allow(dead_code)]
     pub(crate) fn set_multi_key_conn_rsp(&mut self, multi_key_conn_rsp: bool) {
         self.multi_key_conn_rsp = multi_key_conn_rsp;
     }
