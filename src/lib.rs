@@ -1,6 +1,6 @@
 // Licensed under the Apache-2.0 license
 
-// #![cfg_attr(not(test), no_std)]
+#![cfg_attr(not(test), no_std)]
 
 /// Common errors
 pub mod error;
