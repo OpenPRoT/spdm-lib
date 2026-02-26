@@ -23,8 +23,13 @@ hex = "0.4.3"
 der = "0.8"
 x509-cert = "0.3.0-rc.4"
 signature = "2"
+clap = { version = "4", features = ["derive"] }
 
 # Examples
 [[example]]
 name = "spdm_responder"
 path = "examples/spdm_responder.rs"
+
+[[example]]
+name = "spdm_requester"
+path = "examples/spdm_requester.rs"

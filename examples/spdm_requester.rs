@@ -2,11 +2,10 @@
 
 //! SPDM Example Responder utilizing the requester library.
 
-use std::env;
 use std::io::{Error, ErrorKind, Result as IoResult};
 use std::net::TcpStream;
-use std::process;
 
+use clap::Parser;
 use der::{Decode, Encode};
 use p384::ecdsa::{Signature, VerifyingKey};
 use spdm_lib::codec::MessageBuf;
@@ -44,26 +43,34 @@ use x509_cert::Certificate;
 /// ECP384 CA cert from spdm-emu
 const CA_CERT: &[u8] = include_bytes!("cert/ecp384_ca.cert.der");
 
-/// Responder configuration
-#[derive(Debug, Clone)]
+/// SPDM Example Requester
+#[derive(Debug, Clone, Parser)]
+#[command(about = "Real SPDM Library Integrated DMTF Compatible Requester")]
 struct RequesterConfig {
+    /// TCP TCP port to connect to.
+    /// This needs to be supplied for both type NONE and MCTP.
+    #[arg(short, long, default_value_t = 2323)]
     port: u16,
-    cert_path: String,
-    key_path: String,
-    measurements_path: Option<String>,
-    verbose: bool,
-}
 
-impl Default for RequesterConfig {
-    fn default() -> Self {
-        Self {
-            port: 2323,
-            cert_path: "device_cert.pem".to_string(),
-            key_path: "device_key.pem".to_string(),
-            measurements_path: Some("measurements.json".to_string()),
-            verbose: false,
-        }
-    }
+    /// Path to certificate file
+    #[arg(short, long, default_value = "device_cert.pem")]
+    cert_path: String,
+
+    /// Path to private key file
+    #[arg(short = 'k', long, default_value = "device_key.pem")]
+    key_path: String,
+
+    /// Path to measurements file
+    #[arg(short, long)]
+    measurements_path: Option<String>,
+
+    /// Enable verbose logging
+    #[arg(short, long)]
+    verbose: bool,
+
+    /// Transport type to use for the connection
+    #[arg(short, long, default_value_t = platform::socket_transport::SocketTransportType::None, value_enum)]
+    transport_type: platform::socket_transport::SocketTransportType,
 }
 
 /// Create SPDM device capabilities
@@ -133,10 +140,7 @@ fn create_local_algorithms<'a>() -> LocalDeviceAlgorithms<'a> {
 // Perform a VCS flow (Version, Capabilities, Algorithms)
 // using the real SPDM library processing with platform implementations.
 fn full_flow(stream: TcpStream, config: &RequesterConfig) -> IoResult<()> {
-    let mut transport = SpdmSocketTransport::new(
-        stream,
-        platform::socket_transport::SocketTransportType::None,
-    );
+    let mut transport = SpdmSocketTransport::new(stream, config.transport_type);
     const EID: u8 = 0;
 
     // Create platform implementations - all from platform module!
@@ -159,7 +163,10 @@ fn full_flow(stream: TcpStream, config: &RequesterConfig) -> IoResult<()> {
     let mut peer_cert_store = ExamplePeerCertStore::default();
 
     if config.verbose {
-        println!("Client connected - initializing SPDM context");
+        println!(
+            "Client connected with transport type: {:?}",
+            config.transport_type
+        );
     }
 
     // TODO: The SpdmContext has to be adjusted (best in a generic way) to be requester compatible
@@ -194,12 +201,16 @@ fn full_flow(stream: TcpStream, config: &RequesterConfig) -> IoResult<()> {
     // Before we can start, we need to do the inofficial handshake for SOCKET_TRANSPORT_TYPE_NONE
     // 1. Send SOCKET_SPDM_COMMAND_TEST with payload b'Client Hello!'
     // 2. Receive SOCKET_SPDM_COMMAND_TEST with payload b'Server Hello!'
-    spdm_context.transport_init_sequence().map_err(|e| {
-        eprintln!("Handshake failed: {:?}", e);
-        Error::new(ErrorKind::Other, "SPDM handshake failed")
-    })?;
+    if config.transport_type == platform::socket_transport::SocketTransportType::None {
+        spdm_context.transport_init_sequence().map_err(|e| {
+            eprintln!("Handshake failed: {:?}", e);
+            Error::new(ErrorKind::Other, "SPDM handshake failed")
+        })?;
+    }
 
-    if config.verbose {
+    if config.verbose
+        && config.transport_type == platform::socket_transport::SocketTransportType::None
+    {
         println!("Initial handshake completed successfully");
     }
 
@@ -475,97 +486,6 @@ fn full_flow(stream: TcpStream, config: &RequesterConfig) -> IoResult<()> {
     Ok(())
 }
 
-/// Parse command line arguments
-fn parse_args() -> RequesterConfig {
-    let mut config = RequesterConfig::default();
-    let args: Vec<String> = env::args().collect();
-
-    let mut i = 1;
-    while i < args.len() {
-        match args[i].as_str() {
-            "-p" | "--port" => {
-                if i + 1 < args.len() {
-                    config.port = args[i + 1].parse().unwrap_or_else(|_| {
-                        eprintln!("Invalid port number: {}", args[i + 1]);
-                        process::exit(1);
-                    });
-                    i += 2;
-                } else {
-                    eprintln!("Port number required after {}", args[i]);
-                    process::exit(1);
-                }
-            }
-            "-c" | "--cert" => {
-                if i + 1 < args.len() {
-                    config.cert_path = args[i + 1].clone();
-                    i += 2;
-                } else {
-                    eprintln!("Certificate file path required after {}", args[i]);
-                    process::exit(1);
-                }
-            }
-            "-k" | "--key" => {
-                if i + 1 < args.len() {
-                    config.key_path = args[i + 1].clone();
-                    i += 2;
-                } else {
-                    eprintln!("Private key file path required after {}", args[i]);
-                    process::exit(1);
-                }
-            }
-            "-m" | "--measurements" => {
-                if i + 1 < args.len() {
-                    config.measurements_path = Some(args[i + 1].clone());
-                    i += 2;
-                } else {
-                    eprintln!("Measurements file path required after {}", args[i]);
-                    process::exit(1);
-                }
-            }
-            "-v" | "--verbose" => {
-                config.verbose = true;
-                i += 1;
-            }
-            "-h" | "--help" => {
-                print_help();
-                process::exit(0);
-            }
-            _ => {
-                eprintln!("Unknown argument: {}", args[i]);
-                print_help();
-                process::exit(1);
-            }
-        }
-    }
-
-    config
-}
-
-fn print_help() {
-    println!("Real SPDM Library Integrated DMTF Compatible Responder\n");
-    println!("USAGE:");
-    println!("    spdm-responder-clean [OPTIONS]\n");
-    println!("OPTIONS:");
-    println!("    -p, --port <PORT>              TCP port to connect to [default: None]");
-    println!(
-        "    -c, --cert <CERT_FILE>         Path to certificate file [default: device_cert.pem]"
-    );
-    println!(
-        "    -k, --key <KEY_FILE>           Path to private key file [default: device_key.pem]"
-    );
-    println!(
-        "    -m, --measurements <FILE>      Path to measurements file [default: measurements.json]"
-    );
-    println!("    -v, --verbose                  Enable verbose logging");
-    println!("    -h, --help                     Print this help message\n");
-    println!("EXAMPLES:");
-    println!("    spdm-responder-clean --port 8080 --verbose");
-    println!("    spdm-responder-clean --cert my_cert.pem --key my_key.pem");
-    println!(
-        "\nIntegrates real SPDM library with clean platform implementations - no code duplication!"
-    );
-}
-
 /// Display configuration information
 fn display_info(config: &RequesterConfig) {
     println!("Real SPDM Library Integrated DMTF Compatible Responder");
@@ -620,7 +540,7 @@ fn display_info(config: &RequesterConfig) {
 
 /// Main function
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let config = parse_args();
+    let config = RequesterConfig::parse();
     display_info(&config);
 
     let remote_addr = format!("0.0.0.0:{}", config.port);

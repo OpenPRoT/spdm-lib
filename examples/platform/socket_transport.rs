@@ -8,6 +8,7 @@
 use std::io::{Read, Result as IoResult, Write};
 use std::net::TcpStream;
 
+use clap::{Parser, ValueEnum};
 use spdm_lib::codec::{Codec, CodecError, CommonCodec, MessageBuf};
 use spdm_lib::platform::transport::{SpdmTransport, TransportError, TransportResult};
 use zerocopy::byteorder::{BigEndian, U32};
@@ -51,7 +52,7 @@ impl From<u32> for SocketSpdmCommand {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, ValueEnum)]
 #[repr(u32)]
 #[allow(non_camel_case_types, unused)]
 pub enum SocketTransportType {
