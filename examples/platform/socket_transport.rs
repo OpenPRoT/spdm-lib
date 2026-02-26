@@ -13,6 +13,8 @@ use spdm_lib::platform::transport::{SpdmTransport, TransportError, TransportResu
 use zerocopy::byteorder::{BigEndian, U32};
 use zerocopy::{FromBytes, Immutable, IntoBytes};
 
+use crate::platform;
+
 /// Socket platform command types (from DMTF emulator)
 /// This is **NOT** part of the official DMTF spec, but is necessary to implement
 /// [SocketTransportType::None].
@@ -297,17 +299,41 @@ impl SpdmSocketTransport {
     }
 
     /// Receive platform data with socket message header
+    ///
+    /// The transport specific headers such as MCTP header (see DSP0275) are encoded in the payload.
+    /// Note, that the payload size needs to be adjusted accordingly when sending/ receiving messages with transport specific headers.
     pub(crate) fn receive_platform_data(&mut self) -> IoResult<(SocketSpdmCommand, Vec<u8>)> {
         // Read socket message header
         let mut header_bytes = [0u8; 12]; // sizeof(SocketMessageHeader)
         self.stream.read_exact(&mut header_bytes)?;
-
         let header = SocketSpdmCommandHdr::from(&header_bytes);
         let payload_size = header.payload_size.get();
 
         if payload_size > 0 {
             let mut data = vec![0u8; payload_size as usize];
             self.stream.read_exact(&mut data)?;
+
+            // Parse and remove transport specific headers from the payload.
+            match self.transport_type {
+                SocketTransportType::None => {}
+                SocketTransportType::MCTP => {
+                    let mctp_header = data[0];
+                    if mctp_header != 0x5 {
+                        return Err(std::io::Error::new(
+                            std::io::ErrorKind::Other,
+                            "Invalid MCTP header",
+                        ));
+                    }
+                    data.remove(0);
+                }
+                _ => {
+                    return Err(std::io::Error::new(
+                        std::io::ErrorKind::Other,
+                        "Unsupported transport type",
+                    ));
+                }
+            }
+
             Ok((header.command, data))
         } else {
             Ok((header.command, Vec::new()))
@@ -315,18 +341,35 @@ impl SpdmSocketTransport {
     }
 
     /// Send platform data with socket message header
+    ///
+    /// Depending on the [SocketTransportType], this may prepend additional transport-specific headers to the data.
     fn send_platform_data(&mut self, command: SocketSpdmCommand, data: &[u8]) -> IoResult<()> {
+        let mut platform_header: &[u8] = &[];
+        match self.transport_type {
+            SocketTransportType::None => {}
+
+            SocketTransportType::MCTP => {
+                platform_header = &[0x5];
+            }
+            _ => {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::Other,
+                    "Unsupported transport type",
+                ));
+            }
+        }
+
         let header_bytes: [u8; 12] = SocketSpdmCommandHdr {
             command: SocketSpdmCommand::from(command as u32),
             transport_type: self.transport_type,
-            payload_size: BeU32::new(data.len() as u32),
+            payload_size: BeU32::new((data.len() + platform_header.len()) as u32),
         }
         .into();
 
         self.stream.write_all(&header_bytes)?;
 
-        // Send data if any
         if !data.is_empty() {
+            self.stream.write_all(platform_header)?;
             self.stream.write_all(data)?;
         }
 
@@ -347,9 +390,7 @@ impl SpdmTransport for SpdmSocketTransport {
     /// This function is only relevant for the SPDM Requester.
     /// Send the SPDM Request encoded into [req] (header|payload]) via the platform transport
     /// to and SPDM endpoint.
-    /// Since this binding implements DSP0276, "Secured Messages using SPDM over MCTP Binding Specification",
-    /// there is no EID to send it to.
-    fn send_request<'a>(&mut self, _dest_eid: u8, req: &mut MessageBuf<'a>) -> TransportResult<()> {
+    fn send_request<'a>(&mut self, dest_eid: u8, req: &mut MessageBuf<'a>) -> TransportResult<()> {
         let message_data = req
             .message_data()
             .map_err(|_| TransportError::BufferTooSmall)?;
