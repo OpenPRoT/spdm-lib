@@ -49,6 +49,12 @@ pub enum PlatformError {
     EvidenceError(SpdmEvidenceError),
 }
 
+impl From<SpdmRngError> for PlatformError {
+    fn from(value: SpdmRngError) -> Self {
+        PlatformError::RngError(value)
+    }
+}
+
 #[non_exhaustive]
 #[derive(Debug, PartialEq)]
 pub enum CommandError {
@@ -73,4 +79,16 @@ pub enum CommandError {
     /// This can either be a bug in this crate,
     /// in a dependency, or a uncaught platform misbehavior.
     InternalError,
+}
+
+impl From<PlatformError> for CommandError {
+    fn from(value: PlatformError) -> Self {
+        CommandError::Platform(value)
+    }
+}
+
+impl From<CodecError> for CommandError {
+    fn from(value: CodecError) -> Self {
+        CommandError::Codec(value)
+    }
 }

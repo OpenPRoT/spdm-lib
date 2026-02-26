@@ -26,6 +26,7 @@ use spdm_lib::commands::certificate::request::generate_get_certificate;
 use spdm_lib::commands::challenge::{
     request::generate_challenge_request, MeasurementSummaryHashType,
 };
+use spdm_lib::commands::measurements::request::generate_get_measurements;
 use spdm_lib::context::SpdmContext;
 use spdm_lib::error::SpdmError;
 use spdm_lib::protocol::algorithms::{
@@ -494,6 +495,26 @@ fn full_flow(stream: TcpStream, config: &RequesterConfig) -> IoResult<()> {
             ));
         }
         println!("CHALLENGE_AUTH signature verification successfull");
+    }
+
+    // GET_MEASUREMENTS
+    message_buffer.reset();
+    generate_get_measurements(
+        &mut spdm_context,
+        &mut message_buffer,
+        false,
+        false,
+        0x01,
+        Some(0),
+        None,
+    )
+    .unwrap();
+    spdm_context
+        .requester_send_request(&mut message_buffer, EID)
+        .unwrap();
+
+    if config.verbose {
+        println!("GET_MEASUREMENTS: {:?}", &message_buffer.message_data());
     }
 
     Ok(())

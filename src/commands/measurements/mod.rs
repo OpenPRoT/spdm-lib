@@ -50,9 +50,9 @@ bitfield! {
     struct GetMeasurementsReqAttr(u8);
     impl Debug;
     u8;
-    pub signature_requested, _: 0, 0;
-    pub raw_bitstream_requested, _: 1, 1;
-    pub new_measurement_requested, _: 2, 2;
+    pub signature_requested, set_signature_requested: 0, 0;
+    pub raw_bitstream_requested, set_raw_bitstream_requested: 1, 1;
+    pub new_measurement_requested, set_new_measurement_requested: 2, 2;
     reserved, _: 7, 3;
 }
 
