@@ -28,6 +28,7 @@ pub enum TransportError {
     SendError,
     ResponseNotExpected,
     NoRequestInFlight,
+    UnsupportedTransportType,
 
     /// Error specific to SOCKET_TRANSPORT_TYPE_NONE handshake
     HandshakeNoneError,
