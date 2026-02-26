@@ -1,0 +1,16 @@
+name: Build Base Implementation
+
+on:
+  workflow_dispatch:
+    inputs:
+      commit_hash:
+        description: 'Commit hash to build base spdm-emu from'
+        required: true
+        type: string
+
+jobs:
+  build-emu:
+    runs-on: ubuntu-latest
+    steps:
+    - run: |
+        echo "See: https://github.com/9elements/spdm-lib/pull/36 and leongross/ci-spdm-emu"
