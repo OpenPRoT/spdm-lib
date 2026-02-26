@@ -1,10 +1,10 @@
-name: Build Base Implementation
+name: Build SPDM Emulator Artifacts
 
 on:
   workflow_dispatch:
     inputs:
       commit_hash:
-        description: 'Commit hash to build base spdm-emu from'
+        description: 'Commit hash to build spdm-emu from'
         required: true
         type: string
 
@@ -18,6 +18,7 @@ jobs:
           repository: DMTF/spdm-emu
           ref: ${{ inputs.commit_hash }}
           submodules: recursive
+          path: spdm-emu
     
       - name: Install build dependecies
         run: |
@@ -25,19 +26,19 @@ jobs:
 
       - name: Build application and prepare release
         run: |
-            # https://github.com/DMTF/spdm-emu#linux-build-with-cmake
+            cd "$GITHUB_WORKSPACE"/spdm-emu
             git submodule update
             mkdir build -p && cd build
             cmake -DARCH=x64 -DTOOLCHAIN=GCC -DTARGET=Debug -DCRYPTO=openssl ..
             make copy_sample_key
-            make
+            make -j
           
       - name: Create or update release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          mkdir emu
-          cp spdm-emu/build/bin/spdm_requester_emu spdm-emu/build/bin/spdm_responder_emu emu
+          mkdir "$GITHUB_WORKSPACE"/emu
+          cp "$GITHUB_WORKSPACE"/spdm-emu/build/bin/spdm_requester_emu spdm-emu/build/bin/spdm_responder_emu "$GITHUB_WORKSPACE"/emu
           
           gh release delete spdm-emu --yes --repo ${{ github.repository }} || true
           
@@ -46,4 +47,4 @@ jobs:
             --title "SPDM Emulators (built from ${{ inputs.commit_hash }})" \
             --notes "Built from commit: ${{ inputs.commit_hash }}" \
             --prerelease \
-            ./emu
+            "$GITHUB_WORKSPACE"/emu/*
