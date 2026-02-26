@@ -12,5 +12,38 @@ jobs:
   build-emu:
     runs-on: ubuntu-latest
     steps:
-    - run: |
-        echo "See: https://github.com/9elements/spdm-lib/pull/36 and leongross/ci-spdm-emu"
+      - name: Checkout DMTF spdm-emu
+        uses: actions/checkout@v4
+        with:
+          repository: DMTF/spdm-emu
+          ref: ${{ inputs.commit_hash }}
+          submodules: recursive
+    
+      - name: Install build dependecies
+        run: |
+            sudo apt install -y build-essential
+
+      - name: Build application and prepare release
+        run: |
+            # https://github.com/DMTF/spdm-emu#linux-build-with-cmake
+            git submodule update
+            mkdir build -p && cd build
+            cmake -DARCH=x64 -DTOOLCHAIN=GCC -DTARGET=Debug -DCRYPTO=openssl ..
+            make copy_sample_key
+            make
+          
+      - name: Create or update release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          mkdir emu
+          cp spdm-emu/build/bin/spdm_requester_emu spdm-emu/build/bin/spdm_responder_emu emu
+          
+          gh release delete spdm-emu --yes --repo ${{ github.repository }} || true
+          
+          gh release create spdm-emu \
+            --repo ${{ github.repository }} \
+            --title "SPDM Emulators (built from ${{ inputs.commit_hash }})" \
+            --notes "Built from commit: ${{ inputs.commit_hash }}" \
+            --prerelease \
+            ./emu
