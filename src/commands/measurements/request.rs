@@ -16,11 +16,13 @@ use crate::{
     codec::{Codec, MessageBuf},
     commands::measurements::{
         GetMeasurementsReqAttr, GetMeasurementsReqCommon, GetMeasurementsReqSignature,
+        MeasurementBlockHeader, MeasurementOperation, MeasurementsRspFixed,
     },
     context::SpdmContext,
     error::{CommandError, CommandResult, PlatformError},
     protocol::{ReqRespCode, SpdmMsgHdr, SpdmVersion, NONCE_LEN},
     state::ConnectionState,
+    transcript::TranscriptContext,
 };
 
 /// Generate a GET_MEASUREMENTS request
@@ -31,9 +33,11 @@ use crate::{
 /// * `raw_bitstream_requested`: Request a raw bit stream (if supported) (SPDM v1.2+)
 /// * `new_measurement_requested`: Request new measurement if the responder has pending updates to blocks (SPDM v1.3+)
 /// * `meas_op`: Measurement operation
-///     (0x00: query total number of available blocks, 0x01-0xFE: query block, 0xFF: query all blocks)
 /// * `slot_id`: Request a signed measurement if provided, signed with certificate slot identifier (0-7)
 /// * `context`: Append optional 8 byte context (SPDM v1.3+)
+///
+/// ## Note
+/// For SPDM version 1.0 this implementation does **not** supporte signed measurements.
 ///
 /// # Returns
 /// - () on success
@@ -49,7 +53,7 @@ pub fn generate_get_measurements<'a>(
     req_buf: &mut MessageBuf<'a>,
     raw_bitstream_requested: bool,
     new_measurement_requested: bool,
-    meas_op: u8,
+    meas_op: MeasurementOperation,
     slot_id: Option<u8>,
     context: Option<&[u8; 8]>,
 ) -> CommandResult<()> {
@@ -72,7 +76,11 @@ pub fn generate_get_measurements<'a>(
     let mut req_attr = GetMeasurementsReqAttr(0);
 
     // signature requested is available in all versions
+    // (v1.0 doesn't support slot-ids)
     if slot_id.is_some() {
+        if connection_version == SpdmVersion::V10 {
+            return Err((true, CommandError::UnsupportedRequest));
+        }
         // Error if the responder doesn't support this
         if !responder_supports_signed_measurements(ctx) {
             return Err((true, CommandError::UnsupportedRequest));
@@ -96,7 +104,10 @@ pub fn generate_get_measurements<'a>(
     }
 
     // Encode request attributes and `Measurement` operation
-    let get_meas_common = GetMeasurementsReqCommon { req_attr, meas_op };
+    let get_meas_common = GetMeasurementsReqCommon {
+        req_attr,
+        meas_op: meas_op.try_into().map_err(|e| (true, e))?,
+    };
     payload_len += get_meas_common
         .encode(req_buf)
         .map_err(|e| (false, CommandError::Codec(e)))?;
@@ -137,7 +148,7 @@ pub fn generate_get_measurements<'a>(
         .push_data(payload_len)
         .map_err(|_| (false, CommandError::BufferTooSmall))?;
 
-    ctx.append_message_to_transcript(req_buf, crate::transcript::TranscriptContext::L1)
+    ctx.append_message_to_transcript(req_buf, TranscriptContext::L1)
 }
 
 /// Check if the responder supports signing its measurements
@@ -165,5 +176,56 @@ pub(crate) fn handle_measurements_response<'a>(
     resp_header: SpdmMsgHdr,
     resp: &mut MessageBuf<'a>,
 ) -> CommandResult<()> {
-    todo!()
+    // Validate connection state - algorithms must be negotiated
+    if ctx.state.connection_info.state() < ConnectionState::AlgorithmsNegotiated {
+        return Err((true, CommandError::UnsupportedResponse));
+    }
+
+    // Validate version matches connection version
+    let connection_version = ctx.state.connection_info.version_number();
+    if resp_header.version().ok() != Some(connection_version) {
+        return Err((true, CommandError::InvalidResponse));
+    }
+
+    // Include the already parsed header again to parse `MeasurementsRspFixed`
+    resp.push_data(size_of::<SpdmMsgHdr>())
+        .map_err(|e| (false, e.into()))?;
+
+    let fixed_fields = MeasurementsRspFixed::decode(resp).map_err(|e| (true, e.into()))?;
+
+    // Convert 3-byte measurement record length to u32
+    let _meas_record_length = u32::from_le_bytes([
+        fixed_fields.measurement_record_len_byte0(),
+        fixed_fields.measurement_record_len_byte1(),
+        fixed_fields.measurement_record_len_byte2(),
+        0,
+    ]);
+
+    // Decode all measurement blocks
+    for _ in 0..fixed_fields.num_blocks() {
+        let block_header = MeasurementBlockHeader::decode(resp).map_err(|e| (true, e.into()))?;
+        resp.pull_data(block_header.measurement_size.get() as usize)
+            .map_err(|e| (true, e.into()))?;
+    }
+
+    // Decode Nonce
+    let _nonce = resp.data(32).map_err(|e| (true, e.into()))?;
+    resp.pull_data(32).map_err(|e| (true, e.into()))?;
+
+    // Decode opaque data
+    let mut len_bytes = [0; 2];
+    len_bytes.copy_from_slice(resp.data(2).map_err(|e| (true, e.into()))?);
+    let opaque_data_len = u16::from_le_bytes(len_bytes);
+    resp.pull_data(2).map_err(|e| (true, e.into()))?;
+    resp.pull_data(opaque_data_len as usize)
+        .map_err(|e| (true, e.into()))?;
+
+    // Decode requester context
+    let _requester_ctx = resp.data(8).map_err(|e| (true, e.into()))?;
+    resp.pull_data(8).map_err(|e| (true, e.into()))?;
+
+    // Remaining is the signature, if requested by the GET_MEASUREMENTS request
+
+    // Append response to transcript (L1 context for measurements)
+    ctx.append_message_to_transcript(resp, TranscriptContext::L1)
 }

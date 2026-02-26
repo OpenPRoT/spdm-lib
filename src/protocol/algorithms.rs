@@ -14,7 +14,7 @@
 
 use crate::error::{SpdmError, SpdmResult};
 use bitfield::bitfield;
-use zerocopy::{FromBytes, Immutable, IntoBytes};
+use zerocopy::{FromBytes, Immutable, IntoBytes, Unaligned};
 
 pub const SHA384_HASH_SIZE: usize = 48;
 pub const ECC_P384_SIGNATURE_SIZE: usize = 96;
@@ -120,7 +120,7 @@ where
 
 // Measurement Specification field
 bitfield! {
-#[derive(FromBytes, IntoBytes, Immutable, Default, Clone, Copy)]
+#[derive(FromBytes, IntoBytes, Immutable, Default, Clone, Copy, Unaligned)]
 #[repr(C)]
 pub struct MeasurementSpecification(u8);
 impl Debug;
