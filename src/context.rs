@@ -20,6 +20,7 @@ use crate::commands::capabilities::handle_capabilities_response;
 use crate::commands::challenge::handle_challenge_auth_response;
 use crate::commands::digests::{handle_digests_response, handle_get_digests};
 use crate::commands::error_rsp::{encode_error_response, ErrorCode};
+use crate::commands::measurements::request::handle_measurements_response;
 use crate::commands::version::handle_version_response;
 use crate::commands::{
     algorithms, capabilities, certificate, challenge, chunk_get_rsp, measurements, version,
@@ -238,6 +239,7 @@ impl<'a> SpdmContext<'a> {
             ReqRespCode::ChallengeAuth => {
                 handle_challenge_auth_response(self, resp_msg_header, resp)?
             }
+            ReqRespCode::Measurements => handle_measurements_response(self, resp_msg_header, resp)?,
             _ => Err((false, CommandError::UnsupportedResponse))?,
         }
 

@@ -517,6 +517,14 @@ fn full_flow(stream: TcpStream, config: &RequesterConfig) -> IoResult<()> {
         println!("GET_MEASUREMENTS: {:?}", &message_buffer.message_data());
     }
 
+    spdm_context
+        .requester_process_message(&mut message_buffer)
+        .unwrap();
+
+    if config.verbose {
+        println!("CHALLENGE_AUTH: {:x?}", &message_buffer.message_data());
+    }
+
     Ok(())
 }
 
