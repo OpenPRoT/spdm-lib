@@ -19,10 +19,10 @@ pub mod request;
 /// Responder logic for GET_MEASUREMENTS and MEASURMENTS
 pub mod response;
 
-use crate::codec::CommonCodec;
 use crate::protocol::*;
+use crate::{codec::CommonCodec, error::CommandError};
 use bitfield::bitfield;
-use zerocopy::{FromBytes, Immutable, IntoBytes};
+use zerocopy::{FromBytes, Immutable, IntoBytes, Unaligned};
 
 const RESPONSE_FIXED_FIELDS_SIZE: usize = 8;
 const MAX_RESPONSE_VARIABLE_FIELDS_SIZE: usize =
@@ -89,3 +89,43 @@ impl Default for MeasurementsRspFixed<[u8; RESPONSE_FIXED_FIELDS_SIZE]> {
 }
 
 impl CommonCodec for MeasurementsRspFixed<[u8; RESPONSE_FIXED_FIELDS_SIZE]> {}
+
+/// Measurement Operation request field
+pub enum MeasurementOperation {
+    /// Query the Responder for the total number of measurement blocks available
+    ReportMeasBlockCount,
+    /// Request the measurement block at a specific index
+    ///
+    /// Index has to be between `0x01` and `0xFE`, inclusively.
+    RequestSingleMeasBlock(u8),
+    /// Request all measurement blocks
+    RequestAllMeasBlocks,
+}
+
+impl TryInto<u8> for MeasurementOperation {
+    type Error = CommandError;
+
+    fn try_into(self) -> Result<u8, Self::Error> {
+        match self {
+            MeasurementOperation::ReportMeasBlockCount => Ok(0x01),
+            MeasurementOperation::RequestSingleMeasBlock(x) => {
+                if matches!(x, 0x00 | 0xFF) {
+                    Err(CommandError::UnsupportedRequest)
+                } else {
+                    Ok(x)
+                }
+            }
+            MeasurementOperation::RequestAllMeasBlocks => Ok(0xFF),
+        }
+    }
+}
+
+#[derive(Debug, FromBytes, IntoBytes, Immutable, Unaligned)]
+#[repr(C)]
+struct MeasurementBlockHeader {
+    index: u8,
+    measurement_spec: MeasurementSpecification,
+    measurement_size: zerocopy::little_endian::U16,
+}
+
+impl CommonCodec for MeasurementBlockHeader {}

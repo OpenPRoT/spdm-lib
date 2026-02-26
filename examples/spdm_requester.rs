@@ -27,6 +27,7 @@ use spdm_lib::commands::challenge::{
     request::generate_challenge_request, MeasurementSummaryHashType,
 };
 use spdm_lib::commands::measurements::request::generate_get_measurements;
+use spdm_lib::commands::measurements::MeasurementOperation;
 use spdm_lib::context::SpdmContext;
 use spdm_lib::error::SpdmError;
 use spdm_lib::protocol::algorithms::{
@@ -504,7 +505,7 @@ fn full_flow(stream: TcpStream, config: &RequesterConfig) -> IoResult<()> {
         &mut message_buffer,
         false,
         false,
-        0x01,
+        MeasurementOperation::RequestAllMeasBlocks,
         Some(0),
         None,
     )
@@ -514,7 +515,7 @@ fn full_flow(stream: TcpStream, config: &RequesterConfig) -> IoResult<()> {
         .unwrap();
 
     if config.verbose {
-        println!("GET_MEASUREMENTS: {:?}", &message_buffer.message_data());
+        println!("GET_MEASUREMENTS: {:x?}", &message_buffer.message_data());
     }
 
     spdm_context
@@ -522,7 +523,7 @@ fn full_flow(stream: TcpStream, config: &RequesterConfig) -> IoResult<()> {
         .unwrap();
 
     if config.verbose {
-        println!("CHALLENGE_AUTH: {:x?}", &message_buffer.message_data());
+        println!("MEASUREMENTS: {:x?}", &message_buffer.message_data());
     }
 
     Ok(())
