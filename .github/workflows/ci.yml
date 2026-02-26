@@ -36,6 +36,7 @@ jobs:
       uses: Swatinem/rust-cache@v2
     - name: Cargo Build
       run: cargo build --all-targets --workspace --verbose
+
   test:
     runs-on: ubuntu-latest
     steps:
@@ -46,3 +47,21 @@ jobs:
       uses: Swatinem/rust-cache@v2
     - name: Run tests
       run: cargo test --all-features --verbose --workspace
+
+  emu-integration-requester:
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout source
+      uses: actions/checkout@v4
+    - name: Download spdm-emu release assets
+      env:
+        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      run: |
+        gh release download spdm-emu \
+          --repo ${{ github.repository }} \
+          --dir emu/
+        mv emu/spdm_responder
+        chmod +x ~/spdm_responder
+
+        ./spdm_responder_emu --trans NONE --ver 1.4 --slot_id 0 --slot_count 1 --req_slot_id 0 &
+        cargo run --example spdm_requester -- --port 2323 --verbose
