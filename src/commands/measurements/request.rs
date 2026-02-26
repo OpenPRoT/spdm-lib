@@ -23,6 +23,27 @@ use crate::{
     state::ConnectionState,
 };
 
+/// Generate a GET_MEASUREMENTS request
+///
+/// # Arguments
+/// * `ctx`: The SPDM context
+/// * `req_buf`: Buffer to write the request into
+/// * `raw_bitstream_requested`: Request a raw bit stream (if supported) (SPDM v1.2+)
+/// * `new_measurement_requested`: Request new measurement if the responder has pending updates to blocks (SPDM v1.3+)
+/// * `meas_op`: Measurement operation
+///     (0x00: query total number of available blocks, 0x01-0xFE: query block, 0xFF: query all blocks)
+/// * `slot_id`: Request a signed measurement if provided, signed with certificate slot identifier (0-7)
+/// * `context`: Append optional 8 byte context (SPDM v1.3+)
+///
+/// # Returns
+/// - () on success
+/// - [CommandError] on failure
+///
+/// # Connection State Requirements
+/// - Connection state must be >= AlgorithmsNegotiated
+///
+/// # Transcript
+/// - Appends request to the L1 transcript context
 pub fn generate_get_measurements<'a>(
     ctx: &mut SpdmContext<'a>,
     req_buf: &mut MessageBuf<'a>,
@@ -136,4 +157,13 @@ fn responder_supports_signed_measurements(ctx: &SpdmContext<'_>) -> bool {
     } else {
         return false;
     }
+}
+
+/// Handle an incoming MEASUREMENTS response
+pub(crate) fn handle_measurements_response<'a>(
+    ctx: &mut SpdmContext<'a>,
+    resp_header: SpdmMsgHdr,
+    resp: &mut MessageBuf<'a>,
+) -> CommandResult<()> {
+    todo!()
 }
