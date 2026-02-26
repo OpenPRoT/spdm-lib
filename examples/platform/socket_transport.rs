@@ -75,6 +75,22 @@ impl From<u32> for SocketTransportType {
     }
 }
 
+/// # MCTP
+///  Header = `IC | MessageType`, where
+/// - `IC` is the integrity check byte, which is set to 0 for SPDM messages.
+/// - `MessageType` is set to 0x5 for SPDM messages.
+impl SocketTransportType {
+    pub fn transport_header(&self) -> TransportResult<&[u8]> {
+        match self {
+            SocketTransportType::None => Ok(&[]),
+            SocketTransportType::MCTP => Ok(&[0x5]),
+            SocketTransportType::PCI_DOE | SocketTransportType::TCP => {
+                Err(TransportError::UnsupportedTransportType)
+            }
+        }
+    }
+}
+
 pub enum SocketMessageHeaderError {
     Reserved,
 }
@@ -144,6 +160,8 @@ pub enum SpdmSocketTransportError {
     CannotBeResponder = 0xC3,
     //0xC4 - 0xFF: Reserved.
 }
+
+type SpdmSocketTransportResult<T> = Result<T, SpdmSocketTransportError>;
 
 impl TryFrom<u8> for SpdmSocketTransportError {
     type Error = SocketMessageHeaderError;
@@ -318,8 +336,12 @@ impl SpdmSocketTransport {
             match self.transport_type {
                 SocketTransportType::None => {}
                 SocketTransportType::MCTP => {
-                    let mctp_header = data[0];
-                    if mctp_header != 0x5 {
+                    let mctp_header_got = data[0];
+                    let mctp_header_want = self.transport_type.transport_header().map_err(|e| {
+                        std::io::Error::new(std::io::ErrorKind::Other, format!("{:?}", e))
+                    })?[0];
+
+                    if mctp_header_got != mctp_header_want {
                         return Err(std::io::Error::new(
                             std::io::ErrorKind::Other,
                             "Invalid MCTP header",
@@ -378,7 +400,7 @@ impl SpdmSocketTransport {
         Ok(())
     }
 
-    pub fn send_client_hello<'a>(&mut self) -> TransportResult<()> {
+    pub fn send_client_hello(&mut self) -> TransportResult<()> {
         let message_data = b"Client Hello!\x00".as_bytes();
 
         self.send_platform_data(SocketSpdmCommand::Test, message_data)
@@ -391,7 +413,7 @@ impl SpdmTransport for SpdmSocketTransport {
     /// This function is only relevant for the SPDM Requester.
     /// Send the SPDM Request encoded into [req] (header|payload]) via the platform transport
     /// to and SPDM endpoint.
-    fn send_request<'a>(&mut self, dest_eid: u8, req: &mut MessageBuf<'a>) -> TransportResult<()> {
+    fn send_request<'a>(&mut self, _dest_eid: u8, req: &mut MessageBuf<'a>) -> TransportResult<()> {
         let message_data = req
             .message_data()
             .map_err(|_| TransportError::BufferTooSmall)?;
