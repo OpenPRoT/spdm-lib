@@ -55,6 +55,7 @@ impl From<u32> for SocketSpdmCommand {
 #[derive(Debug, Clone, Copy, PartialEq, ValueEnum)]
 #[repr(u32)]
 #[allow(non_camel_case_types, unused)]
+#[clap(rename_all = "UPPER")]
 pub enum SocketTransportType {
     /// SOCKET_TRANSPORT_TYPE_NONE
     None = 0x00,
