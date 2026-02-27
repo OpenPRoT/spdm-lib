@@ -1,0 +1,46 @@
+name: Verification with SPDM Emulator
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+
+env:
+  CARGO_TERM_COLOR: always
+  SPDM_EMU_REF: a8285827282c8c63708043298b2f4f06936d1c12 # spdm-emu 3.8.0
+
+jobs:
+  requester-verification:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Cache spdm-emu build output
+        id: cache-spdm-emu
+        uses: actions/cache@v5
+        with:
+          path: ${{ github.workspace }}/spdm-emu
+          key: spdm_emu-${{ env.SPDM_EMU_REF }}-${{ runner.os }}
+
+      - name: Checkout DMTF spdm-emu
+        if: ${{ steps.cha-spdm-emu.outputs.chache-hit != 'true' }}
+        uses: actions/checkout@v4
+        with:
+          repository: DMTF/spdm-emu
+          ref: ${{ env.SPDM_EMU_REF }}
+          submodules: recursive
+          path: spdm-emu
+    
+      - name: Install build dependecies
+        if: ${{ steps.cha-spdm-emu.outputs.chache-hit != 'true' }}
+        run: |
+            sudo apt install -y build-essential
+
+      - name: Build spdm-emu
+        if: ${{ steps.cha-spdm-emu.outputs.chache-hit != 'true' }}
+        run: |
+            cd "$GITHUB_WORKSPACE"/spdm-emu
+            git submodule update
+            mkdir build -p && cd build
+            cmake -DARCH=x64 -DTOOLCHAIN=GCC -DTARGET=Debug -DCRYPTO=openssl ..
+            make copy_sample_key
+            make -j
