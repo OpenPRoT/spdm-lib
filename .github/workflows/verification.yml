@@ -62,6 +62,6 @@ jobs:
       - name: Run verification flow
         run: |
           cd spdm-lib
-          "$GITHUB_WORKSPACE"/spdm-emu/build/bin/spdm_responder_emu --trans ${{ matrix.transport }} --ver ${{ matrix.spdm_version }} --slot_id 0 --slot_count 1 --req_slot_id 0 &
+          (cd "$GITHUB_WORKSPACE"/spdm-emu/build/bin/; ./spdm_responder_emu --trans ${{ matrix.transport }} --ver ${{ matrix.spdm_version }} --slot_id 0 --slot_count 1 --req_slot_id 0) &
           (sleep 1; cargo run --example spdm_requester -- --transport-type ${{ matrix.transport }} --port 2323 --verbose)
 
