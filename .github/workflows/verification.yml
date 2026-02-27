@@ -8,7 +8,8 @@ on:
 
 env:
   CARGO_TERM_COLOR: always
-  SPDM_EMU_REF: a8285827282c8c63708043298b2f4f06936d1c12 # spdm-emu 3.8.0
+  SPDM_EMU_REF: fe4cdc53b3f0e8300d16519467588001525e84f3 # spdm-emu main (27.02.2026)
+  CACHE_INVALIDATOR: 20ba74fb3b2bc121 # change to invalidate caches
 
 jobs:
   requester-verification:
@@ -18,11 +19,11 @@ jobs:
         id: cache-spdm-emu
         uses: actions/cache@v5
         with:
-          path: ${{ github.workspace }}/spdm-emu
-          key: spdm_emu-${{ env.SPDM_EMU_REF }}-${{ runner.os }}
+          path: ${{ github.workspace }}/spdm-emu/build
+          key: spdm_emu-${{ env.SPDM_EMU_REF }}-${{ runner.os }}-${{ env.CACHE_INVALIDATOR }}
 
       - name: Checkout DMTF spdm-emu
-        if: ${{ steps.cha-spdm-emu.outputs.chache-hit != 'true' }}
+        if: ${{ steps.cache-spdm-emu.outputs.cache-hit != 'true' }}
         uses: actions/checkout@v4
         with:
           repository: DMTF/spdm-emu
@@ -31,12 +32,12 @@ jobs:
           path: spdm-emu
     
       - name: Install build dependecies
-        if: ${{ steps.cha-spdm-emu.outputs.chache-hit != 'true' }}
+        if: ${{ steps.cache-spdm-emu.outputs.cache-hit != 'true' }}
         run: |
             sudo apt install -y build-essential
 
       - name: Build spdm-emu
-        if: ${{ steps.cha-spdm-emu.outputs.chache-hit != 'true' }}
+        if: ${{ steps.cache-spdm-emu.outputs.cache-hit != 'true' }}
         run: |
             cd "$GITHUB_WORKSPACE"/spdm-emu
             git submodule update
@@ -44,3 +45,19 @@ jobs:
             cmake -DARCH=x64 -DTOOLCHAIN=GCC -DTARGET=Debug -DCRYPTO=openssl ..
             make copy_sample_key
             make -j
+
+      - uses: actions/checkout@v4
+        with:
+          path: spdm-lib
+      - name: Cache cargo registry and build
+        uses: Swatinem/rust-cache@v2
+      - name: Cargo Build
+        run: |
+          cd spdm-lib
+          cargo build --example spdm_requester
+      - name: Run verification flow
+        run: |
+          cd spdm-lib
+          "$GITHUB_WORKSPACE"/spdm-emu/build/bin/spdm_responder_emu --trans NONE --ver 1.4 --slot_id 0 --slot_count 1 --req_slot_id 0 &
+          (sleep 1; cargo run --example spdm_requester -- --port 2323 --verbose)
+
