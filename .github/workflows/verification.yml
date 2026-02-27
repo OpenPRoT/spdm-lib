@@ -56,6 +56,8 @@ jobs:
           path: spdm-lib
       - name: Cache cargo registry and build
         uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: "spdm-lib"
       - name: Cargo Build
         run: |
           cd spdm-lib
