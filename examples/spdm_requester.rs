@@ -21,7 +21,7 @@ use spdm_lib::protocol::algorithms::{
     MeasurementSpecification, MelSpecification, OtherParamSupport, ReqBaseAsymAlg,
 };
 use spdm_lib::protocol::signature::NONCE_LEN;
-use spdm_lib::protocol::{self, version, BaseHashAlgoType};
+use spdm_lib::protocol::{self, version, BaseHashAlgoType, SpdmVersion};
 use spdm_lib::protocol::{CapabilityFlags, DeviceCapabilities};
 
 // Import platform implementations - no duplicates!
@@ -616,17 +616,21 @@ fn verify_challenge_auth_signature(
 ) -> bool {
     use signature::Verifier;
 
-    // since we verify the responder-generated signature, we have to use the same "responder-" context constant.
-    let sig_combined_context = protocol::signature::create_responder_signing_context(
-        ctx.connection_info().version_number(),
-        protocol::ReqRespCode::ChallengeAuth,
-    )
-    .unwrap();
-    if config.verbose {
-        println!(
-            "comb_ctx string: '{}'",
-            String::from_utf8_lossy(&sig_combined_context)
-        );
+    let mut sig_combined_context = Vec::new();
+    if ctx.connection_info().version_number() >= SpdmVersion::V12 {
+        // since we verify the responder-generated signature, we have to use the same "responder-" context constant.
+        let sig_ctx = protocol::signature::create_responder_signing_context(
+            ctx.connection_info().version_number(),
+            protocol::ReqRespCode::ChallengeAuth,
+        )
+        .unwrap();
+        sig_combined_context.extend_from_slice(&sig_ctx);
+        if config.verbose {
+            println!(
+                "comb_ctx string: '{}'",
+                String::from_utf8_lossy(&sig_combined_context)
+            );
+        }
     }
 
     // Get the M1 transcript hash (which is the hash of messages A, B, C) and verify the signature over it.
