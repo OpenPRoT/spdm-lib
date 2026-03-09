@@ -59,10 +59,18 @@ pub(crate) fn handle_digests_response<'a>(
         .as_mut()
         .ok_or((true, CommandError::InvalidResponse))?;
 
-    peer_cert_store
-        .set_supported_slots(digests_resp_common.supported_slot_mask)
-        .map_err(|e| (true, CommandError::CertStore(e)))?;
+    if version >= SpdmVersion::V13 {
+        peer_cert_store
+            .set_supported_slots(digests_resp_common.supported_slot_mask)
+            .map_err(|e| (true, CommandError::CertStore(e)))?;
+    } else {
+        // Set all slots as supported, if supported_slot_mask isn't supported (v1.2 and prior)
+        peer_cert_store
+            .set_supported_slots(0xFF)
+            .map_err(|e| (true, CommandError::CertStore(e)))?;
+    }
 
+    // TODO: Was this intended to do something?
     for b in 0..digests_resp_common.supported_slot_mask.count_ones() {
         if (digests_resp_common.supported_slot_mask & (1 << b)) == 1 {}
     }
