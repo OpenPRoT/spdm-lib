@@ -147,9 +147,8 @@ fn generate_capabilities_request<'a>(
         .push_data(payload_len)
         .map_err(|_| (false, CommandError::BufferTooSmall))?;
 
-    // Append response to VCA transcript
+    // Append request to VCA transcript
     ctx.append_message_to_transcript(req_buf, TranscriptContext::Vca)
-    // ctx.append_message_to_transcript(req_buf, TranscriptContext::M1)
 }
 
 /// Generate the GET_CAPABILITIES command using the local capabilities from the context.
