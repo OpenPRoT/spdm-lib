@@ -161,16 +161,19 @@ pub(crate) fn handle_challenge_auth_response<'a>(
             .map_err(|e| (true, CommandError::Codec(e)))?;
     }
 
-    // This field shall be identical to the Context field of the corresponding request message.
-    // TODO: compare it to the context we sent.
-    // See: src/protocol/common.rs [RequesterContext]
-    let _requester_context = resp_payload
-        .data(8)
-        .map_err(|e| (true, CommandError::Codec(e)))?;
+    // In v1.3 a 8-byte request context was added before the signature field
+    if ctx.connection_info().version_number() >= SpdmVersion::V13 {
+        // This field shall be identical to the Context field of the corresponding request message.
+        // TODO: compare it to the context we sent.
+        // See: src/protocol/common.rs [RequesterContext]
+        let _requester_context = resp_payload
+            .data(8)
+            .map_err(|e| (true, CommandError::Codec(e)))?;
 
-    resp_payload
-        .pull_data(8)
-        .map_err(|e| (true, CommandError::Codec(e)))?;
+        resp_payload
+            .pull_data(8)
+            .map_err(|e| (true, CommandError::Codec(e)))?;
+    }
 
     // We have to use this ugly hack to bring the message buffer into the right form to exclude the signature.
     // This message buffer thing is totally fucked up...
