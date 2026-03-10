@@ -2,6 +2,7 @@
 
 //! SPDM Example Responder utilizing the requester library.
 
+use std::fmt::Display;
 use std::io::{Error, ErrorKind, Result as IoResult};
 use std::net::TcpStream;
 
@@ -353,6 +354,7 @@ fn full_flow(stream: TcpStream, config: &RequesterConfig) -> IoResult<()> {
     if config.verbose {
         println!("DIGESTS: {:x?}", &message_buffer.message_data());
     }
+    println!("Successfully retrieved cert chain digests");
 
     // Get peer certificate chain
     loop {
@@ -362,8 +364,10 @@ fn full_flow(stream: TcpStream, config: &RequesterConfig) -> IoResult<()> {
         spdm_context
             .requester_send_request(&mut message_buffer, EID)
             .unwrap();
-        println!("requested GET_CERTIFICATE");
-        println!("state: {:?}", spdm_context.connection_info().state());
+        if config.verbose {
+            println!("requested GET_CERTIFICATE");
+            println!("state: {:?}", spdm_context.connection_info().state());
+        }
 
         spdm_context
             .requester_process_message(&mut message_buffer)
@@ -389,9 +393,9 @@ fn full_flow(stream: TcpStream, config: &RequesterConfig) -> IoResult<()> {
             .unwrap();
         let root_hash = store.get_root_hash(0, hash_algo).unwrap();
         println!(
-            "slot 0: Root hash ({hash_algo:?}, {} bytes): {:02x?}",
+            "slot 0: Root hash ({hash_algo:?}, {} bytes): {}",
             root_hash.len(),
-            root_hash
+            HexString(root_hash)
         );
         let cert_chain = store.get_cert_chain(0, hash_algo).unwrap();
 
@@ -488,8 +492,8 @@ fn full_flow(stream: TcpStream, config: &RequesterConfig) -> IoResult<()> {
 
 /// Display configuration information
 fn display_info(config: &RequesterConfig) {
-    println!("Real SPDM Library Integrated DMTF Compatible Responder");
-    println!("=====================================================");
+    println!("SPDM Library DMTF Compatible Requester Example Flow");
+    println!("===================================================");
     println!("Configuration:");
     println!("  Port: {}", config.port);
     println!("  Certificate: {}", config.cert_path);
@@ -526,15 +530,11 @@ fn display_info(config: &RequesterConfig) {
     );
     println!();
 
-    println!("Clean Platform Implementation Features:");
-    println!("  SPDM Versions: 1.2, 1.1");
-    println!("  Protocol Processing: Real SPDM library integration");
+    println!("Requester Features:");
+    println!("  SPDM Versions: 1.0, 1.1, 1.2, 1.3");
     println!("  Hash Algorithm: SHA-384 (platform module)");
     println!("  Signature Algorithm: ECDSA P-384 (platform module)");
-    println!("  Measurements: Demo device measurements (platform module)");
-    println!("  Certificates: Static OpenSSL-generated certificate chain (platform module)");
-    println!("  Transport: TCP socket with DMTF protocol (platform module)");
-    println!("  ✅ NO CODE DUPLICATION - All implementations from unified platform module");
+    println!("  Transport: TCP socket with DMTF NONE or MCTP protocol (platform module)");
     println!();
 }
 
@@ -555,8 +555,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         println!("Connection from: {}", peer_addr);
     }
 
-    // Handle client with real SPDM processing using platform implementations
+    println!("Starting requester command flow...");
     full_flow(stream, &config)?;
+
+    println!("Request flow finished successfully.");
 
     Ok(())
 }
@@ -638,11 +640,29 @@ fn verify_challenge_auth_signature(
     ctx.transcript_hash(TranscriptContext::M1, &mut transcript_hash)
         .unwrap();
     if config.verbose {
-        println!("M1/2 hash: {transcript_hash:02x?}");
+        println!("M1/2 hash: {}", HexString(&transcript_hash));
     }
 
     // M denotes the message that is signed. M shall be the concatenation of the combined_spdm_prefix and unverified_message_hash.
     let m = [sig_combined_context.as_slice(), &transcript_hash].concat();
 
-    pubkey.verify(&m, &signature).is_ok()
+    let res = pubkey.verify(&m, &signature);
+    if config.verbose {
+        if let Err(e) = &res {
+            println!("Signature verify error: {e}");
+        }
+    }
+    res.is_ok()
+}
+
+#[derive(Debug)]
+struct HexString<'a>(&'a [u8]);
+
+impl Display for HexString<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        for x in self.0 {
+            write!(f, "{:02X}", x)?;
+        }
+        Ok(())
+    }
 }
