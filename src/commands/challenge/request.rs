@@ -1,5 +1,5 @@
 // Licensed under the Apache-2.0 license
-use crate::codec::{Codec, MessageBuf};
+use crate::codec::{encode_u8_slice, Codec, MessageBuf};
 use crate::commands::challenge::{
     ChallengeAuthRspBase, ChallengeReq, MeasurementSummaryHashType, CONTEXT_LEN, NONCE_LEN,
     OPAQUE_DATA_MAX,
@@ -25,7 +25,7 @@ use crate::transcript::TranscriptContext;
 ///   Responder (`None`, `Tcb`, or `All`).
 /// * `nonce` - A 32-byte random value chosen by the Requester for freshness.
 /// * `context` - Optional 8-byte application-specific context. Defaults to all zeros when
-///   `None`.
+///   `None`, ignored for spdm versions < v1.3.
 ///
 /// # Errors
 ///
@@ -45,9 +45,19 @@ pub fn generate_challenge_request<'a>(
     .encode(message_buffer)
     .map_err(|e| (false, CommandError::Codec(e)))?;
 
-    ChallengeReq::new(slot_id, measurement_hash_type.clone(), nonce, context)
+    ChallengeReq::new(slot_id, measurement_hash_type.clone(), nonce)
         .encode(message_buffer)
         .map_err(|e| (false, CommandError::Codec(e)))?;
+
+    // Encode 8-byte context string if version >= v1.3
+    if ctx.connection_info().version_number() >= SpdmVersion::V13 {
+        if let Some(ctx_str) = context {
+            encode_u8_slice(&ctx_str, message_buffer)
+                .map_err(|e| (true, CommandError::Codec(e)))?;
+        } else {
+            encode_u8_slice(&[0; 8], message_buffer).map_err(|e| (true, CommandError::Codec(e)))?;
+        }
+    }
 
     ctx.state
         .peer_cert_store
