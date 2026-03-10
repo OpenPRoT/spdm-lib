@@ -43,23 +43,29 @@ impl TryFrom<u8> for MeasurementSummaryHashType {
 
 #[derive(FromBytes, IntoBytes, Immutable)]
 #[repr(C)]
-// TODO: check backwards compatibility of this struct with the original ChallengeReq struct
+/// CHALLENGE request message base
+///
+/// # Version specific fields for CHALLENGE:
+/// Following fields have to be appended, depending on the SPDM version.
+/// ## >= v1.3
+/// - `Context`: 8-byte application specific context.
+///              Should be all zeros if no context is provided.
 struct ChallengeReq {
+    /// `Param1`: `SlotID`
+    ///
     /// Slot number of the Responder certificate chain that shall be used for authentication.
     /// If the public key of the Responder was provisioned to the Requester in a
     /// trusted environment, the value in this field shall be 0xFF ; otherwise it
     /// shall be between 0 and 7 inclusive.
     slot_id: u8,
 
+    /// `Param2`: Requested measurement summary hash
+    ///
     /// Shall be the type of measurement summary hash requested.
     measurement_hash_type: u8,
 
     /// The Requester should choose a random value.
     nonce: [u8; NONCE_LEN],
-
-    /// The Requester can include application-specific information in Context.
-    /// The Requester should fill this field with zeros if it has no context to provide.
-    context: [u8; CONTEXT_LEN],
 }
 impl CommonCodec for ChallengeReq {}
 
@@ -74,19 +80,15 @@ impl ChallengeReq {
     /// * `measurement_hash_type` - The type of measurement summary hash requested from the
     ///   Responder.
     /// * `nonce` - A random 32-byte value chosen by the Requester for freshness.
-    /// * `context` - Optional 8-byte application-specific context. Defaults to all zeros when
-    ///   `None`.
     pub fn new(
         slot_id: u8,
         measurement_hash_type: MeasurementSummaryHashType,
         nonce: [u8; NONCE_LEN],
-        context: Option<[u8; CONTEXT_LEN]>,
     ) -> Self {
         Self {
             slot_id,
             measurement_hash_type: measurement_hash_type as u8,
             nonce,
-            context: context.unwrap_or([0; CONTEXT_LEN]),
         }
     }
 }
