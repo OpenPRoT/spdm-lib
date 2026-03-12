@@ -616,6 +616,7 @@ fn verify_challenge_auth_signature(
     signature: Signature,
     config: &RequesterConfig,
 ) -> bool {
+    use p384::ecdsa::signature::hazmat::PrehashVerifier;
     use signature::Verifier;
 
     let mut sig_combined_context = Vec::new();
@@ -646,13 +647,11 @@ fn verify_challenge_auth_signature(
     // M denotes the message that is signed. M shall be the concatenation of the combined_spdm_prefix and unverified_message_hash.
     let m = [sig_combined_context.as_slice(), &transcript_hash].concat();
 
-    let res = pubkey.verify(&m, &signature);
-    if config.verbose {
-        if let Err(e) = &res {
-            println!("Signature verify error: {e}");
-        }
+    if ctx.connection_info().version_number() >= SpdmVersion::V12 {
+        pubkey.verify(&m, &signature).is_ok()
+    } else {
+        pubkey.verify_prehash(&m, &signature).is_ok()
     }
-    res.is_ok()
 }
 
 #[derive(Debug)]
