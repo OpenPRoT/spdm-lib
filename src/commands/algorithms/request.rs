@@ -169,7 +169,7 @@ pub fn generate_negotiate_algorithms_request<'a>(
     req_buf: &mut MessageBuf<'a>,
     ext_asym: Option<&'a [ExtendedAlgo]>,
     ext_hash: Option<&'a [ExtendedAlgo]>,
-    req_alg_struct: AlgStructure,
+    req_alg_struct: Option<AlgStructure>,
     alg_external: Option<&'a [ExtendedAlgo]>, // req_alg_struct.AlgCount.ExtAlgCount many
 ) -> CommandResult<()> {
     let local_algorithms = &ctx.local_algorithms.device_algorithms;
@@ -184,9 +184,12 @@ pub fn generate_negotiate_algorithms_request<'a>(
         None => 0,
     };
 
+    let num_alg_struct_tables = req_alg_struct.is_some() as u8;
+    let alg_ext_count = req_alg_struct.map_or(0, |s| s.ext_alg_count());
+
     // Generate base structure **without** the variable length structures
     let negotiate_algorithms_req = NegotiateAlgorithmsReq::new(
-        req_alg_struct.ext_alg_count(),
+        num_alg_struct_tables,
         0, // param2
         local_algorithms.measurement_spec,
         local_algorithms.other_param_support,
@@ -195,6 +198,7 @@ pub fn generate_negotiate_algorithms_request<'a>(
         ext_asym_count,
         ext_hash_count,
         local_algorithms.mel_specification,
+        alg_ext_count,
     )
     .map_err(|_| (false, CommandError::UnsupportedRequest))?;
 
@@ -253,27 +257,23 @@ pub fn generate_negotiate_algorithms_request<'a>(
         }
     }
 
-    // 3.2
-    if req_alg_struct.fixed_alg_count() != 0 && !req_alg_struct.is_multiple() {
-        return Err((false, CommandError::UnsupportedRequest));
-    }
+    // 3.3 + 3.4: encode AlgStructure and its extended algorithms if present
+    if let Some(alg_struct) = req_alg_struct {
+        if alg_struct.fixed_alg_count() != 0 && !alg_struct.is_multiple() {
+            return Err((false, CommandError::UnsupportedRequest));
+        }
 
-    // If this is 1, we have an additional extended algorithm structure to add.
-    if negotiate_algorithms_req.num_alg_struct_tables > 0 {
-        // 3.3
-        req_alg_struct
+        alg_struct
             .encode(req_buf)
             .map_err(|e| (false, CommandError::Codec(e)))?;
 
-        // 3.4
-        if let Some(extended_algos) = alg_external {
+        // If ext_alg_count > 0, we must have the extended algorithm structures.
+        if alg_struct.ext_alg_count() > 0 {
+            let extended_algos = alg_external.ok_or((false, CommandError::UnsupportedRequest))?;
             for ext in extended_algos {
                 ext.encode(req_buf)
                     .map_err(|e| (false, CommandError::Codec(e)))?;
             }
-        } else {
-            // If ext_alg_count > 0, we must have the extended algorithm structure.
-            return Err((false, CommandError::UnsupportedRequest));
         }
     }
 
