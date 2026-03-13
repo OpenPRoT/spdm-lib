@@ -150,9 +150,10 @@ impl NegotiateAlgorithmsReq {
         other_param_support: OtherParamSupport,
         base_asym_algo: BaseAsymAlgo,
         base_hash_algo: BaseHashAlgo,
-        ext_asyn_count: u8,
+        ext_asym_count: u8,
         ext_hash_count: u8,
         mel_specification: MelSpecification,
+        alg_ext_count: u8,
     ) -> SpdmResult<NegotiateAlgorithmsReq> {
         let mut req = NegotiateAlgorithmsReq {
             num_alg_struct_tables,
@@ -163,13 +164,14 @@ impl NegotiateAlgorithmsReq {
             base_asym_algo,
             base_hash_algo,
             reserved_1: [0u8; 12],
-            ext_asym_count: ext_asyn_count,
+            ext_asym_count,
             ext_hash_count,
             reserved_2: 0,
             mel_specification,
         };
 
-        req.length = req.min_req_len();
+        req.length = req.min_req_len()
+            + (size_of::<ExtendedAlgo>() * alg_ext_count as usize) as u16;
 
         if req.length > MAX_SPDM_REQUEST_LENGTH {
             return Err(SpdmError::InvalidParam);

@@ -323,7 +323,7 @@ fn full_flow(stream: TcpStream, config: &RequesterConfig) -> IoResult<()> {
         &mut message_buffer,
         Some(&ext_asym),
         Some(&ext_hash),
-        alg_structure,
+        Some(alg_structure),
         Some(&alg_external),
     )
     .unwrap();
