@@ -188,8 +188,7 @@ impl NegotiateAlgorithmsReq {
             + size_of::<NegotiateAlgorithmsReq>()
             + total_alg_struct_len
             + total_ext_asym_len
-            + total_ext_hash_len
-            + 4) as u16
+            + total_ext_hash_len) as u16
     }
 
     /// Calculate the size of the extended algorithm structures in bytes.

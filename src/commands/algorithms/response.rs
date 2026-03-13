@@ -134,6 +134,13 @@ fn process_negotiate_algorithms_request<'a>(
         if fixed_alg_count != 2 {
             Err(ctx.generate_error_response(req_payload, ErrorCode::InvalidRequest, 0, None))?;
         }
+
+        // Skip extended algorithm structures embedded in this AlgStructure
+        for _ in 0..ext_alg_count {
+            ExtendedAlgo::decode(req_payload).map_err(|_| {
+                ctx.generate_error_response(req_payload, ErrorCode::InvalidRequest, 0, None)
+            })?;
+        }
     }
 
     // Total number of extended algorithms check
