@@ -24,7 +24,7 @@ use p384::{
 };
 use zerocopy::FromBytes;
 
-use super::certs::{STATIC_ATTESTATION_CERT, STATIC_ROOT_CA_CERT};
+use super::certs::{STATIC_END_CERT, STATIC_END_RESPONDER_KEY_DER, STATIC_INTER_CERT, STATIC_ROOT_CA_CERT};
 use spdm_lib::commands::challenge::MeasurementSummaryHashType;
 use spdm_lib::protocol::{
     algorithms::{AsymAlgo, ECC_P384_SIGNATURE_SIZE, SHA384_HASH_SIZE},
@@ -58,36 +58,22 @@ impl DemoCertStore {
     }
 
     fn generate_certificate_chain() -> (Vec<u8>, SigningKey) {
-        use crate::platform::certs::ATTESTATION_PRIVATE_KEY;
-
-        println!("🔧 DIRECT CERTIFICATE CHAIN - RAW CONCATENATION");
-
-        // SIMPLE APPROACH: Just concatenate Root CA + Attestation certificates
-        // Let the SPDM library handle its own formatting
+        // Concatenate Root CA + Intermediate + End-entity certificates
         let mut cert_chain = Vec::new();
         cert_chain.extend_from_slice(STATIC_ROOT_CA_CERT);
-        cert_chain.extend_from_slice(STATIC_ATTESTATION_CERT);
+        cert_chain.extend_from_slice(STATIC_INTER_CERT);
+        cert_chain.extend_from_slice(STATIC_END_CERT);
 
-        println!(
-            "  ✅ Raw certificates: Root({}) + Attestation({})",
-            STATIC_ROOT_CA_CERT.len(),
-            STATIC_ATTESTATION_CERT.len()
-        );
-        println!("  Total length: {} bytes", cert_chain.len());
-        println!("  Root starts: {:02x?}", &cert_chain[..4]);
-        println!(
-            "  Attestation starts: {:02x?}",
-            &cert_chain[STATIC_ROOT_CA_CERT.len()..STATIC_ROOT_CA_CERT.len() + 4]
-        );
+        // Parse the P-384 private key from SEC1 DER format.
+        // SEC1 ECPrivateKey: SEQUENCE { version INTEGER, privateKey OCTET STRING(48), ... }
+        // For a P-384 key with 2-byte length header: skip 8 bytes to reach the raw 48-byte scalar.
+        let raw_key: &[u8; 48] = STATIC_END_RESPONDER_KEY_DER[8..56]
+            .try_into()
+            .expect("key DER too short");
+        let secret_key = SecretKey::from_bytes(raw_key.into())
+            .expect("Failed to parse end-entity private key");
 
-        let secret_key = SecretKey::from_bytes(ATTESTATION_PRIVATE_KEY.into())
-            .expect("Failed to parse secret key from static data");
-
-        let attestation_key = SigningKey::from(secret_key);
-
-        println!("🔑 Static attestation signing key loaded");
-
-        (cert_chain, attestation_key)
+        (cert_chain, SigningKey::from(secret_key))
     }
 
     /// Extract the first certificate from a DER-encoded certificate chain
@@ -262,9 +248,9 @@ impl SpdmCertStore for DemoCertStore {
 fn test_signing() {
     use p384::ecdsa::signature::SignatureEncoding;
 
-    // Create a known private key
-    let private_key_bytes = ATTESTATION_PRIVATE_KEY.to_vec();
-    let secret_key = SecretKey::from_bytes((&private_key_bytes[..]).into()).unwrap();
+    // Load private key from SEC1 DER (raw 48-byte scalar at offset 8)
+    let raw_key: &[u8; 48] = STATIC_END_RESPONDER_KEY_DER[8..56].try_into().unwrap();
+    let secret_key = SecretKey::from_bytes(raw_key.into()).unwrap();
     let signing_key = SigningKey::from(secret_key);
 
     // Your input
@@ -295,9 +281,9 @@ fn debug_signing_verification() {
     let input_hex = "32ac91a55d17db5e537448789486c633ecba4cd49185d0933f3d6561573fb68931f88bef4dc6ef20602df7dbeb51086b";
     let input = hex::decode(input_hex).unwrap();
 
-    // Create signing key
-    let private_key_bytes = ATTESTATION_PRIVATE_KEY.to_vec();
-    let secret_key = SecretKey::from_bytes((&private_key_bytes[..]).into()).unwrap();
+    // Load private key from SEC1 DER (raw 48-byte scalar at offset 8)
+    let raw_key: &[u8; 48] = STATIC_END_RESPONDER_KEY_DER[8..56].try_into().unwrap();
+    let secret_key = SecretKey::from_bytes(raw_key.into()).unwrap();
     let signing_key = SigningKey::from(secret_key);
 
     // Get public key
