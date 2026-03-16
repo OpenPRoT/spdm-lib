@@ -53,9 +53,6 @@ use spdm_lib::transcript::TranscriptContext;
 
 use x509_cert::Certificate;
 
-/// ECP384 CA cert from spdm-emu
-const CA_CERT: &[u8] = include_bytes!("cert/ecp384_ca.cert.der");
-
 /// SPDM Example Requester
 #[derive(Debug, Clone, Parser)]
 #[command(about = "Real SPDM Library Integrated DMTF Compatible Requester")]
@@ -426,7 +423,7 @@ fn full_flow(stream: TcpStream, config: &RequesterConfig) -> IoResult<()> {
         }
 
         if !certs.is_empty() {
-            let ca_cert = Certificate::from_der(CA_CERT).unwrap();
+            let ca_cert = Certificate::from_der(platform::STATIC_ROOT_CA_CERT).unwrap();
             let ca_cert_sig = ca_cert.signature().as_bytes().unwrap();
             assert_eq!(certs[0].signature().as_bytes().unwrap(), ca_cert_sig);
             println!("CA cert signature matches expected CA signature");
