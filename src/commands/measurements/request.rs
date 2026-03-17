@@ -47,6 +47,7 @@ use crate::{
 /// - Connection state must be >= AlgorithmsNegotiated
 ///
 /// # Transcript
+/// - Resets M1/M2 message transcript
 /// - Appends request to the L1 transcript context
 pub fn generate_get_measurements<'a>(
     ctx: &mut SpdmContext<'a>,
@@ -148,6 +149,7 @@ pub fn generate_get_measurements<'a>(
         .push_data(payload_len)
         .map_err(|_| (false, CommandError::BufferTooSmall))?;
 
+    ctx.transcript_mgr.reset_context(TranscriptContext::M1);
     ctx.append_message_to_transcript(req_buf, TranscriptContext::L1)
 }
 
