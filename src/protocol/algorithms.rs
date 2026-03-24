@@ -141,6 +141,16 @@ impl From<MeasurementSpecificationType> for u8 {
         }
     }
 }
+impl TryFrom<MeasurementSpecification> for MeasurementSpecificationType {
+    type Error = ();
+
+    fn try_from(value: MeasurementSpecification) -> Result<Self, Self::Error> {
+        match value.0 {
+            1 => Ok(Self::DmtfMeasurementSpec),
+            _ => Err(()),
+        }
+    }
+}
 
 // Other Param Support Field for request and response
 bitfield! {

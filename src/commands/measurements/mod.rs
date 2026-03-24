@@ -22,7 +22,7 @@ pub mod response;
 use crate::protocol::*;
 use crate::{codec::CommonCodec, error::CommandError};
 use bitfield::bitfield;
-use zerocopy::{FromBytes, Immutable, IntoBytes, Unaligned};
+use zerocopy::{FromBytes, Immutable, IntoBytes, KnownLayout, Unaligned};
 
 const RESPONSE_FIXED_FIELDS_SIZE: usize = 8;
 const MAX_RESPONSE_VARIABLE_FIELDS_SIZE: usize =
@@ -57,7 +57,7 @@ bitfield! {
 }
 
 bitfield! {
-    #[derive(FromBytes, IntoBytes, Immutable)]
+    #[derive(FromBytes, IntoBytes, Immutable, KnownLayout)]
     #[repr(C)]
     struct MeasurementsRspFixed([u8]);
     impl Debug;
@@ -120,8 +120,8 @@ impl TryInto<u8> for MeasurementOperation {
     }
 }
 
-#[derive(Debug, FromBytes, IntoBytes, Immutable, Unaligned)]
-#[repr(C)]
+#[derive(Debug, FromBytes, IntoBytes, Immutable, Unaligned, KnownLayout)]
+#[repr(C, packed)]
 struct MeasurementBlockHeader {
     index: u8,
     measurement_spec: MeasurementSpecification,
@@ -129,3 +129,32 @@ struct MeasurementBlockHeader {
 }
 
 impl CommonCodec for MeasurementBlockHeader {}
+
+/// Content changed indicators for MEASUREMENT responses
+#[derive(Debug, Clone, Copy)]
+pub enum ContentChanged {
+    /// The Responder does not detect changes of MeasurementRecord fields
+    /// of previous MEASUREMENTS responses in the same measurement log,
+    /// or this message does not contain a signature.
+    NoDetection = 0x00,
+    /// The Responder detected that one or more MeasurementRecord fields
+    /// of previous MEASUREMENTS responses in the measurement log being
+    /// signed have changed. The Requester might consider issuing
+    /// GET_MEASUREMENTS again to acquire latest measurements.
+    ChangeDetected = 0x01,
+    /// The Responder detected no change in MeasurementRecord fields of
+    /// previous MEASUREMENTS responses in the measurement log being signed.
+    NoChangeDetected = 0x10,
+    Reserved = 0x11,
+}
+
+impl From<u8> for ContentChanged {
+    fn from(value: u8) -> Self {
+        match value {
+            0b00 => Self::NoDetection,
+            0b01 => Self::ChangeDetected,
+            0b10 => Self::NoChangeDetected,
+            _ => Self::Reserved,
+        }
+    }
+}

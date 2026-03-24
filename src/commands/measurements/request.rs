@@ -12,18 +12,47 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use zerocopy::FromBytes;
+
 use crate::{
     codec::{Codec, MessageBuf},
     commands::measurements::{
-        GetMeasurementsReqAttr, GetMeasurementsReqCommon, GetMeasurementsReqSignature,
-        MeasurementBlockHeader, MeasurementOperation, MeasurementsRspFixed,
+        ContentChanged, GetMeasurementsReqAttr, GetMeasurementsReqCommon,
+        GetMeasurementsReqSignature, MeasurementBlockHeader, MeasurementOperation,
+        MeasurementsRspFixed, RESPONSE_FIXED_FIELDS_SIZE,
     },
     context::SpdmContext,
     error::{CommandError, CommandResult, PlatformError},
-    protocol::{ReqRespCode, SpdmMsgHdr, SpdmVersion, NONCE_LEN},
+    protocol::{MeasurementSpecificationType, ReqRespCode, SpdmMsgHdr, SpdmVersion, NONCE_LEN},
     state::ConnectionState,
     transcript::TranscriptContext,
 };
+
+#[derive(Debug)]
+pub struct Measurement<'a> {
+    pub index: u8,
+    pub measurement_spec: MeasurementSpecificationType,
+    pub measurement: &'a [u8],
+}
+
+/// Parsed MEASUREMENTS response
+#[derive(Debug)]
+pub struct Measurements<'a> {
+    /// Fixed fields
+    fixed_fields: &'a MeasurementsRspFixed<[u8; RESPONSE_FIXED_FIELDS_SIZE]>,
+    /// Measurement blocks
+    measurements: &'a [u8],
+    /// 32-byte Nonce
+    pub nonce: &'a [u8],
+    /// Opaque data
+    pub opaque_data: &'a [u8],
+    /// Requester context
+    pub requester_ctx: &'a [u8],
+    /// Optional Signature
+    ///
+    /// _Note_: The length of the signature isn't checked for validity.
+    pub signature: Option<&'a [u8]>,
+}
 
 /// Generate a GET_MEASUREMENTS request
 ///
@@ -230,4 +259,146 @@ pub(crate) fn handle_measurements_response<'a>(
 
     // Append response to transcript (L1 context for measurements)
     ctx.append_message_to_transcript(resp, TranscriptContext::L1)
+}
+
+/// Parse a successfull measurements response
+///
+/// _Note:_ The caller has to ensure that `resp` is a valid MEASUREMENTS response.
+/// Returns `None` if parsing fails.
+pub fn parse_measurements_response<'a>(resp: &'a [u8]) -> Option<Measurements<'a>> {
+    let (fixed_fields, rest) =
+        MeasurementsRspFixed::<[u8; RESPONSE_FIXED_FIELDS_SIZE]>::ref_from_prefix(resp).ok()?;
+
+    // Convert 3-byte measurement record length to u32
+    let meas_record_length = u32::from_le_bytes([
+        fixed_fields.measurement_record_len_byte0(),
+        fixed_fields.measurement_record_len_byte1(),
+        fixed_fields.measurement_record_len_byte2(),
+        0,
+    ]) as usize;
+
+    // Get measurement blocks
+    if meas_record_length > rest.len() {
+        return None;
+    }
+    let (measurements, rest) = rest.split_at(meas_record_length);
+
+    // Decode Nonce
+    if rest.len() < 32 {
+        return None;
+    }
+    let (nonce, rest) = rest.split_at(32);
+
+    // Decode opaque data
+    let (opaque_data, rest) = decode_opaque_data(rest)?;
+
+    // Decode requester context
+    let requester_ctx = rest.get(..8)?;
+    let rest = rest.get(8..)?;
+
+    // Remaining is the signature, if requested by the GET_MEASUREMENTS request
+    let signature = if !rest.is_empty() { Some(rest) } else { None };
+
+    Some(Measurements {
+        fixed_fields,
+        measurements,
+        nonce,
+        opaque_data,
+        requester_ctx,
+        signature,
+    })
+}
+
+/// Decode the opaque data
+///
+/// # Arguments
+/// - `buf`: buffer containing 2-byte length and following opaque data
+///
+/// # Returns
+/// - `Some((opaque_data, rest))` on success
+/// - `None` if `buf` is to small to hold the opaque data
+fn decode_opaque_data<'a>(buf: &'a [u8]) -> Option<(&'a [u8], &'a [u8])> {
+    if buf.len() < 2 {
+        return None;
+    }
+    let mut opaque_data_len = [0; 2];
+    opaque_data_len.copy_from_slice(&buf[..2]);
+    let opaque_data_len = u16::from_le_bytes(opaque_data_len) as usize;
+
+    let rest = buf.get(2..)?;
+
+    let data = rest.get(..opaque_data_len)?;
+    let rest = rest.get(opaque_data_len..)?;
+
+    Some((data, rest))
+}
+
+impl<'a> Measurements<'a> {
+    /// The certificate slot used to sign the measurements
+    ///
+    /// Returns the slot number of the certificate chain
+    /// specified in the GET_MEASUREMENTS request,
+    /// or 0xF if the Responder's public key was provisioned
+    /// to the Requester previously.
+    pub fn slot_id(&self) -> u8 {
+        self.fixed_fields.slot_id()
+    }
+
+    /// The total number of measurment blocks in this response
+    ///
+    /// _Note:_ This returns the number of blocks reported by the response header,
+    ///         it is not guranteed at this point, that the response actually contains them.
+    pub fn total_measurement_blocks(&self) -> u8 {
+        self.fixed_fields.num_blocks()
+    }
+
+    /// If this message contains a signature, this field shall indicate
+    /// if one or more MeasurementRecord fields of previous MEASUREMENTS
+    /// responses in the same measurement log have changed.
+    pub fn content_changed(&self) -> ContentChanged {
+        self.fixed_fields.content_changed().into()
+    }
+
+    /// Returns an iterator over the measurements.
+    pub fn iter(&self) -> MeasurementIterator<'a> {
+        MeasurementIterator {
+            measurements: self.measurements,
+            pos: 0,
+        }
+    }
+}
+
+impl<'a> IntoIterator for Measurements<'a> {
+    type Item = Measurement<'a>;
+
+    type IntoIter = MeasurementIterator<'a>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        MeasurementIterator {
+            measurements: self.measurements,
+            pos: 0,
+        }
+    }
+}
+
+pub struct MeasurementIterator<'a> {
+    measurements: &'a [u8],
+    pos: usize,
+}
+
+impl<'a> Iterator for MeasurementIterator<'a> {
+    type Item = Measurement<'a>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let (header, rest) =
+            MeasurementBlockHeader::ref_from_prefix(self.measurements.get(self.pos..)?).ok()?;
+
+        let measurement = rest.get(..header.measurement_size.get() as usize)?;
+        self.pos += size_of::<MeasurementBlockHeader>() + header.measurement_size.get() as usize;
+        Some(Measurement {
+            index: header.index,
+            measurement_spec: header.measurement_spec.try_into().ok()?,
+            measurement,
+        })
+    }
 }
