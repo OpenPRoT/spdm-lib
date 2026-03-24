@@ -26,7 +26,9 @@ use spdm_lib::commands::certificate::request::generate_get_certificate;
 use spdm_lib::commands::challenge::{
     request::generate_challenge_request, MeasurementSummaryHashType,
 };
-use spdm_lib::commands::measurements::request::generate_get_measurements;
+use spdm_lib::commands::measurements::request::{
+    generate_get_measurements, parse_measurements_response,
+};
 use spdm_lib::commands::measurements::MeasurementOperation;
 use spdm_lib::context::SpdmContext;
 use spdm_lib::error::SpdmError;
@@ -524,6 +526,39 @@ fn full_flow(stream: TcpStream, config: &RequesterConfig) -> IoResult<()> {
 
     if config.verbose {
         println!("MEASUREMENTS: {:x?}", &message_buffer.message_data());
+    }
+
+    let measurements = parse_measurements_response(&message_buffer.message_data().unwrap())
+        .expect("Failed to parse measurement response");
+
+    if config.verbose {
+        println!(
+            "Measurements block count: {}",
+            measurements.total_measurement_blocks()
+        );
+        println!("Measurements Nonce: {}", HexString(&measurements.nonce));
+        if let Some(sig) = measurements.signature {
+            println!("Measurements Signature: {}", HexString(sig));
+        }
+        println!(
+            "Measurement content change status: {:?}",
+            measurements.content_changed()
+        );
+    }
+
+    let mut meas_count = 0;
+    for measurement in measurements.iter() {
+        meas_count += 1;
+        if config.verbose {
+            println!(
+                "Parsed {:?} measurement with index {}",
+                measurement.measurement_spec, measurement.index
+            );
+        }
+    }
+
+    if meas_count != measurements.total_measurement_blocks() {
+        println!("[WARNING] measurement block count and parsed measurment count mismatch ({} expected, {} parsed)", measurements.total_measurement_blocks(), meas_count);
     }
 
     Ok(())
