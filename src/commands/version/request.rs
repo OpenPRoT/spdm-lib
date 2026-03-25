@@ -101,6 +101,7 @@ fn process_version<'a>(
 
     if let Some(ver) = latest_version {
         ctx.state.connection_info.set_version_number(ver);
+        ctx.transcript_mgr.set_spdm_version(ver);
         Ok(ver)
     } else {
         Err((false, CommandError::UnsupportedResponse))

@@ -411,4 +411,13 @@ impl<'a> SpdmContext<'a> {
     pub fn get_random_bytes(&mut self, dest: &mut [u8]) -> SpdmRngResult<()> {
         self.rng.get_random_bytes(dest)
     }
+
+    /// Set the connection state to authenticated
+    ///
+    /// Should be called after after the signature of a CHALLENGE response has been verified.
+    pub fn set_authenticated(&mut self) {
+        self.state
+            .connection_info
+            .set_state(ConnectionState::Authenticated);
+    }
 }
