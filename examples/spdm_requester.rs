@@ -473,7 +473,7 @@ fn full_flow(stream: TcpStream, config: &RequesterConfig) -> IoResult<()> {
         println!("CHALLENGE_AUTH: {:x?}", &message_buffer.message_data());
     }
 
-    if let Some(cert) = peer_leaf_cert {
+    if let Some(cert) = &peer_leaf_cert {
         let pub_key = VerifyingKey::from_sec1_bytes(
             cert.tbs_certificate()
                 .subject_public_key_info()
@@ -497,6 +497,7 @@ fn full_flow(stream: TcpStream, config: &RequesterConfig) -> IoResult<()> {
                 "CHALLENGE_AUTH signature verification failed",
             ));
         }
+        spdm_context.set_authenticated();
         println!("CHALLENGE_AUTH signature verification successfull");
     }
 
@@ -546,6 +547,29 @@ fn full_flow(stream: TcpStream, config: &RequesterConfig) -> IoResult<()> {
         );
     }
 
+    if let Some(sig_raw) = measurements.signature {
+        if let Some(cert) = &peer_leaf_cert {
+            let pub_key = VerifyingKey::from_sec1_bytes(
+                cert.tbs_certificate()
+                    .subject_public_key_info()
+                    .subject_public_key
+                    .as_bytes()
+                    .unwrap(),
+            )
+            .unwrap();
+
+            let sig = Signature::from_slice(sig_raw).unwrap();
+            if !verify_measurements_signature(&mut spdm_context, pub_key, sig, config) {
+                eprintln!("MEASUREMENTS signature verification failed");
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::Other,
+                    "MEASUREMENTS signature verification failed",
+                ));
+            }
+            println!("L1/L2 log verification successfull");
+        }
+    }
+
     let mut meas_count = 0;
     for measurement in measurements.iter() {
         meas_count += 1;
@@ -559,6 +583,8 @@ fn full_flow(stream: TcpStream, config: &RequesterConfig) -> IoResult<()> {
 
     if meas_count != measurements.total_measurement_blocks() {
         println!("[WARNING] measurement block count and parsed measurment count mismatch ({} expected, {} parsed)", measurements.total_measurement_blocks(), meas_count);
+    } else {
+        println!("Measurements retrieved successfully")
     }
 
     Ok(())
@@ -716,6 +742,56 @@ fn verify_challenge_auth_signature(
         .unwrap();
     if config.verbose {
         println!("M1/2 hash: {}", HexString(&transcript_hash));
+    }
+
+    // M denotes the message that is signed. M shall be the concatenation of the combined_spdm_prefix and unverified_message_hash.
+    let m = [sig_combined_context.as_slice(), &transcript_hash].concat();
+
+    if ctx.connection_info().version_number() >= SpdmVersion::V12 {
+        pubkey.verify(&m, &signature).is_ok()
+    } else {
+        pubkey.verify_prehash(&m, &signature).is_ok()
+    }
+}
+
+/// Currently only p384 support required
+/// Here we verify that the responder and we created the same L1/L2 transcript and
+/// that the signature is correct.
+///
+/// The transcript hash will be retrieved from the context.
+/// The signature will be verified using the public key from the responder's certificate chain (which we already verified).
+fn verify_measurements_signature(
+    ctx: &mut SpdmContext,
+    pubkey: VerifyingKey,
+    signature: Signature,
+    config: &RequesterConfig,
+) -> bool {
+    use p384::ecdsa::signature::hazmat::PrehashVerifier;
+    use signature::Verifier;
+
+    let mut sig_combined_context = Vec::new();
+    if ctx.connection_info().version_number() >= SpdmVersion::V12 {
+        // since we verify the responder-generated signature, we have to use the same "responder-" context constant.
+        let sig_ctx = protocol::signature::create_responder_signing_context(
+            ctx.connection_info().version_number(),
+            protocol::ReqRespCode::Measurements,
+        )
+        .unwrap();
+        sig_combined_context.extend_from_slice(&sig_ctx);
+        if config.verbose {
+            println!(
+                "comb_ctx string: '{}'",
+                String::from_utf8_lossy(&sig_combined_context)
+            );
+        }
+    }
+
+    // Get the L1 transcript hash and verify the signature over it.
+    let mut transcript_hash = [0u8; 48];
+    ctx.transcript_hash(TranscriptContext::L1, &mut transcript_hash)
+        .unwrap();
+    if config.verbose {
+        println!("L1/2 hash: {}", HexString(&transcript_hash));
     }
 
     // M denotes the message that is signed. M shall be the concatenation of the combined_spdm_prefix and unverified_message_hash.

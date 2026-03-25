@@ -258,7 +258,15 @@ pub(crate) fn handle_measurements_response<'a>(
     // Remaining is the signature, if requested by the GET_MEASUREMENTS request
 
     // Append response to transcript (L1 context for measurements)
-    ctx.append_message_to_transcript(resp, TranscriptContext::L1)
+    // We have to use this ugly hack to bring the message buffer into the right form to exclude the signature.
+    let tail = resp.data_len();
+    resp.trim(0).map_err(|e| (true, CommandError::Codec(e)))?;
+    // Append the entire message (excluding the signature) to the transcript before signature verification, as required by SPDM 1.2 and later.
+    ctx.append_message_to_transcript(resp, TranscriptContext::L1)?;
+    resp.trim(tail - resp.data_len())
+        .map_err(|e| (true, CommandError::Codec(e)))?;
+
+    Ok(())
 }
 
 /// Parse a successfull measurements response
