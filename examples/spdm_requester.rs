@@ -539,7 +539,11 @@ fn full_flow(stream: TcpStream, config: &RequesterConfig) -> IoResult<()> {
         );
         println!("Measurements Nonce: {}", HexString(&measurements.nonce));
         if let Some(sig) = measurements.signature {
-            println!("Measurements Signature: {}", HexString(sig));
+            println!(
+                "Measurements Signature ({} bytes): {}",
+                sig.len(),
+                HexString(sig)
+            );
         }
         println!(
             "Measurement content change status: {:?}",

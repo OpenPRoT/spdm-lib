@@ -47,7 +47,7 @@ pub struct Measurements<'a> {
     /// Opaque data
     pub opaque_data: &'a [u8],
     /// Requester context
-    pub requester_ctx: &'a [u8],
+    pub requester_ctx: Option<&'a [u8]>,
     /// Optional Signature
     ///
     /// _Note_: The length of the signature isn't checked for validity.
@@ -251,9 +251,11 @@ pub(crate) fn handle_measurements_response<'a>(
     resp.pull_data(opaque_data_len as usize)
         .map_err(|e| (true, e.into()))?;
 
-    // Decode requester context
-    let _requester_ctx = resp.data(8).map_err(|e| (true, e.into()))?;
-    resp.pull_data(8).map_err(|e| (true, e.into()))?;
+    if connection_version >= SpdmVersion::V13 {
+        // Decode requester context
+        let _requester_ctx = resp.data(8).map_err(|e| (true, e.into()))?;
+        resp.pull_data(8).map_err(|e| (true, e.into()))?;
+    }
 
     // Remaining is the signature, if requested by the GET_MEASUREMENTS request
 
@@ -277,6 +279,7 @@ pub fn parse_measurements_response<'a>(resp: &'a [u8]) -> Option<Measurements<'a
     let (fixed_fields, rest) =
         MeasurementsRspFixed::<[u8; RESPONSE_FIXED_FIELDS_SIZE]>::ref_from_prefix(resp).ok()?;
 
+    let connection_version: SpdmVersion = fixed_fields.spdm_version().try_into().ok()?;
     // Convert 3-byte measurement record length to u32
     let meas_record_length = u32::from_le_bytes([
         fixed_fields.measurement_record_len_byte0(),
@@ -300,9 +303,14 @@ pub fn parse_measurements_response<'a>(resp: &'a [u8]) -> Option<Measurements<'a
     // Decode opaque data
     let (opaque_data, rest) = decode_opaque_data(rest)?;
 
-    // Decode requester context
-    let requester_ctx = rest.get(..8)?;
-    let rest = rest.get(8..)?;
+    let (requester_ctx, rest) = if connection_version >= SpdmVersion::V13 {
+        // Decode requester context
+        let requester_ctx = rest.get(..8)?;
+        let rest = rest.get(8..)?;
+        (Some(requester_ctx), rest)
+    } else {
+        (None, rest)
+    };
 
     // Remaining is the signature, if requested by the GET_MEASUREMENTS request
     let signature = if !rest.is_empty() { Some(rest) } else { None };
