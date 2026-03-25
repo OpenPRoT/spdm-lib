@@ -208,7 +208,7 @@ pub(crate) fn handle_challenge_auth_response<'a>(
     // Append the entire message (excluding the signature) to the transcript before signature verification, as required by SPDM 1.2 and later.
     ctx.append_message_to_transcript(resp_payload, TranscriptContext::M1)?;
     resp_payload
-        .trim(tail - resp_payload.data_len())
+        .put_data(tail)
         .map_err(|e| (true, CommandError::Codec(e)))?;
 
     Ok(())
