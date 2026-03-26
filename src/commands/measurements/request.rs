@@ -194,11 +194,7 @@ fn responder_supports_signed_measurements(ctx: &SpdmContext<'_>) -> bool {
     // 0b01 measurements support without signing
     // 0b10 measurements with signing supported
     // 0b11 reserved
-    if flags.meas_cap() == 0b10 {
-        return true;
-    } else {
-        return false;
-    }
+    flags.meas_cap() == 0b10
 }
 
 /// Handle an incoming MEASUREMENTS response
@@ -333,7 +329,7 @@ pub fn parse_measurements_response<'a>(resp: &'a [u8]) -> Option<Measurements<'a
 /// # Returns
 /// - `Some((opaque_data, rest))` on success
 /// - `None` if `buf` is to small to hold the opaque data
-fn decode_opaque_data<'a>(buf: &'a [u8]) -> Option<(&'a [u8], &'a [u8])> {
+fn decode_opaque_data(buf: &[u8]) -> Option<(&[u8], &[u8])> {
     if buf.len() < 2 {
         return None;
     }
