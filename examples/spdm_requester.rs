@@ -15,7 +15,7 @@
 //! SPDM Example Responder utilizing the requester library.
 
 use std::fmt::Display;
-use std::io::{Error, ErrorKind, Result as IoResult};
+use std::io::{Error, Result as IoResult};
 use std::net::TcpStream;
 
 use clap::Parser;
@@ -204,7 +204,7 @@ fn full_flow(stream: TcpStream, config: &RequesterConfig) -> IoResult<()> {
         Ok(ctx) => ctx,
         Err(e) => {
             eprintln!("Failed to create SPDM context: {:?}", e);
-            return Err(Error::new(ErrorKind::Other, "SPDM context creation failed"));
+            return Err(Error::other("SPDM context creation failed"));
         }
     };
 
@@ -218,7 +218,7 @@ fn full_flow(stream: TcpStream, config: &RequesterConfig) -> IoResult<()> {
     if config.transport_type == platform::socket_transport::SocketTransportType::None {
         spdm_context.transport_init_sequence().map_err(|e| {
             eprintln!("Handshake failed: {:?}", e);
-            Error::new(ErrorKind::Other, "SPDM handshake failed")
+            Error::other("SPDM handshake failed")
         })?;
     }
 
@@ -492,8 +492,7 @@ fn full_flow(stream: TcpStream, config: &RequesterConfig) -> IoResult<()> {
 
         if !verify_challenge_auth_signature(&mut spdm_context, pub_key, sig, config) {
             eprintln!("CHALLENGE_AUTH signature verification failed");
-            return Err(std::io::Error::new(
-                std::io::ErrorKind::Other,
+            return Err(std::io::Error::other(
                 "CHALLENGE_AUTH signature verification failed",
             ));
         }
@@ -529,7 +528,7 @@ fn full_flow(stream: TcpStream, config: &RequesterConfig) -> IoResult<()> {
         println!("MEASUREMENTS: {:x?}", &message_buffer.message_data());
     }
 
-    let measurements = parse_measurements_response(&message_buffer.message_data().unwrap())
+    let measurements = parse_measurements_response(message_buffer.message_data().unwrap())
         .expect("Failed to parse measurement response");
 
     if config.verbose {
@@ -537,7 +536,7 @@ fn full_flow(stream: TcpStream, config: &RequesterConfig) -> IoResult<()> {
             "Measurements block count: {}",
             measurements.total_measurement_blocks()
         );
-        println!("Measurements Nonce: {}", HexString(&measurements.nonce));
+        println!("Measurements Nonce: {}", HexString(measurements.nonce));
         if let Some(sig) = measurements.signature {
             println!(
                 "Measurements Signature ({} bytes): {}",
@@ -565,8 +564,7 @@ fn full_flow(stream: TcpStream, config: &RequesterConfig) -> IoResult<()> {
             let sig = Signature::from_slice(sig_raw).unwrap();
             if !verify_measurements_signature(&mut spdm_context, pub_key, sig, config) {
                 eprintln!("MEASUREMENTS signature verification failed");
-                return Err(std::io::Error::new(
-                    std::io::ErrorKind::Other,
+                return Err(std::io::Error::other(
                     "MEASUREMENTS signature verification failed",
                 ));
             }
@@ -688,9 +686,9 @@ fn verify_cert_chain(chain: &[Certificate]) -> bool {
     .unwrap();
     for cert in chain.iter() {
         let sig = Signature::from_der(cert.signature().as_bytes().unwrap()).unwrap();
-        if !pub_key
+        if pub_key
             .verify(&cert.tbs_certificate().to_der().unwrap(), &sig)
-            .is_ok()
+            .is_err()
         {
             return false;
         }
