@@ -24,7 +24,9 @@ use p384::{
 };
 use zerocopy::FromBytes;
 
-use super::certs::{STATIC_END_CERT, STATIC_END_RESPONDER_KEY_DER, STATIC_INTER_CERT, STATIC_ROOT_CA_CERT};
+use super::certs::{
+    STATIC_END_CERT, STATIC_END_RESPONDER_KEY_DER, STATIC_INTER_CERT, STATIC_ROOT_CA_CERT,
+};
 use spdm_lib::commands::challenge::MeasurementSummaryHashType;
 use spdm_lib::protocol::{
     algorithms::{AsymAlgo, ECC_P384_SIGNATURE_SIZE, SHA384_HASH_SIZE},
@@ -70,8 +72,8 @@ impl DemoCertStore {
         let raw_key: &[u8; 48] = STATIC_END_RESPONDER_KEY_DER[8..56]
             .try_into()
             .expect("key DER too short");
-        let secret_key = SecretKey::from_bytes(raw_key.into())
-            .expect("Failed to parse end-entity private key");
+        let secret_key =
+            SecretKey::from_bytes(raw_key.into()).expect("Failed to parse end-entity private key");
 
         (cert_chain, SigningKey::from(secret_key))
     }
@@ -347,11 +349,7 @@ fn debug_signing_verification() {
     println!("except: print('✗ Sig1 invalid with SHA384')");
 }
 
-pub struct ExamplePeerCertStrore {
-    pub chain: Vec<u8>,
-}
-
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct PeerSlot {
     /// CertChain[K], retrieved in `CERTIFICATE` response.
     pub cert_chain: Vec<u8>,
@@ -369,19 +367,6 @@ pub struct PeerSlot {
     pub key_usage_mask: Option<KeyUsageMask>,
 
     pub requested_msh_type: Option<MeasurementSummaryHashType>,
-}
-
-impl Default for PeerSlot {
-    fn default() -> Self {
-        PeerSlot {
-            cert_chain: Vec::new(),
-            digest: Vec::new(),
-            keypair_id: None,
-            certificate_info: None,
-            key_usage_mask: None,
-            requested_msh_type: None,
-        }
-    }
 }
 
 impl PeerSlot {
