@@ -32,4 +32,6 @@ pub use evidence::DemoEvidence;
 pub use socket_transport::SpdmSocketTransport;
 // Certificate constants available for examples that need them
 #[allow(unused_imports)]
-pub use certs::{STATIC_END_CERT, STATIC_END_RESPONDER_KEY_DER, STATIC_INTER_CERT, STATIC_ROOT_CA_CERT};
+pub use certs::{
+    STATIC_END_CERT, STATIC_END_RESPONDER_KEY_DER, STATIC_INTER_CERT, STATIC_ROOT_CA_CERT,
+};

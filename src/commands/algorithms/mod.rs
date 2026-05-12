@@ -170,8 +170,8 @@ impl NegotiateAlgorithmsReq {
             mel_specification,
         };
 
-        req.length = req.min_req_len()
-            + (size_of::<ExtendedAlgo>() * alg_ext_count as usize) as u16;
+        req.length =
+            req.min_req_len() + (size_of::<ExtendedAlgo>() * alg_ext_count as usize) as u16;
 
         if req.length > MAX_SPDM_REQUEST_LENGTH {
             return Err(SpdmError::InvalidParam);
