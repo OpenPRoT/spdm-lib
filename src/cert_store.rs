@@ -77,8 +77,8 @@ pub trait SpdmCertStore {
     ///
     /// # Returns
     /// * `usize` - The number of bytes read or error.
-    /// If the cert portion size is smaller than the buffer size, the remaining bytes in the buffer will be filled with 0,
-    /// indicating the end of the cert chain.
+    ///   If the cert portion size is smaller than the buffer size, the remaining bytes in the buffer will be filled with 0,
+    ///   indicating the end of the cert chain.
     fn get_cert_chain(
         &mut self,
         slot_id: u8,
@@ -411,7 +411,7 @@ pub trait PeerCertStore {
     ///
     /// # Returns
     /// * `Ok(MeasurementSummaryHashType)` - The `MeasurementSummaryHashType` value requested
-    /// by the peer in the `CHALLENGE` request, or `None` if not set.
+    ///   by the peer in the `CHALLENGE` request, or `None` if not set.
     /// - Ok(None) if the requester did not specify a `MeasurementSummaryHashType`,
     ///
     /// # Errors

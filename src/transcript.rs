@@ -73,9 +73,9 @@ pub enum TranscriptContext {
     /// M1=Concatenate(A, B, C)
     /// where
     /// - A: VCA = Concatenate (GET_VERSION, VERSION, GET_CAPABILITIES, CAPABILITIES,
-    /// NEGOTIATE_ALGORITHMS, ALGORITHMS)
+    ///   NEGOTIATE_ALGORITHMS, ALGORITHMS)
     /// - B: Certificate Exchange = Concatenate (GET_DIGESTS, DIGESTS, GET_CERTIFICATE
-    /// CERTIFICATE)
+    ///   CERTIFICATE)
     /// - C = Concatenate (CHALLENGE, CHALLENGE_AUTH excluding signature)
     M1,
 
@@ -196,9 +196,7 @@ impl<'a> TranscriptManager<'a> {
             TranscriptContext::L1 => &mut self.hash_ctx_l1,
         };
 
-        hash_ctx
-            .finalize(hash)
-            .map_err(TranscriptError::Hash)?;
+        hash_ctx.finalize(hash).map_err(TranscriptError::Hash)?;
 
         match context {
             TranscriptContext::M1 => {
@@ -217,9 +215,7 @@ impl<'a> TranscriptManager<'a> {
 
     fn append_m1(&mut self, data: &[u8]) -> TranscriptResult<()> {
         if self.m1_ctx_ready {
-            self.hash_ctx_m1
-                .update(data)
-                .map_err(TranscriptError::Hash)
+            self.hash_ctx_m1.update(data).map_err(TranscriptError::Hash)
         } else {
             let vca_data = self.vca_buf.data();
             self.hash_ctx_m1
@@ -235,9 +231,7 @@ impl<'a> TranscriptManager<'a> {
 
     fn append_l1(&mut self, spdm_version: SpdmVersion, data: &[u8]) -> TranscriptResult<()> {
         if self.l1_ctx_ready {
-            self.hash_ctx_l1
-                .update(data)
-                .map_err(TranscriptError::Hash)
+            self.hash_ctx_l1.update(data).map_err(TranscriptError::Hash)
         } else {
             let vca_data = if spdm_version >= SpdmVersion::V12 {
                 Some(self.vca_buf.data())

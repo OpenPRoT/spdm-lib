@@ -251,7 +251,7 @@ fn full_flow(stream: TcpStream, config: &RequesterConfig) -> IoResult<()> {
     .unwrap();
 
     if config.verbose {
-        println!("GET_VERSION: {:?}", &message_buffer.message_data());
+        println!("GET_VERSION: {:?}", message_buffer.message_data());
     }
 
     spdm_context
@@ -265,7 +265,7 @@ fn full_flow(stream: TcpStream, config: &RequesterConfig) -> IoResult<()> {
         .unwrap();
 
     if config.verbose {
-        println!("Sent GET_VERSION: {:?}", &message_buffer.message_data());
+        println!("Sent GET_VERSION: {:?}", message_buffer.message_data());
     }
 
     // 2.1 Send GET_CAPABILITIES
@@ -273,7 +273,7 @@ fn full_flow(stream: TcpStream, config: &RequesterConfig) -> IoResult<()> {
     generate_capabilities_request_local(&mut spdm_context, &mut message_buffer).unwrap();
 
     if config.verbose {
-        println!("GET_CAPABILITIES: {:?}", &message_buffer.message_data());
+        println!("GET_CAPABILITIES: {:?}", message_buffer.message_data());
     }
 
     spdm_context
@@ -281,10 +281,7 @@ fn full_flow(stream: TcpStream, config: &RequesterConfig) -> IoResult<()> {
         .unwrap();
 
     if config.verbose {
-        println!(
-            "Sent GET_CAPABILITIES: {:?}",
-            &message_buffer.message_data()
-        );
+        println!("Sent GET_CAPABILITIES: {:?}", message_buffer.message_data());
     }
 
     // 2.2 Receive and verify CAPABILITIES
@@ -296,7 +293,7 @@ fn full_flow(stream: TcpStream, config: &RequesterConfig) -> IoResult<()> {
     if config.verbose {
         println!(
             "Processed CAPABILITIES: {:?}",
-            &message_buffer.message_data()
+            message_buffer.message_data()
         );
     }
 
@@ -334,10 +331,7 @@ fn full_flow(stream: TcpStream, config: &RequesterConfig) -> IoResult<()> {
         .unwrap();
 
     if config.verbose {
-        println!(
-            "NEGOTIATE_ALGORITHMS: {:x?}",
-            &message_buffer.message_data()
-        );
+        println!("NEGOTIATE_ALGORITHMS: {:x?}", message_buffer.message_data());
     }
 
     spdm_context
@@ -345,7 +339,7 @@ fn full_flow(stream: TcpStream, config: &RequesterConfig) -> IoResult<()> {
         .unwrap();
 
     if config.verbose {
-        println!("ALGORITHMS: {:x?}", &message_buffer.message_data());
+        println!("ALGORITHMS: {:x?}", message_buffer.message_data());
     }
 
     println!("SPDM VCA flow completed successfully");
@@ -357,7 +351,7 @@ fn full_flow(stream: TcpStream, config: &RequesterConfig) -> IoResult<()> {
         .unwrap();
 
     if config.verbose {
-        println!("GET_DIGESTS: {:x?}", &message_buffer.message_data());
+        println!("GET_DIGESTS: {:x?}", message_buffer.message_data());
     }
 
     spdm_context
@@ -365,7 +359,7 @@ fn full_flow(stream: TcpStream, config: &RequesterConfig) -> IoResult<()> {
         .unwrap();
 
     if config.verbose {
-        println!("DIGESTS: {:x?}", &message_buffer.message_data());
+        println!("DIGESTS: {:x?}", message_buffer.message_data());
     }
     println!("Successfully retrieved cert chain digests");
 
@@ -386,7 +380,7 @@ fn full_flow(stream: TcpStream, config: &RequesterConfig) -> IoResult<()> {
             .requester_process_message(&mut message_buffer)
             .unwrap();
         if config.verbose {
-            println!("CERTIFICATE: Ok ({} bytes)", &message_buffer.msg_len(),);
+            println!("CERTIFICATE: Ok ({} bytes)", message_buffer.msg_len(),);
         }
         if !matches!(
             spdm_context.connection_info().state(),
@@ -461,7 +455,7 @@ fn full_flow(stream: TcpStream, config: &RequesterConfig) -> IoResult<()> {
         .unwrap();
 
     if config.verbose {
-        println!("CHALLENGE: {:?}", &message_buffer.message_data());
+        println!("CHALLENGE: {:?}", message_buffer.message_data());
     }
 
     // CHALLENGE_AUTH
@@ -470,7 +464,7 @@ fn full_flow(stream: TcpStream, config: &RequesterConfig) -> IoResult<()> {
         .unwrap();
 
     if config.verbose {
-        println!("CHALLENGE_AUTH: {:x?}", &message_buffer.message_data());
+        println!("CHALLENGE_AUTH: {:x?}", message_buffer.message_data());
     }
 
     if let Some(cert) = &peer_leaf_cert {
@@ -517,7 +511,7 @@ fn full_flow(stream: TcpStream, config: &RequesterConfig) -> IoResult<()> {
         .unwrap();
 
     if config.verbose {
-        println!("GET_MEASUREMENTS: {:x?}", &message_buffer.message_data());
+        println!("GET_MEASUREMENTS: {:x?}", message_buffer.message_data());
     }
 
     spdm_context
@@ -525,7 +519,7 @@ fn full_flow(stream: TcpStream, config: &RequesterConfig) -> IoResult<()> {
         .unwrap();
 
     if config.verbose {
-        println!("MEASUREMENTS: {:x?}", &message_buffer.message_data());
+        println!("MEASUREMENTS: {:x?}", message_buffer.message_data());
     }
 
     let measurements = parse_measurements_response(message_buffer.message_data().unwrap())
@@ -648,10 +642,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let remote_addr = format!("0.0.0.0:{}", config.port);
     let stream = TcpStream::connect(&remote_addr)?;
 
-    println!(
-        "Clean SPDM library requester connecting to {}",
-        &remote_addr
-    );
+    println!("Clean SPDM library requester connecting to {}", remote_addr);
 
     if let Ok(peer_addr) = stream.peer_addr() {
         println!("Connection from: {}", peer_addr);

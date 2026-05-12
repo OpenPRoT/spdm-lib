@@ -11,6 +11,7 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
+use crate::error::SpdmError;
 use crate::protocol::{SpdmVersion, SHA384_HASH_SIZE};
 use bitfield::bitfield;
 use zerocopy::{little_endian, FromBytes, Immutable, IntoBytes, KnownLayout};
@@ -44,12 +45,12 @@ impl SpdmCertChainHeader {
     /// # Versions
     /// ## <= v1.2
     /// Little endian u16 followed by reserved u16.
-    /// (this is compatible witht the current >= v1.3 layout)
+    /// (this is compatible with the current >= v1.3 layout)
     /// ## v1.3 and later
     /// Little endian u32.
-    pub fn set_length(&mut self, length: u32, version: SpdmVersion) -> Result<(), ()> {
+    pub fn set_length(&mut self, length: u32, version: SpdmVersion) -> Result<(), SpdmError> {
         if length > u16::MAX as u32 && version < SpdmVersion::V13 {
-            return Err(());
+            return Err(SpdmError::InvalidParam);
         }
         self.length.set(length);
         Ok(())
@@ -62,9 +63,9 @@ impl SpdmCertChainHeader {
     /// (this is compatible witht the current >= v1.3 layout)
     /// ## v1.3 and later
     /// Little endian u32.
-    pub fn new(length: u32, version: SpdmVersion) -> Result<Self, ()> {
+    pub fn new(length: u32, version: SpdmVersion) -> Result<Self, SpdmError> {
         if length > u16::MAX as u32 && version < SpdmVersion::V13 {
-            return Err(());
+            return Err(SpdmError::InvalidParam);
         }
         Ok(Self {
             length: little_endian::U32::new(length),

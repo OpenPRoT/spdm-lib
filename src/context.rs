@@ -93,9 +93,7 @@ impl<'a> SpdmContext<'a> {
     }
 
     pub fn transport_init_sequence(&mut self) -> SpdmResult<()> {
-        self.transport
-            .init_sequence()
-            .map_err(SpdmError::Transport)
+        self.transport.init_sequence().map_err(SpdmError::Transport)
     }
 
     /// The Responder receives a request message sent by the Requester and processes it accordingly.
@@ -333,10 +331,10 @@ impl<'a> SpdmContext<'a> {
 
         // If requester issued GET_MEASUREMENTS request and skipped CHALLENGE completion, reset M1 context.
         match req_code {
-            ReqRespCode::GetMeasurements => {
-                if self.state.connection_info.state() < ConnectionState::Authenticated {
-                    self.transcript_mgr.reset_context(TranscriptContext::M1);
-                }
+            ReqRespCode::GetMeasurements
+                if self.state.connection_info.state() < ConnectionState::Authenticated =>
+            {
+                self.transcript_mgr.reset_context(TranscriptContext::M1);
             }
             ReqRespCode::GetDigests => {
                 self.transcript_mgr.reset_context(TranscriptContext::M1);

@@ -35,13 +35,13 @@ use crate::platform;
 /// # Protocol Flow
 /// 1. Requester: Send (SOCKET_SPDM_COMMAND_TEST, b'Client Hello') to Responder
 /// 2. Responder: Send (SOCKET_SPDM_COMMAND_TEST, b'Server Hello') to Requester
-
-#[repr(u32)]
-#[allow(unused)]
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+///
 /// Socket Command definitions.
 ///
 /// See [spdm-emu/spdm_emu_common/command.h](https://github.com/DMTF/spdm-emu/blob/main/spdm_emu/spdm_emu_common/command.h).
+#[repr(u32)]
+#[allow(unused)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SocketSpdmCommand {
     Normal = 0x00000001,
     ClientHello = 0x00000003,
@@ -71,18 +71,18 @@ impl From<u32> for SocketSpdmCommand {
 pub enum SocketTransportType {
     /// SOCKET_TRANSPORT_TYPE_NONE
     None = 0x00,
-    MCTP = 0x01,
-    PCI_DOE = 0x02,
-    TCP = 0x03,
+    Mctp = 0x01,
+    PciDoe = 0x02,
+    Tcp = 0x03,
 }
 
 impl From<u32> for SocketTransportType {
     fn from(value: u32) -> Self {
         match value {
             0x00 => SocketTransportType::None,
-            0x01 => SocketTransportType::MCTP,
-            0x02 => SocketTransportType::PCI_DOE,
-            0x03 => SocketTransportType::TCP,
+            0x01 => SocketTransportType::Mctp,
+            0x02 => SocketTransportType::PciDoe,
+            0x03 => SocketTransportType::Tcp,
             _ => SocketTransportType::None,
         }
     }
@@ -96,8 +96,8 @@ impl SocketTransportType {
     pub fn transport_header(&self) -> TransportResult<&[u8]> {
         match self {
             SocketTransportType::None => Ok(&[]),
-            SocketTransportType::MCTP => Ok(&[0x5]),
-            SocketTransportType::PCI_DOE | SocketTransportType::TCP => {
+            SocketTransportType::Mctp => Ok(&[0x5]),
+            SocketTransportType::PciDoe | SocketTransportType::Tcp => {
                 Err(TransportError::UnsupportedTransportType)
             }
         }
@@ -238,7 +238,7 @@ impl From<MessageType> for u8 {
         match val {
             MessageType::OutOfSession => 0x05,
             MessageType::InSession => 0x06,
-            MessageType::RoleInquiry => 0xBf,
+            MessageType::RoleInquiry => 0xBF,
             MessageType::Error(ste) => ste.into(),
         }
     }
@@ -348,23 +348,20 @@ impl SpdmSocketTransport {
             // Parse and remove transport specific headers from the payload.
             match self.transport_type {
                 SocketTransportType::None => {}
-                SocketTransportType::MCTP => {
+                SocketTransportType::Mctp => {
                     let mctp_header_got = data[0];
-                    let mctp_header_want = self.transport_type.transport_header().map_err(|e| {
-                        std::io::Error::other(format!("{:?}", e))
-                    })?[0];
+                    let mctp_header_want = self
+                        .transport_type
+                        .transport_header()
+                        .map_err(|e| std::io::Error::other(format!("{:?}", e)))?[0];
 
                     if mctp_header_got != mctp_header_want {
-                        return Err(std::io::Error::other(
-                            "Invalid MCTP header",
-                        ));
+                        return Err(std::io::Error::other("Invalid MCTP header"));
                     }
                     data.remove(0);
                 }
                 _ => {
-                    return Err(std::io::Error::other(
-                        "Unsupported transport type",
-                    ));
+                    return Err(std::io::Error::other("Unsupported transport type"));
                 }
             }
 
@@ -382,13 +379,11 @@ impl SpdmSocketTransport {
         match self.transport_type {
             SocketTransportType::None => {}
 
-            SocketTransportType::MCTP => {
+            SocketTransportType::Mctp => {
                 platform_header = &[0x5];
             }
             _ => {
-                return Err(std::io::Error::other(
-                    "Unsupported transport type",
-                ));
+                return Err(std::io::Error::other("Unsupported transport type"));
             }
         }
 

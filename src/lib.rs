@@ -13,6 +13,7 @@
 // limitations under the License.
 
 #![cfg_attr(not(test), no_std)]
+#![forbid(unsafe_code)]
 
 /// Common errors
 pub mod error;

@@ -89,9 +89,9 @@ pub fn generate_challenge_request<'a>(
 /// Contrary to the other messages, `CHALLENGE_AUTH` is **NOT** entirely parsed here.
 /// The variable-length field `Signature` has to be parsed in the application. This has two reasons:
 /// 1. The generate the transcript hash, the entire message, **except the signature!**
-///  has to be appended to the transcript context before signature verification, as required by SPDM 1.2 and later.
+///    has to be appended to the transcript context before signature verification, as required by SPDM 1.2 and later.
 /// 2. The signature verification has to be done in the application, as it requires
-/// access to the public key from the responder's certificate chain (which we already verified) and the transcript hash.
+///    access to the public key from the responder's certificate chain (which we already verified) and the transcript hash.
 pub(crate) fn handle_challenge_auth_response<'a>(
     ctx: &mut SpdmContext<'a>,
     spdm_hdr: SpdmMsgHdr,

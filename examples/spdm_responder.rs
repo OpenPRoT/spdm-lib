@@ -20,7 +20,7 @@
 //! This version uses platform implementations with no duplicated code.
 
 use std::env;
-use std::io::{Error, ErrorKind, Result as IoResult};
+use std::io::{Error, Result as IoResult};
 use std::net::{TcpListener, TcpStream};
 use std::process;
 

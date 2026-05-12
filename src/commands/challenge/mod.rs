@@ -61,7 +61,7 @@ impl TryFrom<u8> for MeasurementSummaryHashType {
 /// Following fields have to be appended, depending on the SPDM version.
 /// ## >= v1.3
 /// - `Context`: 8-byte application specific context.
-///              Should be all zeros if no context is provided.
+///   Should be all zeros if no context is provided.
 struct ChallengeReq {
     /// `Param1`: `SlotID`
     ///

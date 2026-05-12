@@ -123,17 +123,13 @@ impl FreeformManifest {
                     .map_err(MeasurementsError::Hash)?;
             } else {
                 let chunk = &self.measurement_record[offset..offset + chunk_size];
-                hash_ctx
-                    .update(chunk)
-                    .map_err(MeasurementsError::Hash)?;
+                hash_ctx.update(chunk).map_err(MeasurementsError::Hash)?;
             }
 
             offset += chunk_size;
         }
 
-        hash_ctx
-            .finalize(hash)
-            .map_err(MeasurementsError::Hash)
+        hash_ctx.finalize(hash).map_err(MeasurementsError::Hash)
     }
 
     fn refresh_measurement_record(
