@@ -120,12 +120,12 @@ impl FreeformManifest {
                         hash_ctx.algo(),
                         Some(&self.measurement_record[..chunk_size]),
                     )
-                    .map_err(|e| MeasurementsError::Hash(e))?;
+                    .map_err(MeasurementsError::Hash)?;
             } else {
                 let chunk = &self.measurement_record[offset..offset + chunk_size];
                 hash_ctx
                     .update(chunk)
-                    .map_err(|e| MeasurementsError::Hash(e))?;
+                    .map_err(MeasurementsError::Hash)?;
             }
 
             offset += chunk_size;
@@ -133,7 +133,7 @@ impl FreeformManifest {
 
         hash_ctx
             .finalize(hash)
-            .map_err(|e| MeasurementsError::Hash(e))
+            .map_err(MeasurementsError::Hash)
     }
 
     fn refresh_measurement_record(
@@ -145,7 +145,7 @@ impl FreeformManifest {
         let measurement_record = &mut self.measurement_record;
         let measurement_value_size = evidence
             .pcr_quote_size(with_pqc_sig)
-            .map_err(|e| MeasurementsError::Evidence(e))?;
+            .map_err(MeasurementsError::Evidence)?;
         measurement_record.fill(0);
         let metadata = DmtfMeasurementBlockMetadata::new(
             SPDM_MEASUREMENT_MANIFEST_INDEX,

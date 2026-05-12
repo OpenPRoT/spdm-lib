@@ -168,7 +168,7 @@ fn handle_spdm_client(stream: TcpStream, config: &ResponderConfig) -> IoResult<(
         Ok(ctx) => ctx,
         Err(e) => {
             eprintln!("Failed to create SPDM context: {:?}", e);
-            return Err(Error::new(ErrorKind::Other, "SPDM context creation failed"));
+            return Err(Error::other("SPDM context creation failed"));
         }
     };
 

@@ -147,12 +147,12 @@ impl SpdmCertStore for DemoCertStore {
         }
     }
 
-    fn get_cert_chain<'a>(
+    fn get_cert_chain(
         &mut self,
         slot_id: u8,
         _asym_algo: AsymAlgo,
         offset: usize,
-        cert_portion: &'a mut [u8],
+        cert_portion: &mut [u8],
     ) -> CertStoreResult<usize> {
         if slot_id != 0 {
             return Err(CertStoreError::InvalidSlotId(slot_id));
@@ -170,11 +170,11 @@ impl SpdmCertStore for DemoCertStore {
         Ok(copy_len)
     }
 
-    fn root_cert_hash<'a>(
+    fn root_cert_hash(
         &mut self,
         slot_id: u8,
         _asym_algo: AsymAlgo,
-        cert_hash: &'a mut [u8; SHA384_HASH_SIZE],
+        cert_hash: &mut [u8; SHA384_HASH_SIZE],
     ) -> CertStoreResult<()> {
         if slot_id != 0 {
             return Err(CertStoreError::InvalidSlotId(slot_id));

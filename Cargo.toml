@@ -9,6 +9,10 @@ edition = "2021"
 [features]
 default = []
 
+[lints.clippy]
+too_many_arguments = { level = "allow", priority = 1 }
+type_complexity = { level = "allow", priority = 1 }
+
 [dependencies]
 bitfield = "0.14.0"
 zerocopy = { version = "0.8.17", features = ["derive"] }

@@ -198,7 +198,7 @@ impl<'a> TranscriptManager<'a> {
 
         hash_ctx
             .finalize(hash)
-            .map_err(|e| TranscriptError::Hash(e))?;
+            .map_err(TranscriptError::Hash)?;
 
         match context {
             TranscriptContext::M1 => {
@@ -219,15 +219,15 @@ impl<'a> TranscriptManager<'a> {
         if self.m1_ctx_ready {
             self.hash_ctx_m1
                 .update(data)
-                .map_err(|e| TranscriptError::Hash(e))
+                .map_err(TranscriptError::Hash)
         } else {
             let vca_data = self.vca_buf.data();
             self.hash_ctx_m1
                 .init(self.hash_ctx_m1.algo(), Some(vca_data))
-                .map_err(|e| TranscriptError::Hash(e))?;
+                .map_err(TranscriptError::Hash)?;
             self.hash_ctx_m1
                 .update(data)
-                .map_err(|e| TranscriptError::Hash(e))?;
+                .map_err(TranscriptError::Hash)?;
             self.m1_ctx_ready = true;
             Ok(())
         }
@@ -237,7 +237,7 @@ impl<'a> TranscriptManager<'a> {
         if self.l1_ctx_ready {
             self.hash_ctx_l1
                 .update(data)
-                .map_err(|e| TranscriptError::Hash(e))
+                .map_err(TranscriptError::Hash)
         } else {
             let vca_data = if spdm_version >= SpdmVersion::V12 {
                 Some(self.vca_buf.data())
@@ -246,10 +246,10 @@ impl<'a> TranscriptManager<'a> {
             };
             self.hash_ctx_l1
                 .init(self.hash_ctx_l1.algo(), vca_data)
-                .map_err(|e| TranscriptError::Hash(e))?;
+                .map_err(TranscriptError::Hash)?;
             self.hash_ctx_l1
                 .update(data)
-                .map_err(|e| TranscriptError::Hash(e))?;
+                .map_err(TranscriptError::Hash)?;
 
             self.l1_ctx_ready = true;
             Ok(())

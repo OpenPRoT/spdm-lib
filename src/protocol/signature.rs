@@ -97,10 +97,10 @@ pub(crate) fn get_tbs_via_response_code(
 
     hash_ctx
         .init(hash_ctx.algo(), Some(&message))
-        .map_err(|e| SignCtxError::Platform(e))?;
+        .map_err(SignCtxError::Platform)?;
 
     hash_ctx
         .finalize(&mut tbs)
-        .map_err(|e| SignCtxError::Platform(e))?;
+        .map_err(SignCtxError::Platform)?;
     Ok(tbs)
 }

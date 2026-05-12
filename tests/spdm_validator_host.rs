@@ -129,12 +129,12 @@ impl SpdmCertStore for MockCertStore {
     fn cert_chain_len(&mut self, _asym: AsymAlgo, _slot_id: u8) -> CertStoreResult<usize> {
         Ok(128)
     }
-    fn get_cert_chain<'a>(
+    fn get_cert_chain(
         &mut self,
         _slot_id: u8,
         _asym: AsymAlgo,
         _offset: usize,
-        out: &'a mut [u8],
+        out: &mut [u8],
     ) -> CertStoreResult<usize> {
         let fill = out.len().min(16);
         for b in &mut out[..fill] {
@@ -142,11 +142,11 @@ impl SpdmCertStore for MockCertStore {
         }
         Ok(fill)
     }
-    fn root_cert_hash<'a>(
+    fn root_cert_hash(
         &mut self,
         _slot_id: u8,
         _asym: AsymAlgo,
-        out: &'a mut [u8; SHA384_HASH_SIZE],
+        out: &mut [u8; SHA384_HASH_SIZE],
     ) -> CertStoreResult<()> {
         for b in out.iter_mut() {
             *b = 0x11;

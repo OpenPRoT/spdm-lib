@@ -142,12 +142,12 @@ impl From<&[u8; 12]> for SocketSpdmCommandHdr {
     }
 }
 
-impl Into<[u8; 12]> for SocketSpdmCommandHdr {
-    fn into(self) -> [u8; 12] {
+impl From<SocketSpdmCommandHdr> for [u8; 12] {
+    fn from(val: SocketSpdmCommandHdr) -> Self {
         let mut result = [0u8; 12];
-        result[0..4].copy_from_slice(&(self.command as u32).to_be_bytes());
-        result[4..8].copy_from_slice(&(self.transport_type as u32).to_be_bytes());
-        result[8..12].copy_from_slice(&self.payload_size.get().to_be_bytes());
+        result[0..4].copy_from_slice(&(val.command as u32).to_be_bytes());
+        result[4..8].copy_from_slice(&(val.transport_type as u32).to_be_bytes());
+        result[8..12].copy_from_slice(&val.payload_size.get().to_be_bytes());
         result
     }
 }
@@ -190,9 +190,9 @@ impl TryFrom<u8> for SpdmSocketTransportError {
     }
 }
 
-impl Into<u8> for SpdmSocketTransportError {
-    fn into(self) -> u8 {
-        match self {
+impl From<SpdmSocketTransportError> for u8 {
+    fn from(val: SpdmSocketTransportError) -> Self {
+        match val {
             SpdmSocketTransportError::PayloadLenTooLong => 0xC0,
             SpdmSocketTransportError::BindVerNotSupported => 0xC1,
             SpdmSocketTransportError::CannotBeRequester => 0xC2,
@@ -233,13 +233,13 @@ impl TryFrom<u8> for MessageType {
     }
 }
 
-impl Into<u8> for MessageType {
-    fn into(self) -> u8 {
-        match self {
-            Self::OutOfSession => 0x05,
-            Self::InSession => 0x06,
-            Self::RoleInquiry => 0xBf,
-            Self::Error(ste) => ste.into(),
+impl From<MessageType> for u8 {
+    fn from(val: MessageType) -> Self {
+        match val {
+            MessageType::OutOfSession => 0x05,
+            MessageType::InSession => 0x06,
+            MessageType::RoleInquiry => 0xBf,
+            MessageType::Error(ste) => ste.into(),
         }
     }
 }
@@ -351,20 +351,18 @@ impl SpdmSocketTransport {
                 SocketTransportType::MCTP => {
                     let mctp_header_got = data[0];
                     let mctp_header_want = self.transport_type.transport_header().map_err(|e| {
-                        std::io::Error::new(std::io::ErrorKind::Other, format!("{:?}", e))
+                        std::io::Error::other(format!("{:?}", e))
                     })?[0];
 
                     if mctp_header_got != mctp_header_want {
-                        return Err(std::io::Error::new(
-                            std::io::ErrorKind::Other,
+                        return Err(std::io::Error::other(
                             "Invalid MCTP header",
                         ));
                     }
                     data.remove(0);
                 }
                 _ => {
-                    return Err(std::io::Error::new(
-                        std::io::ErrorKind::Other,
+                    return Err(std::io::Error::other(
                         "Unsupported transport type",
                     ));
                 }
@@ -388,8 +386,7 @@ impl SpdmSocketTransport {
                 platform_header = &[0x5];
             }
             _ => {
-                return Err(std::io::Error::new(
-                    std::io::ErrorKind::Other,
+                return Err(std::io::Error::other(
                     "Unsupported transport type",
                 ));
             }

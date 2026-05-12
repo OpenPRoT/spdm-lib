@@ -95,7 +95,7 @@ impl<'a> SpdmContext<'a> {
     pub fn transport_init_sequence(&mut self) -> SpdmResult<()> {
         self.transport
             .init_sequence()
-            .map_err(|e| SpdmError::Transport(e))
+            .map_err(SpdmError::Transport)
     }
 
     /// The Responder receives a request message sent by the Requester and processes it accordingly.

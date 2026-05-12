@@ -218,7 +218,7 @@ fn resp_flags_compatible(version: SpdmVersion, flags: &CapabilityFlags) -> bool 
 /// Reserved fields are ignored.
 fn check_flags_v10(flags: &CapabilityFlags) -> bool {
     // Check for reserved values
-    !(flags.meas_cap() == 0b11)
+    flags.meas_cap() != 0b11
 }
 
 /// Check flags to be compatible with version 1.1
@@ -258,21 +258,18 @@ fn check_flags_v11(flags: &CapabilityFlags) -> bool {
             return false;
         }
     }
-    if flags.mut_auth_cap() == 1 {
-        if flags.encap_cap() == 0 {
+    if flags.mut_auth_cap() == 1
+        && flags.encap_cap() == 0 {
             return false;
         }
-    }
-    if flags.handshake_in_the_clear_cap() == 1 {
-        if flags.key_ex_cap() == 0 {
+    if flags.handshake_in_the_clear_cap() == 1
+        && flags.key_ex_cap() == 0 {
             return false;
         }
-    }
-    if flags.pub_key_id_cap() == 1 {
-        if flags.cert_cap() == 1 {
+    if flags.pub_key_id_cap() == 1
+        && flags.cert_cap() == 1 {
             return false;
         }
-    }
     true
 }
 
@@ -313,16 +310,14 @@ fn check_flags_v12(flags: &CapabilityFlags) -> bool {
             return false;
         }
     }
-    if flags.mut_auth_cap() == 1 {
-        if flags.encap_cap() == 0 {
+    if flags.mut_auth_cap() == 1
+        && flags.encap_cap() == 0 {
             return false;
         }
-    }
-    if flags.handshake_in_the_clear_cap() == 1 {
-        if flags.key_ex_cap() == 0 {
+    if flags.handshake_in_the_clear_cap() == 1
+        && flags.key_ex_cap() == 0 {
             return false;
         }
-    }
     if flags.pub_key_id_cap() == 1 {
         // In this case, CERT_CAP and ALIAS_CERT_CAP of the responder
         // shall be 0.
@@ -330,11 +325,10 @@ fn check_flags_v12(flags: &CapabilityFlags) -> bool {
             return false;
         }
     }
-    if flags.csr_cap() == 1 {
-        if flags.set_certificate_cap() == 0 {
+    if flags.csr_cap() == 1
+        && flags.set_certificate_cap() == 0 {
             return false;
         }
-    }
     if flags.cert_install_reset_cap() == 1 {
         // If this bit is set, CSR_CAP and/or SET_CERT_CAP shall be set.
         if flags.csr_cap() == 0 && flags.set_certificate_cap() == 0 {
@@ -384,16 +378,14 @@ fn check_flags_v13(flags: &CapabilityFlags) -> bool {
             return false;
         }
     }
-    if flags.mut_auth_cap() == 1 {
-        if flags.encap_cap() == 0 {
+    if flags.mut_auth_cap() == 1
+        && flags.encap_cap() == 0 {
             return false;
         }
-    }
-    if flags.handshake_in_the_clear_cap() == 1 {
-        if flags.key_ex_cap() == 0 {
+    if flags.handshake_in_the_clear_cap() == 1
+        && flags.key_ex_cap() == 0 {
             return false;
         }
-    }
     if flags.pub_key_id_cap() == 1 {
         // In this case, CERT_CAP and ALIAS_CERT_CAP and MULTI_KEY_CAP of the responder
         // shall be 0.
@@ -401,11 +393,10 @@ fn check_flags_v13(flags: &CapabilityFlags) -> bool {
             return false;
         }
     }
-    if flags.csr_cap() == 1 {
-        if flags.set_certificate_cap() == 0 {
+    if flags.csr_cap() == 1
+        && flags.set_certificate_cap() == 0 {
             return false;
         }
-    }
     if flags.cert_install_reset_cap() == 1 {
         // If this bit is set, SET_CERT_CAP shall be set and CSR_CAP can be set.
         // Note: This was changed. In v1.2 one of both was required
@@ -413,11 +404,10 @@ fn check_flags_v13(flags: &CapabilityFlags) -> bool {
             return false;
         }
     }
-    if flags.multi_key_cap() == 1 {
-        if flags.get_key_pair_info_cap() == 0 {
+    if flags.multi_key_cap() == 1
+        && flags.get_key_pair_info_cap() == 0 {
             return false;
         }
-    }
     true
 }
 
