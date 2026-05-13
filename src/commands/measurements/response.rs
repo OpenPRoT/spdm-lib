@@ -1,0 +1,481 @@
+// Copyright 2025
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+use crate::cert_store::SpdmCertStore;
+use crate::chunk_ctx::{ChunkError, LargeResponse};
+use crate::commands::algorithms::selected_measurement_specification;
+use crate::commands::measurements::*;
+use crate::measurements::common::*;
+use crate::platform::{evidence::SpdmEvidence, hash::SpdmHash, rng::SpdmRng};
+use crate::protocol::*;
+use crate::state::ConnectionState;
+use crate::transcript::{TranscriptContext, TranscriptManager};
+use crate::{
+    codec::{encode_u8_slice, Codec, MessageBuf},
+    commands::error_rsp::ErrorCode,
+    context::SpdmContext,
+    error::{CommandError, CommandResult, PlatformError},
+};
+
+fn process_get_measurements<'a>(
+    ctx: &mut SpdmContext<'a>,
+    spdm_hdr: SpdmMsgHdr,
+    req_payload: &mut MessageBuf<'a>,
+) -> CommandResult<MeasurementsResponse> {
+    // Validate the version
+    let connection_version = ctx.state.connection_info.version_number();
+    if spdm_hdr.version().ok() != Some(connection_version) {
+        Err(ctx.generate_error_response(req_payload, ErrorCode::VersionMismatch, 0, None))?;
+    }
+
+    // Decode the request
+    let req_common = GetMeasurementsReqCommon::decode(req_payload).map_err(|_| {
+        ctx.generate_error_response(req_payload, ErrorCode::InvalidRequest, 0, None)
+    })?;
+
+    let slot_id = if req_common.req_attr.signature_requested() == 0 {
+        None
+    } else {
+        // check if responder capabilities support signature
+        if ctx.local_capabilities.flags.meas_cap()
+            != MeasCapability::MeasurementsWithSignature as u8
+        {
+            Err(ctx.generate_error_response(req_payload, ErrorCode::UnsupportedRequest, 0, None))?;
+        }
+
+        // Decode the requester nonce and slot ID
+        let req_signature_fields =
+            GetMeasurementsReqSignature::decode(req_payload).map_err(|_| {
+                ctx.generate_error_response(req_payload, ErrorCode::InvalidRequest, 0, None)
+            })?;
+        Some(req_signature_fields.slot_id)
+    };
+
+    // Decode the requester context if version is >= 1.3
+    let requester_context = if connection_version >= SpdmVersion::V13 {
+        Some(RequesterContext::decode(req_payload).map_err(|_| {
+            ctx.generate_error_response(req_payload, ErrorCode::InvalidRequest, 0, None)
+        })?)
+    } else {
+        None
+    };
+
+    // Reset the transcript for the GET_MEASUREMENTS request
+    ctx.reset_transcript_via_req_code(ReqRespCode::GetMeasurements);
+
+    // Append the request to the transcript
+    ctx.append_message_to_transcript(req_payload, TranscriptContext::L1)?;
+
+    let asym_algo = ctx.selected_base_asym_algo().map_err(|_| {
+        ctx.generate_error_response(req_payload, ErrorCode::InvalidRequest, 0, None)
+    })?;
+
+    let get_meas_req_context = MeasurementsResponse {
+        spdm_version: connection_version,
+        req_attr: req_common.req_attr,
+        meas_op: req_common.meas_op,
+        slot_id,
+        requester_context,
+        asym_algo,
+    };
+
+    Ok(get_meas_req_context)
+}
+
+pub(crate) fn generate_measurements_response<'a>(
+    ctx: &mut SpdmContext<'a>,
+    rsp_ctx: MeasurementsResponse,
+    rsp: &mut MessageBuf<'a>,
+) -> CommandResult<()> {
+    let rsp_len = rsp_ctx.response_size(ctx.evidence, &mut ctx.measurements)?;
+
+    if rsp_len > ctx.min_data_transfer_size() {
+        // If the response is larger than the minimum data transfer size, use chunked response
+        let large_rsp = LargeResponse::Measurements(rsp_ctx);
+        let handle = ctx.large_resp_context.init(large_rsp, rsp_len);
+        Err(ctx.generate_error_response(rsp, ErrorCode::LargeResponse, handle, None))?
+    } else {
+        // If the response fits in a single message, prepare it directly
+        ctx.prepare_response_buffer(rsp)?;
+
+        // Encode the response fixed fields
+        rsp.put_data(rsp_len)
+            .map_err(|e| (false, CommandError::Codec(e)))?;
+        let rsp_buf = rsp
+            .data_mut(rsp_len)
+            .map_err(|e| (false, CommandError::Codec(e)))?;
+        let payload_len = rsp_ctx.get_chunk(
+            ctx.hash,
+            ctx.rng,
+            ctx.evidence,
+            &mut ctx.measurements,
+            &mut ctx.transcript_mgr,
+            ctx.device_certs_store,
+            0,
+            rsp_buf,
+        )?;
+        if rsp_len != payload_len {
+            Err((
+                false,
+                CommandError::Measurement(MeasurementsError::InvalidBuffer),
+            ))?;
+        }
+        rsp.pull_data(payload_len)
+            .map_err(|e| (false, CommandError::Codec(e)))?;
+
+        rsp.push_data(payload_len)
+            .map_err(|e| (false, CommandError::Codec(e)))
+    }
+}
+
+pub(crate) fn handle_get_measurements<'a>(
+    ctx: &mut SpdmContext<'a>,
+    spdm_hdr: SpdmMsgHdr,
+    req_payload: &mut MessageBuf<'a>,
+) -> CommandResult<()> {
+    // Check that the connection state is Negotiated
+    if ctx.state.connection_info.state() < ConnectionState::AlgorithmsNegotiated {
+        Err(ctx.generate_error_response(req_payload, ErrorCode::UnexpectedRequest, 0, None))?;
+    }
+
+    // Check if the measurement capability is supported
+    if ctx.local_capabilities.flags.meas_cap() == MeasCapability::NoMeasurement as u8 {
+        return Err(ctx.generate_error_response(
+            req_payload,
+            ErrorCode::UnsupportedRequest,
+            0,
+            None,
+        ));
+    }
+
+    // Verify that the DMTF measurement spec is selected and the measurement hash algorithm is SHA384
+    let meas_spec_sel = selected_measurement_specification(ctx);
+    if meas_spec_sel.dmtf_measurement_spec() == 0 || ctx.verify_selected_hash_algo().is_err() {
+        Err(ctx.generate_error_response(req_payload, ErrorCode::UnexpectedRequest, 0, None))?;
+    }
+
+    // Process GET_MEASUREMENTS request
+    let rsp_ctx = process_get_measurements(ctx, spdm_hdr, req_payload)?;
+
+    // Generate MEASUREMENTS response
+    ctx.prepare_response_buffer(req_payload)?;
+    generate_measurements_response(ctx, rsp_ctx, req_payload)?;
+    Ok(())
+}
+
+#[derive(Debug)]
+pub(crate) struct MeasurementsResponse {
+    spdm_version: SpdmVersion,
+    req_attr: GetMeasurementsReqAttr,
+    meas_op: u8,
+    slot_id: Option<u8>,
+    requester_context: Option<RequesterContext>,
+    asym_algo: AsymAlgo,
+}
+
+impl MeasurementsResponse {
+    pub fn get_chunk(
+        &self,
+        hash_ctx: &mut dyn SpdmHash,
+        rng: &mut dyn SpdmRng,
+        evidence: &dyn SpdmEvidence,
+        measurements: &mut SpdmMeasurements,
+        transcript_mgr: &mut TranscriptManager<'_>,
+        cert_store: &mut dyn SpdmCertStore,
+        offset: usize,
+        chunk_buf: &mut [u8],
+    ) -> CommandResult<usize> {
+        // Calculate the size of the response
+        let response_size = self.response_size(evidence, measurements)?;
+
+        // Check if the offset is valid
+        if offset >= response_size {
+            return Err((false, CommandError::Chunk(ChunkError::InvalidMessageOffset)));
+        }
+
+        // Calculate the size of the chunk to return
+        let mut rem_len = (response_size - offset).min(chunk_buf.len());
+
+        let raw_bitstream_requested = self.req_attr.raw_bitstream_requested() == 1;
+
+        let measurement_record_len = measurements
+            .measurement_block_size(
+                evidence,
+                self.asym_algo,
+                self.meas_op,
+                raw_bitstream_requested,
+            )
+            .map_err(|e| (false, CommandError::Measurement(e)))?;
+        // Fill the chunk buffer with the appropriate response sections
+        // Instead of a while loop, use a single-pass approach for clarity and efficiency.
+        let mut copied = 0;
+
+        // 1. Copy from the fixed response fields
+        if offset < RESPONSE_FIXED_FIELDS_SIZE {
+            let fixed_fields = self.response_fixed_fields(evidence, measurements)?;
+            let start = offset;
+            let end = (RESPONSE_FIXED_FIELDS_SIZE).min(start + rem_len);
+            let copy_len = end - start;
+            chunk_buf[copied..copied + copy_len].copy_from_slice(&fixed_fields[start..end]);
+            copied += copy_len;
+            rem_len -= copy_len;
+        }
+
+        // 2. Copy from the measurement record
+        let record_start = RESPONSE_FIXED_FIELDS_SIZE;
+        let record_end = record_start + measurement_record_len;
+        if rem_len > 0 && offset + copied < record_end {
+            let meas_block_offset = (offset + copied).saturating_sub(record_start);
+            let bytes_to_copy = (measurement_record_len - meas_block_offset).min(rem_len);
+            let bytes_filled = measurements
+                .measurement_block(
+                    evidence,
+                    self.asym_algo,
+                    self.meas_op,
+                    raw_bitstream_requested,
+                    meas_block_offset,
+                    &mut chunk_buf[copied..copied + bytes_to_copy],
+                )
+                .map_err(|e| (false, CommandError::Measurement(e)))?;
+            copied += bytes_filled;
+            rem_len -= bytes_filled;
+        }
+
+        // 3. Copy from the variable/trailer fields
+        let trailer_start = record_end;
+        if rem_len > 0 && offset + copied >= trailer_start {
+            let trailer_offset = (offset + copied) - trailer_start;
+            let (variable_fields, trailer_len) = self.response_variable_fields(rng)?;
+            let end = (trailer_len).min(trailer_offset + rem_len);
+            let copy_len = end - trailer_offset;
+            chunk_buf[copied..copied + copy_len]
+                .copy_from_slice(&variable_fields[trailer_offset..end]);
+            copied += copy_len;
+            rem_len -= copy_len;
+        }
+
+        // Append the chunk to the L1 transcript
+        transcript_mgr
+            .append(TranscriptContext::L1, &chunk_buf[..copied])
+            .map_err(|e| (false, CommandError::Transcript(e)))?;
+
+        // 4. Copy from the signature if requested
+        let signature_start = trailer_start + self.response_variable_fields(rng)?.1;
+        if rem_len > 0
+            && self.req_attr.signature_requested() == 1
+            && offset + copied >= signature_start
+        {
+            let signature = self.l1_signature_ecc(hash_ctx, transcript_mgr, cert_store)?;
+            let sig_offset = (offset + copied) - signature_start;
+            let copy_len = (signature.len() - sig_offset).min(rem_len);
+            chunk_buf[copied..copied + copy_len]
+                .copy_from_slice(&signature[sig_offset..sig_offset + copy_len]);
+            copied += copy_len;
+            // rem_len -= copy_len;
+        }
+
+        Ok(copied)
+    }
+
+    fn response_fixed_fields(
+        &self,
+        evidence: &dyn SpdmEvidence,
+        measurements: &mut SpdmMeasurements,
+    ) -> CommandResult<[u8; RESPONSE_FIXED_FIELDS_SIZE]> {
+        let mut fixed_rsp_fields = [0u8; RESPONSE_FIXED_FIELDS_SIZE];
+        let mut fixed_rsp_buf = MessageBuf::new(&mut fixed_rsp_fields);
+        _ = self.encode_response_fixed_fields(evidence, &mut fixed_rsp_buf, measurements)?;
+        Ok(fixed_rsp_fields)
+    }
+
+    fn encode_response_fixed_fields(
+        &self,
+        evidence: &dyn SpdmEvidence,
+        buf: &mut MessageBuf<'_>,
+        measurements: &mut SpdmMeasurements,
+    ) -> CommandResult<usize> {
+        let measurement_record_size = measurements
+            .measurement_block_size(
+                evidence,
+                self.asym_algo,
+                self.meas_op,
+                self.req_attr.raw_bitstream_requested() == 1,
+            )
+            .map_err(|e| (false, CommandError::Measurement(e)))?;
+        let total_measurement_count = measurements.total_measurement_count() as u8;
+
+        let (total_meas_indices, num_of_meas_blocks_in_record, meas_record_len) = match self.meas_op
+        {
+            0x00 => (total_measurement_count, 0, 0),
+            0xFF => (0, total_measurement_count, measurement_record_size),
+            _ => (0, 1, measurement_record_size),
+        };
+
+        if meas_record_len > SPDM_MAX_MEASUREMENT_RECORD_SIZE as usize {
+            Err((
+                false,
+                CommandError::Measurement(MeasurementsError::InvalidSize),
+            ))?;
+        }
+
+        let change_detected = if self.req_attr.signature_requested() == 1 {
+            MeasurementChangeStatus::DetectedNoChange as u8
+        } else {
+            MeasurementChangeStatus::NoDetection as u8
+        };
+
+        // Encode the common response fields
+        let mut rsp_common = MeasurementsRspFixed::default();
+        rsp_common.set_spdm_version(self.spdm_version.into());
+        rsp_common.set_req_resp_code(ReqRespCode::Measurements.into());
+        rsp_common.set_total_measurement_indices(total_meas_indices);
+        rsp_common.set_slot_id(self.slot_id.unwrap_or(0));
+        rsp_common.set_content_changed(change_detected);
+        rsp_common.set_num_blocks(num_of_meas_blocks_in_record);
+        rsp_common.set_measurement_record_len(meas_record_len as u32);
+
+        let len = rsp_common
+            .encode(buf)
+            .map_err(|e| (false, CommandError::Codec(e)))?;
+
+        Ok(len)
+    }
+
+    fn response_variable_fields(
+        &self,
+        rng: &mut dyn SpdmRng,
+    ) -> CommandResult<([u8; MAX_RESPONSE_VARIABLE_FIELDS_SIZE], usize)> {
+        let mut trailer_rsp = [0u8; MAX_RESPONSE_VARIABLE_FIELDS_SIZE];
+        let mut trailer_buf = MessageBuf::new(&mut trailer_rsp);
+        let len = self.encode_response_variable_fields(rng, &mut trailer_buf)?;
+        Ok((trailer_rsp, len))
+    }
+
+    fn encode_response_variable_fields(
+        &self,
+        rng: &mut dyn SpdmRng,
+        buf: &mut MessageBuf<'_>,
+    ) -> CommandResult<usize> {
+        // Encode the nonce
+        let mut nonce = [0u8; NONCE_LEN];
+        rng.generate_random_number(&mut nonce)
+            .map_err(|e| (false, CommandError::Platform(PlatformError::RngError(e))))?;
+        let mut len = encode_u8_slice(&nonce, buf).map_err(|e| (false, CommandError::Codec(e)))?;
+
+        // Encode the opaque data length (always 0 in this case)
+        let opaque_data_len = 0u16;
+        let opaque_data_len_bytes = opaque_data_len.to_le_bytes();
+        len += encode_u8_slice(&opaque_data_len_bytes, buf)
+            .map_err(|e| (false, CommandError::Codec(e)))?;
+
+        // Encode the requester context if present
+        if let Some(context) = &self.requester_context {
+            len += context
+                .encode(buf)
+                .map_err(|e| (false, CommandError::Codec(e)))?;
+        }
+
+        Ok(len)
+    }
+
+    fn l1_signature_ecc(
+        &self,
+        hash: &mut dyn SpdmHash,
+        transcript: &mut TranscriptManager<'_>,
+        cert_store: &mut dyn SpdmCertStore,
+    ) -> CommandResult<[u8; ECC_P384_SIGNATURE_SIZE]> {
+        let mut signature = [0u8; ECC_P384_SIGNATURE_SIZE];
+        let mut signature_buf = MessageBuf::new(&mut signature);
+        let _ = self.encode_l1_signature_ecc(hash, transcript, cert_store, &mut signature_buf)?;
+
+        Ok(signature)
+    }
+
+    fn encode_l1_signature_ecc(
+        &self,
+        hash: &mut dyn SpdmHash,
+        transcript: &mut TranscriptManager<'_>,
+        cert_store: &mut dyn SpdmCertStore,
+        buf: &mut MessageBuf<'_>,
+    ) -> CommandResult<usize> {
+        // Get the L1 transcript hash
+        let mut l1_transcript_hash = [0u8; SHA384_HASH_SIZE];
+
+        transcript
+            .hash(TranscriptContext::L1, &mut l1_transcript_hash)
+            .map_err(|e| (false, CommandError::Transcript(e)))?;
+
+        // Get TBS via response code
+        let tbs = get_tbs_via_response_code(
+            self.spdm_version,
+            ReqRespCode::Measurements,
+            l1_transcript_hash,
+            hash,
+        )
+        .map_err(|e| (false, CommandError::SignCtx(e)))?;
+
+        let slot_id = self.slot_id.ok_or((
+            false,
+            CommandError::Measurement(MeasurementsError::InvalidSlotId),
+        ))?;
+
+        let mut signature = [0u8; ECC_P384_SIGNATURE_SIZE];
+        cert_store
+            .sign_hash(slot_id, &tbs, &mut signature)
+            .map_err(|e| (false, CommandError::CertStore(e)))?;
+
+        buf.put_data(signature.len())
+            .map_err(|e| (false, CommandError::Codec(e)))?;
+        let signature_buf = buf
+            .data_mut(signature.len())
+            .map_err(|e| (false, CommandError::Codec(e)))?;
+        signature_buf.copy_from_slice(&signature);
+        buf.pull_data(signature.len())
+            .map_err(|e| (false, CommandError::Codec(e)))?;
+
+        Ok(signature.len())
+    }
+
+    fn response_size(
+        &self,
+        evidence: &dyn SpdmEvidence,
+        measurements: &mut SpdmMeasurements,
+    ) -> CommandResult<usize> {
+        // Calculate the size of the response based on the request attributes
+        let mut rsp_size = RESPONSE_FIXED_FIELDS_SIZE;
+
+        if self.meas_op > 0 {
+            // return the size of a measurement block or all measurement blocks
+            rsp_size += measurements
+                .measurement_block_size(evidence, self.asym_algo, self.meas_op, false)
+                .map_err(|e| (false, CommandError::Measurement(e)))?;
+        };
+
+        // Nonce is always present
+        rsp_size += NONCE_LEN;
+
+        // Only length of opaque data length field(2 bytes). There's no opaque data in this response.
+        rsp_size += size_of::<u16>();
+
+        // Requester context is optional and only present for version >= 1.3
+        if self.requester_context.is_some() {
+            rsp_size += size_of::<RequesterContext>();
+        }
+        // If signature is requested, add the size of the signature
+        if self.req_attr.signature_requested() == 1 {
+            rsp_size += self.asym_algo.signature_size();
+        }
+        Ok(rsp_size)
+    }
+}

@@ -1,0 +1,12 @@
+header:
+  license:
+    spdx-id: Apache-2.0
+    # No copyright owner until this has been clarified
+    # copyright-owner: OpenPRoT a Series of LF Projects, LLC
+    copyright-year: 2025
+    software-name: spdm-lib
+
+  paths:
+    - '**/*.rs'
+
+  comment: on-failure

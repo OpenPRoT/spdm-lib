@@ -1,0 +1,70 @@
+name: Verification with SPDM Emulator
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+
+env:
+  CARGO_TERM_COLOR: always
+  SPDM_EMU_REF: fe4cdc53b3f0e8300d16519467588001525e84f3 # spdm-emu main (27.02.2026)
+  CACHE_INVALIDATOR: 20ba74fb3b2bc121 # change to invalidate caches
+
+jobs:
+  requester-verification:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        spdm_version: ["1.1", "1.2", "1.3"]
+        transport: [NONE, MCTP]
+    steps:
+      - name: Cache spdm-emu build output
+        id: cache-spdm-emu
+        uses: actions/cache@v5
+        with:
+          path: ${{ github.workspace }}/spdm-emu/build
+          key: spdm_emu-${{ env.SPDM_EMU_REF }}-${{ runner.os }}-${{ env.CACHE_INVALIDATOR }}
+
+      - name: Checkout DMTF spdm-emu
+        if: ${{ steps.cache-spdm-emu.outputs.cache-hit != 'true' }}
+        uses: actions/checkout@v4
+        with:
+          repository: DMTF/spdm-emu
+          ref: ${{ env.SPDM_EMU_REF }}
+          submodules: recursive
+          path: spdm-emu
+    
+      - name: Install build dependecies
+        if: ${{ steps.cache-spdm-emu.outputs.cache-hit != 'true' }}
+        run: |
+            sudo apt install -y build-essential
+
+      - name: Build spdm-emu
+        if: ${{ steps.cache-spdm-emu.outputs.cache-hit != 'true' }}
+        run: |
+            cd "$GITHUB_WORKSPACE"/spdm-emu
+            git submodule update
+            mkdir build -p && cd build
+            cmake -DARCH=x64 -DTOOLCHAIN=GCC -DTARGET=Debug -DCRYPTO=openssl ..
+            make copy_sample_key
+            make -j
+
+      - uses: actions/checkout@v4
+        with:
+          path: spdm-lib
+      - name: Cache cargo registry and build
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: "spdm-lib"
+      - name: Cargo Build
+        run: |
+          cd spdm-lib
+          cargo build --example spdm_requester
+      - name: Run verification flow
+        run: |
+          cd spdm-lib
+          (cd "$GITHUB_WORKSPACE"/spdm-emu/build/bin/; ./spdm_responder_emu --trans ${{ matrix.transport }} --ver ${{ matrix.spdm_version }} --slot_id 0 --slot_count 1 --req_slot_id 0) &
+          (sleep 1; cargo run --example spdm_requester -- --transport-type ${{ matrix.transport }} --port 2323 --verbose)
+

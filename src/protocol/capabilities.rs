@@ -1,0 +1,112 @@
+// Copyright 2025
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+use bitfield::bitfield;
+use zerocopy::{FromBytes, Immutable, IntoBytes};
+
+pub const MAX_MCTP_SPDM_MSG_SIZE: usize = 2048;
+
+pub const MIN_DATA_TRANSFER_SIZE_V12: u32 = 42;
+
+// Maximum Cryptographic processing timeout to be reported in Capabilities response
+pub const MAX_CT_EXPONENT: u8 = 31;
+
+/// Measurements Capability
+#[derive(Debug, Clone, Copy)]
+pub enum MeasCapability {
+    NoMeasurement = 0,
+    MeasurementsWithNoSignature = 1,
+    MeasurementsWithSignature = 2,
+    Reserved = 3,
+}
+
+/// Pre-shared Key(PSK) Capability
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum PskCapability {
+    // PSK capability not supported
+    NoPsk = 0,
+    // PSK capability supported without session key derivation
+    PskWithNoContext = 1,
+    // PSK capability supported with session key derivation (reserved for requestor)
+    PskWithContext = 2,
+    // Reserved
+    Reserved = 3,
+}
+
+/// Endpoint Information Capability
+#[derive(Debug, Clone, Copy)]
+#[allow(dead_code)]
+pub(crate) enum EpInfoCapability {
+    NoEpInfo = 0,
+    EpInfoWithNoSignature = 1,
+    EpInfoWithSignature = 2,
+    Reserved = 3,
+}
+
+/// Device Capabilities
+#[derive(Default, Debug, Clone, Copy)]
+pub struct DeviceCapabilities {
+    pub ct_exponent: u8,
+    pub flags: CapabilityFlags,
+    // Only used for >= SPDM 1.2
+    pub data_transfer_size: u32,
+    pub max_spdm_msg_size: u32,
+
+    /// Only valid for >= SPDM 1.3
+    /// The Responder shall include the Supported Algorithms Block in its CAPABILITIES
+    /// response if it supports this extended capability. If the Requester does not
+    /// support the Large SPDM message transfer mechanism ( CHUNK_CAP=0 ), this bit shall be 0.
+    pub include_supported_algorithms: bool,
+}
+
+bitfield! {
+#[derive(FromBytes, IntoBytes, Immutable, Default, Clone, Copy)]
+#[repr(C)]
+pub struct CapabilityFlags(u32);
+impl Debug;
+u8;
+pub cache_cap, set_cache_cap: 0, 0;
+pub cert_cap, set_cert_cap: 1, 1;
+pub chal_cap, set_chal_cap: 2, 2;
+pub meas_cap, set_meas_cap: 4, 3;
+pub meas_fresh_cap, set_meas_fresh_cap: 5, 5;
+pub encrypt_cap, set_encrypt_cap: 6, 6;
+pub mac_cap, set_mac_cap: 7, 7;
+pub mut_auth_cap, set_mut_auth_cap: 8, 8;
+pub key_ex_cap, set_key_ex_cap: 9, 9;
+pub psk_cap, set_psk_cap: 11, 10;
+pub encap_cap, set_encap_cap: 12, 12;
+pub hbeat_cap, set_hbeat_cap: 13, 13;
+pub key_upd_cap, set_key_upd_cap: 14, 14;
+pub handshake_in_the_clear_cap, set_handshake_in_the_clear_cap: 15, 15;
+pub pub_key_id_cap, set_pub_key_id_cap: 16, 16;
+pub chunk_cap, set_chunk_cap: 17, 17;
+pub alias_cert_cap, set_alias_cert_cap: 18, 18;
+pub set_certificate_cap, set_set_certificate_cap: 19, 19;
+pub csr_cap, set_csr_cap: 20, 20;
+pub cert_install_reset_cap, set_cert_install_reset_cap: 21, 21;
+pub ep_info_cap, set_ep_info_cap: 23, 22;
+pub mel_cap, set_mel_cap: 24, 24;
+pub event_cap, set_event_cap: 25, 25;
+pub multi_key_cap, set_multi_key_cap: 27, 26;
+pub get_key_pair_info_cap, set_get_key_pair_info_cap: 28, 28;
+pub set_key_pair_info_cap, set_set_key_pair_info_cap: 29, 29;
+reserved , _: 31, 30;
+}
+
+impl CapabilityFlags {
+    pub fn new(flags: u32) -> Self {
+        Self(flags)
+    }
+}

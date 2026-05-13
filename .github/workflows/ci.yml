@@ -1,0 +1,63 @@
+name: Lint, Build and Test
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+     - uses: actions/checkout@v4
+     - name: Install Rust (stable) with components
+       uses: dtolnay/rust-toolchain@stable
+       with:
+        components: clippy, rustfmt
+     - name: Cache cargo registry and build
+       uses: Swatinem/rust-cache@v2
+     - name: rustfmt check
+       run: cargo fmt --all -- --check
+     - name: clippy (deny warnings)
+       run: |
+         cargo clippy --all-targets --all-features --workspace -- -D warnings
+
+  build:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    - name: Install Rust (stable) with components
+      uses: dtolnay/rust-toolchain@stable
+    - name: Cache cargo registry and build
+      uses: Swatinem/rust-cache@v2
+    - name: Cargo Build
+      run: cargo build --all-targets --workspace --verbose
+
+  unit-tests:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    - name: Install Rust (stable) with components
+      uses: dtolnay/rust-toolchain@stable
+    - name: Cache cargo registry and build
+      uses: Swatinem/rust-cache@v2
+    - name: Run tests
+      run: cargo test --all-features --verbose --workspace
+  roundtrip-test:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    - name: Cache cargo registry and build
+      uses: Swatinem/rust-cache@v2
+    - name: Build examples
+      run: cargo build --examples
+    - name: Run tests
+      run: |
+        cargo run --example spdm_responder -- --port 2323 &
+        (sleep 1; cargo run --example spdm_requester -- --port 2323 )
+      
+

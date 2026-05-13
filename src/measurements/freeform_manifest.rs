@@ -1,0 +1,171 @@
+// Copyright 2025
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+use crate::commands::challenge::MeasurementSummaryHashType;
+use crate::measurements::common::{
+    DmtfMeasurementBlockMetadata, MeasurementValueType, MeasurementsError, MeasurementsResult,
+    SPDM_MEASUREMENT_MANIFEST_INDEX,
+};
+use crate::platform::evidence::{SpdmEvidence, PCR_QUOTE_BUFFER_SIZE};
+use crate::platform::hash::SpdmHash;
+use crate::protocol::{algorithms::AsymAlgo, SHA384_HASH_SIZE};
+use zerocopy::IntoBytes;
+
+const MAX_MEASUREMENT_RECORD_SIZE: usize =
+    PCR_QUOTE_BUFFER_SIZE + size_of::<DmtfMeasurementBlockMetadata>();
+
+/// Structure to hold the Freeform manifest data
+/// The measurement record consists of 1 measurement block whose value is the PCR quote from Caliptra.
+/// The strucuture of the measurement record is as follows:
+/// _________________________________________________________________________________________________
+/// | - index: SPDM_MEASUREMENT_MANIFEST_INDEX                                                      |
+/// | - MeasurementSpecification: 01h (DMTF)                                                        |
+/// |           - DMTFSpecMeasurementValueType[6:0]: 04h (Freeform Manifest)                        |
+/// |           - DMTFSpecMeasurementValueType[7]  : 1b  (raw bit-stream)                           |
+/// | - MeasurementSize: 2 bytes (size of the PCR Quote in DMTF measurement specification format)   |
+/// | - MeasurementBlock: measurement block (PCR Quote in DMTF measurement specification format)    |
+/// ________________________________________________________________________________________________|
+pub struct FreeformManifest {
+    measurement_record: [u8; MAX_MEASUREMENT_RECORD_SIZE],
+    data_size: usize,
+}
+
+impl Default for FreeformManifest {
+    fn default() -> Self {
+        FreeformManifest {
+            measurement_record: [0; MAX_MEASUREMENT_RECORD_SIZE],
+            data_size: 0,
+        }
+    }
+}
+
+#[allow(dead_code)]
+impl FreeformManifest {
+    pub(crate) fn total_measurement_count(&self) -> usize {
+        1
+    }
+
+    pub(crate) fn measurement_block_size(
+        &mut self,
+        evidence: &dyn SpdmEvidence,
+        asym_algo: AsymAlgo,
+        index: u8,
+        _raw_bit_stream: bool,
+    ) -> MeasurementsResult<usize> {
+        if index == SPDM_MEASUREMENT_MANIFEST_INDEX || index == 0xFF {
+            self.refresh_measurement_record(evidence, asym_algo)?;
+            Ok(self.data_size)
+        } else {
+            Err(MeasurementsError::InvalidIndex)
+        }
+    }
+
+    pub(crate) fn measurement_block(
+        &mut self,
+        evidence: &dyn SpdmEvidence,
+        asym_algo: AsymAlgo,
+        index: u8,
+        _raw_bit_stream: bool,
+        offset: usize,
+        measurement_chunk: &mut [u8],
+    ) -> MeasurementsResult<usize> {
+        if index == SPDM_MEASUREMENT_MANIFEST_INDEX || index == 0xFF {
+            self.refresh_measurement_record(evidence, asym_algo)?;
+            if offset >= self.data_size {
+                return Err(MeasurementsError::InvalidOffset);
+            }
+
+            let end = self
+                .measurement_record
+                .len()
+                .min(offset + measurement_chunk.len());
+            let chunk_size = end - offset;
+            measurement_chunk[..chunk_size].copy_from_slice(&self.measurement_record[offset..end]);
+
+            Ok(chunk_size)
+        } else {
+            Err(MeasurementsError::InvalidIndex)
+        }
+    }
+
+    pub(crate) fn measurement_summary_hash(
+        &mut self,
+        evidence: &dyn SpdmEvidence,
+        hash_ctx: &mut dyn SpdmHash,
+        asym_algo: AsymAlgo,
+        _measurement_summary_hash_type: MeasurementSummaryHashType,
+        hash: &mut [u8; SHA384_HASH_SIZE],
+    ) -> MeasurementsResult<()> {
+        self.refresh_measurement_record(evidence, asym_algo)?;
+
+        let mut offset = 0;
+
+        while offset < self.measurement_record.len() {
+            let chunk_size = self.measurement_record.len() - offset;
+
+            if offset == 0 {
+                hash_ctx
+                    .init(
+                        hash_ctx.algo(),
+                        Some(&self.measurement_record[..chunk_size]),
+                    )
+                    .map_err(MeasurementsError::Hash)?;
+            } else {
+                let chunk = &self.measurement_record[offset..offset + chunk_size];
+                hash_ctx.update(chunk).map_err(MeasurementsError::Hash)?;
+            }
+
+            offset += chunk_size;
+        }
+
+        hash_ctx.finalize(hash).map_err(MeasurementsError::Hash)
+    }
+
+    fn refresh_measurement_record(
+        &mut self,
+        evidence: &dyn SpdmEvidence,
+        asym_algo: AsymAlgo,
+    ) -> MeasurementsResult<()> {
+        let with_pqc_sig = asym_algo != AsymAlgo::EccP384;
+        let measurement_record = &mut self.measurement_record;
+        let measurement_value_size = evidence
+            .pcr_quote_size(with_pqc_sig)
+            .map_err(MeasurementsError::Evidence)?;
+        measurement_record.fill(0);
+        let metadata = DmtfMeasurementBlockMetadata::new(
+            SPDM_MEASUREMENT_MANIFEST_INDEX,
+            measurement_value_size as u16,
+            false,
+            MeasurementValueType::FreeformManifest,
+        )?;
+
+        const METADATA_SIZE: usize = size_of::<DmtfMeasurementBlockMetadata>();
+
+        measurement_record[0..METADATA_SIZE].copy_from_slice(metadata.as_bytes());
+
+        let quote_slice =
+            &mut measurement_record[METADATA_SIZE..METADATA_SIZE + PCR_QUOTE_BUFFER_SIZE];
+
+        let copied_len = evidence
+            .pcr_quote(quote_slice, with_pqc_sig)
+            .map_err(MeasurementsError::Evidence)?;
+        if copied_len != measurement_value_size {
+            return Err(MeasurementsError::MeasurementSizeMismatch);
+        }
+
+        self.data_size = METADATA_SIZE + measurement_value_size;
+
+        Ok(())
+    }
+}
