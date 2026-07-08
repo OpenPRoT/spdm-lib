@@ -1,0 +1,52 @@
+# Licensed under the Apache-2.0 license
+
+[workspace]
+resolver = "2"
+members = [
+    "errors",
+    "codec",
+    "traits",
+    "pal",
+    "stack",
+    "transports",
+    "vdm-handler",
+    "placeholders/spdm-error",
+    "placeholders/spdm-crypto",
+    "placeholders/spdm-transport-sys",
+    "placeholders/spdm-console",
+    "placeholders/spdm-platform",
+    "legacy",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+authors = ["Caliptra contributors", "OpenPRoT contributors"]
+
+[workspace.lints.clippy]
+too_many_arguments = { level = "allow", priority = 1 }
+type_complexity = { level = "allow", priority = 1 }
+
+[workspace.dependencies]
+# External crates (versions copied from caliptra-mcu-sw)
+async-trait = "0.1.87"
+bitfield = "0.14.0"
+bitfield-struct = "0.13.0"
+zerocopy = { version = "0.8.17", features = ["derive"] }
+futures = "0.3.31"
+
+# Platform-independent placeholders (replacing caliptra-mcu deps)
+spdm-error = { path = "placeholders/spdm-error" }
+spdm-crypto = { path = "placeholders/spdm-crypto" }
+spdm-transport-sys = { path = "placeholders/spdm-transport-sys" }
+spdm-console = { path = "placeholders/spdm-console" }
+spdm-platform = { path = "placeholders/spdm-platform" }
+
+# Internal spdm-lib crates
+spdm-errors = { path = "errors" }
+spdm-codec = { path = "codec" }
+spdm-traits = { path = "traits" }
+spdm-pal = { path = "pal" }
+spdm-stack = { path = "stack" }
+spdm-transports = { path = "transports" }
+spdm-vdm-handler = { path = "vdm-handler" }
