@@ -2,10 +2,10 @@
 
 //! TDISP ERROR response generation.
 
-use caliptra_mcu_spdm_codec::errors::SPDM_UNSPECIFIED;
-use caliptra_mcu_spdm_traits::{McuResult, VdmResponse};
+use spdm_codec::errors::SPDM_UNSPECIFIED;
+use spdm_traits::{McuResult, VdmResponse};
 
-use caliptra_mcu_spdm_codec::vendor_defined::pci_sig::tdisp::{
+use spdm_codec::vendor_defined::pci_sig::tdisp::{
     InterfaceId, TdispCommand, TdispErrorCode, TdispMessageHeader, ERROR_RSP_LEN, TDISP_HEADER_LEN,
 };
 

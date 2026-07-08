@@ -4,7 +4,7 @@
 
 use core::cell::Cell;
 
-use caliptra_mcu_spdm_codec::vendor_defined::pci_sig::tdisp::{
+use spdm_codec::vendor_defined::pci_sig::tdisp::{
     InterfaceId, START_INTERFACE_NONCE_SIZE,
 };
 

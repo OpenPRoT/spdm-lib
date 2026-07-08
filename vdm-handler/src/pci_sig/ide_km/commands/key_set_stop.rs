@@ -1,8 +1,8 @@
 // Licensed under the Apache-2.0 license
 
-use caliptra_mcu_spdm_codec::errors::SPDM_INVALID_REQUEST;
-use caliptra_mcu_spdm_codec::{KeySetGoStop, WireReader, WireWriter};
-use caliptra_mcu_spdm_traits::{McuResult, SpdmPalAlloc};
+use spdm_codec::errors::SPDM_INVALID_REQUEST;
+use spdm_codec::{KeySetGoStop, WireReader, WireWriter};
+use spdm_traits::{McuResult, SpdmPalAlloc};
 
 use crate::pci_sig::ide_km::{map_ide_error, IdeDriver};
 

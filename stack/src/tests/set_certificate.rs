@@ -4,7 +4,7 @@ extern crate std;
 
 use super::*;
 use crate::error::{SPDM_BUSY, SPDM_OPERATION_FAILED, SPDM_RESET_REQUIRED, SPDM_UNSPECIFIED};
-use caliptra_mcu_spdm_codec::{errors as wire_errors, OtherParamSupport};
+use spdm_codec::{errors as wire_errors, OtherParamSupport};
 use futures::executor::block_on;
 use std::vec::Vec;
 
@@ -386,7 +386,7 @@ fn test_validate_der_chain_rejects_trailing_garbage() {
 #[test]
 fn test_handle_set_certificate_calls_pal_validation_before_write() {
     let pal = TestPal {
-        validate_error: Some(mcu_error::codes::INVARIANT),
+        validate_error: Some(spdm_error::codes::INVARIANT),
         ..TestPal::default()
     };
     let mut state = state(SpdmVersion::V12);

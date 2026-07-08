@@ -14,10 +14,10 @@
 //! 5. Builds the `CAPABILITIES` response from the responder's fixed
 //!    local policy, then transitions to [`Phase::AfterCapabilities`].
 
-use caliptra_mcu_spdm_codec::{
+use spdm_codec::{
     CapFlags, CapabilitiesBody, CapabilitiesRsp, ResponseBody, SpdmMsgHdrPdu, SpdmVersion,
 };
-use caliptra_mcu_spdm_traits::{PalBytes, SpdmPal, SpdmPalAlloc, SpdmPalIo, SpdmPalIoTransport};
+use spdm_traits::{PalBytes, SpdmPal, SpdmPalAlloc, SpdmPalIo, SpdmPalIoTransport};
 use zerocopy::FromBytes;
 
 use crate::build::build_response;

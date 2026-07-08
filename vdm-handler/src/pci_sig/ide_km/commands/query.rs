@@ -1,11 +1,11 @@
 // Licensed under the Apache-2.0 license
 
-use caliptra_mcu_spdm_codec::errors::SPDM_INVALID_REQUEST;
-use caliptra_mcu_spdm_codec::{
+use spdm_codec::errors::SPDM_INVALID_REQUEST;
+use spdm_codec::{
     IdeKmHdr, IdeRegBlock, LinkIdeStreamRegBlock, PortConfig, Query, SelectiveIdeStreamRegBlock,
     WireReader, WireWriter,
 };
-use caliptra_mcu_spdm_traits::{McuResult, SpdmPalAlloc};
+use spdm_traits::{McuResult, SpdmPalAlloc};
 use zerocopy::{Immutable, IntoBytes};
 
 use crate::pci_sig::ide_km::{map_ide_error, IdeDriver};
@@ -57,7 +57,7 @@ where
 {
     writer
         .write(&IdeKmHdr {
-            object_id: caliptra_mcu_spdm_codec::IDE_KM_OBJECT_ID_QUERY_RESP,
+            object_id: spdm_codec::IDE_KM_OBJECT_ID_QUERY_RESP,
         })
         .map_err(|_| SPDM_INVALID_REQUEST)?;
 
@@ -112,7 +112,7 @@ where
     W: QueryResponseWriter,
 {
     let count = block.capability_reg.num_addr_association_reg_blocks() as usize;
-    if count > caliptra_mcu_spdm_codec::MAX_SELECTIVE_IDE_ADDR_ASSOC_BLOCK_COUNT {
+    if count > spdm_codec::MAX_SELECTIVE_IDE_ADDR_ASSOC_BLOCK_COUNT {
         return Err(SPDM_INVALID_REQUEST);
     }
 

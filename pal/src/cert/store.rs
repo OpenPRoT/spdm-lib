@@ -8,10 +8,10 @@
 
 use core::cell::UnsafeCell;
 
-use mcu_caliptra_api_lite::{
+use spdm_crypto::{
     sha_finish, sha_init, sha_update, ApiAlloc, HashAlgo, SHA_CONTEXT_SIZE,
 };
-use mcu_error::McuResult;
+use spdm_error::McuResult;
 
 #[cfg(feature = "set-certificate")]
 use super::endorsement::ManagedEndorsement;
@@ -77,7 +77,7 @@ impl SharedCertStore {
         key_pair_id: u8,
     ) -> McuResult<()> {
         if idx >= NUM_CERT_SLOTS || chain.is_empty() {
-            return Err(mcu_error::codes::INVARIANT);
+            return Err(spdm_error::codes::INVARIANT);
         }
         let root_cert = chain[0];
         let sha_buf = alloc.alloc(SHA_CONTEXT_SIZE)?;
@@ -86,7 +86,7 @@ impl SharedCertStore {
         let mut hash = [0u8; 48];
         sha_finish(alloc, &mut state, &mut hash).await?;
 
-        let slot = self.cert_slot_mut(idx).ok_or(mcu_error::codes::INVARIANT)?;
+        let slot = self.cert_slot_mut(idx).ok_or(spdm_error::codes::INVARIANT)?;
         slot.endorsement = SlotEndorsement::ReadOnly(ReadOnlyEndorsement::new(chain, hash));
         slot.key_pair_id = Some(key_pair_id);
         slot.cert_info = Some(DEFAULT_CERT_INFO);
@@ -106,11 +106,11 @@ impl SharedCertStore {
         capacity: usize,
     ) -> McuResult<()> {
         if idx >= NUM_CERT_SLOTS || capacity == 0 {
-            return Err(mcu_error::codes::INVARIANT);
+            return Err(spdm_error::codes::INVARIANT);
         }
         let mut endorsement = ManagedEndorsement::new(spdm_slot, driver_num, base, capacity);
         endorsement.load().await?;
-        let slot = self.cert_slot_mut(idx).ok_or(mcu_error::codes::INVARIANT)?;
+        let slot = self.cert_slot_mut(idx).ok_or(spdm_error::codes::INVARIANT)?;
         slot.key_pair_id = endorsement.key_pair_id();
         slot.cert_info = endorsement.cert_info();
         slot.endorsement = SlotEndorsement::Managed(endorsement);

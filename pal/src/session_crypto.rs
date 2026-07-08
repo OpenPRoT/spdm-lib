@@ -7,8 +7,8 @@
 
 use super::measurements::MeasurementProvider;
 use super::*;
-use caliptra_mcu_spdm_traits::{McuResult, SpdmPalIo, SpdmPalSessionCrypto};
-use mcu_caliptra_api_lite::{
+use spdm_traits::{McuResult, SpdmPalIo, SpdmPalSessionCrypto};
+use spdm_crypto::{
     cm_hmac, cm_import, ecdh_finish as api_ecdh_finish, ecdh_generate as api_ecdh_generate,
     hkdf_expand, hkdf_extract, spdm_aes_gcm_decrypt, spdm_aes_gcm_encrypt, CmKeyUsage, Cmk,
     HkdfSalt,

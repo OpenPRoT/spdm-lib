@@ -9,11 +9,11 @@
 pub mod ide_km;
 pub mod tdisp;
 
-use caliptra_mcu_spdm_codec::errors::{
+use spdm_codec::errors::{
     SPDM_INVALID_REQUEST, SPDM_UNSPECIFIED, SPDM_UNSUPPORTED_REQUEST,
 };
-use caliptra_mcu_spdm_codec::StandardsBodyId;
-use caliptra_mcu_spdm_traits::{
+use spdm_codec::StandardsBodyId;
+use spdm_traits::{
     McuResult, SpdmPalAlloc, SpdmPalIo, SpdmVdmBackend, VdmRegistry, VdmResponse, VdmResponseBuffer,
 };
 
@@ -110,8 +110,8 @@ mod tests {
     use core::pin::Pin;
     use core::task::{Context, Poll, RawWaker, RawWakerVTable, Waker};
 
-    use caliptra_mcu_spdm_codec::{errors::SPDM_VERSION_MISMATCH, IDE_KM_PROTOCOL_ID};
-    use caliptra_mcu_spdm_traits::{SpdmPalIoKind, VdmResponse};
+    use spdm_codec::{errors::SPDM_VERSION_MISMATCH, IDE_KM_PROTOCOL_ID};
+    use spdm_traits::{SpdmPalIoKind, VdmResponse};
     use std::boxed::Box;
     use std::vec;
     use std::vec::Vec;
@@ -162,7 +162,7 @@ mod tests {
 
     struct TestAlloc;
 
-    impl mcu_caliptra_api_lite::ApiAlloc for TestAlloc {
+    impl spdm_crypto::ApiAlloc for TestAlloc {
         type Buf<'a>
             = Vec<u8>
         where

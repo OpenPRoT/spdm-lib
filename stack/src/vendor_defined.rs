@@ -8,11 +8,11 @@
 //! both the plaintext (`dispatch`) and secured (`handle_secured_inner`) paths, mirroring
 //! how `GET_MEASUREMENTS` is handled.
 
-use caliptra_mcu_spdm_codec::{
+use spdm_codec::{
     decode_vendor_defined_req, ReqRespCode, ResponseBody, SpdmMsgHdrPdu, SpdmVersion,
     VendorDefinedRspBody, WireWriter,
 };
-use caliptra_mcu_spdm_traits::{
+use spdm_traits::{
     PalBytes, SpdmPal, SpdmPalAlloc, SpdmPalIoTransport, SpdmVdmBackend, VdmRegistry, VdmResponse,
     VdmResponseBuffer,
 };

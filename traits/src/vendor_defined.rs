@@ -122,6 +122,6 @@ impl SpdmVdmBackend for NoVdmBackend {
         Alloc: SpdmPalAlloc,
         Io: SpdmPalIo,
     {
-        Err(mcu_error::codes::NOT_IMPLEMENTED)
+        Err(spdm_error::codes::NOT_IMPLEMENTED)
     }
 }

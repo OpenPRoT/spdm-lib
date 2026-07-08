@@ -2,7 +2,7 @@
 
 //! Production debug unlock VDM commands.
 
-use caliptra_mcu_spdm_traits::SpdmPalAlloc;
+use spdm_traits::SpdmPalAlloc;
 
 use crate::iana::ocp::caliptra_vdm::{
     CaliptraCompletionCode, CaliptraVdmCmdResult, CaliptraVdmCommands,
