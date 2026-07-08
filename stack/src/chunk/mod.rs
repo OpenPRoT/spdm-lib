@@ -8,7 +8,7 @@ mod send;
 pub(crate) use get::handle_chunk_get;
 pub(crate) use send::handle_chunk_send;
 
-use caliptra_mcu_spdm_traits::{PalBytes, SpdmPal, SpdmPalAlloc, SpdmPalIoTransport};
+use spdm_traits::{PalBytes, SpdmPal, SpdmPalAlloc, SpdmPalIoTransport};
 
 use crate::build::build_error_response;
 use crate::certificate::CertificateLargeResponse;

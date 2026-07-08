@@ -1,8 +1,8 @@
 // Licensed under the Apache-2.0 license
 
-use caliptra_mcu_spdm_codec::errors::SPDM_INVALID_REQUEST;
-use caliptra_mcu_spdm_codec::{IdeKmHdr, KeyData, KeyProg, WireReader, WireWriter};
-use caliptra_mcu_spdm_traits::{McuResult, SpdmPalAlloc};
+use spdm_codec::errors::SPDM_INVALID_REQUEST;
+use spdm_codec::{IdeKmHdr, KeyData, KeyProg, WireReader, WireWriter};
+use spdm_traits::{McuResult, SpdmPalAlloc};
 
 use crate::pci_sig::ide_km::{map_ide_error, IdeDriver};
 
@@ -33,7 +33,7 @@ where
     key_prog.status = status;
     writer
         .write(&IdeKmHdr {
-            object_id: caliptra_mcu_spdm_codec::IDE_KM_OBJECT_ID_KEY_PROG_ACK,
+            object_id: spdm_codec::IDE_KM_OBJECT_ID_KEY_PROG_ACK,
         })
         .map_err(|_| SPDM_INVALID_REQUEST)?;
     writer.write(&key_prog).map_err(|_| SPDM_INVALID_REQUEST)?;

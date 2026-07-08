@@ -11,13 +11,13 @@
 
 mod commands;
 
-use caliptra_mcu_spdm_codec::StandardsBodyId;
-use caliptra_mcu_spdm_traits::{
+use spdm_codec::StandardsBodyId;
+use spdm_traits::{
     McuResult, SpdmPalAlloc, SpdmPalIo, SpdmVdmBackend, VdmRegistry, VdmResponse, VdmResponseBuffer,
 };
-use mcu_error::codes::INVARIANT;
+use spdm_error::codes::INVARIANT;
 
-pub use caliptra_mcu_spdm_codec::vendor_defined::iana::ocp::caliptra::{
+pub use spdm_codec::vendor_defined::iana::ocp::caliptra::{
     CaliptraCompletionCode, CaliptraVdmCmdResult, CaliptraVdmCommand, CaliptraVdmResult,
     CALIPTRA_VDM_COMMAND_VERSION, CALIPTRA_VENDOR_ID,
 };
@@ -234,10 +234,10 @@ mod tests {
     use core::pin::Pin;
     use core::task::{Context, Poll, RawWaker, RawWakerVTable, Waker};
 
-    use caliptra_mcu_spdm_traits::{
+    use spdm_traits::{
         SpdmPalAlloc, SpdmPalIo, SpdmPalIoKind, SpdmVdmBackend, VdmResponse, VdmResponseBuffer,
     };
-    use mcu_error::McuResult;
+    use spdm_error::McuResult;
     use std::boxed::Box;
     use std::vec;
     use std::vec::Vec;
@@ -277,7 +277,7 @@ mod tests {
 
     struct TestAlloc;
 
-    impl mcu_caliptra_api_lite::ApiAlloc for TestAlloc {
+    impl spdm_crypto::ApiAlloc for TestAlloc {
         type Buf<'a>
             = Vec<u8>
         where

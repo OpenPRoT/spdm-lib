@@ -28,8 +28,8 @@ extern crate alloc;
 use alloc::boxed::Box;
 
 use async_trait::async_trait;
-use caliptra_mcu_libsyscall_caliptra::doe::{driver_num, Doe};
-use caliptra_mcu_spdm_traits::{McuResult, SpdmPalIoKind, SpdmPalTransport};
+use spdm_transport_sys::doe::{driver_num, Doe};
+use spdm_traits::{McuResult, SpdmPalIoKind, SpdmPalTransport};
 
 use crate::errors::doe as error_code;
 

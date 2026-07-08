@@ -2,10 +2,10 @@
 
 //! GET_DEBUG_LOG (0x05): drains debug-log bytes.
 
-use caliptra_mcu_spdm_traits::SpdmPalAlloc;
+use spdm_traits::SpdmPalAlloc;
 
 use crate::iana::ocp::caliptra_vdm::CaliptraVdmCommands;
-use caliptra_mcu_spdm_codec::vendor_defined::iana::ocp::caliptra::CaliptraVdmCmdResult;
+use spdm_codec::vendor_defined::iana::ocp::caliptra::CaliptraVdmCmdResult;
 
 pub(crate) async fn handle<H, A>(
     cmds: &H,

@@ -2,19 +2,19 @@
 
 //! Error code constants produced by spdm-lib transports.
 //!
-//! Subdomain bytes live in [`caliptra_mcu_spdm_errors`]; this module owns
+//! Subdomain bytes live in [`spdm_errors`]; this module owns
 //! the per-transport [`McuErrorCode`] constants. Each transport gets its
-//! own submodule so callers can `use caliptra_mcu_spdm_transports::errors::mctp::*;`.
+//! own submodule so callers can `use spdm_transports::errors::mctp::*;`.
 
-use mcu_error::{domain, McuErrorCode};
+use spdm_error::{domain, McuErrorCode};
 
 /// Error codes returned by [`crate::mctp::McuSpdmMctpTransport`].
 ///
-/// All codes live in [`mcu_error::domain::SPDM`] subdomain
-/// [`caliptra_mcu_spdm_errors::SUBDOMAIN_MCTP`].
+/// All codes live in [`spdm_error::domain::SPDM`] subdomain
+/// [`spdm_errors::SUBDOMAIN_MCTP`].
 pub mod mctp {
     use super::{domain, McuErrorCode};
-    use caliptra_mcu_spdm_errors::SUBDOMAIN_MCTP;
+    use spdm_errors::SUBDOMAIN_MCTP;
 
     /// The received message did not match the configured MCTP message type.
     pub const UNEXPECTED_MESSAGE_TYPE: McuErrorCode =
@@ -44,7 +44,7 @@ pub mod mctp {
 /// Error codes returned by [`crate::doe::McuSpdmDoeTransport`].
 pub mod doe {
     use super::{domain, McuErrorCode};
-    use caliptra_mcu_spdm_errors::SUBDOMAIN_DOE;
+    use spdm_errors::SUBDOMAIN_DOE;
 
     /// The received DOE data object type is not SPDM or Secure SPDM.
     pub const UNEXPECTED_OBJECT_TYPE: McuErrorCode =

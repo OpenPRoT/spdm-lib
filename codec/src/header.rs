@@ -101,7 +101,7 @@ const _: () = assert!(core::mem::align_of::<SpdmMsgHdrPdu>() == 1);
 
 // ---- Protocol-wide constants ------------------------------------------------
 
-pub use caliptra_mcu_spdm_traits::SPDM_NONCE_LEN;
+pub use spdm_traits::SPDM_NONCE_LEN;
 
 /// SHA-384 digest size (48 bytes).
 pub const SHA384_HASH_SIZE: usize = 48;

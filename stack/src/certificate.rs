@@ -10,11 +10,11 @@
 //! The portion buffer comes from the per-IO bitmap pool — no
 //! stack-allocated `[u8; N]` array for cert payload.
 
-use caliptra_mcu_spdm_codec::{
+use spdm_codec::{
     CertificateRsp, CertificateRspBody, GetCertificateReqBody, ReqRespCode, ResponseBody,
     SpdmMsgHdrPdu, SpdmVersion, WireWriter, ATTR_SLOT_SIZE_REQUESTED,
 };
-use caliptra_mcu_spdm_traits::{
+use spdm_traits::{
     PalBytes, SpdmPal, SpdmPalAlloc, SpdmPalAsymAlgo, SpdmPalIo, SpdmPalIoTransport, MAX_SLOTS,
 };
 use zerocopy::{little_endian::U16, FromBytes};
@@ -76,12 +76,12 @@ impl CertificateLargeResponse {
         version: SpdmVersion,
         offset: usize,
         dst: &mut [u8],
-    ) -> mcu_error::McuResult<()> {
+    ) -> spdm_error::McuResult<()> {
         let end = offset
             .checked_add(dst.len())
-            .ok_or(mcu_error::codes::INVARIANT)?;
+            .ok_or(spdm_error::codes::INVARIANT)?;
         if end > self.response_size() {
-            return Err(mcu_error::codes::INVARIANT);
+            return Err(spdm_error::codes::INVARIANT);
         }
 
         let mut written = 0;
@@ -90,7 +90,7 @@ impl CertificateLargeResponse {
             let mut writer = WireWriter::new(&mut hdr);
             writer
                 .write(&SpdmMsgHdrPdu::new(version, ReqRespCode::CERTIFICATE))
-                .map_err(|_| mcu_error::codes::INVARIANT)?;
+                .map_err(|_| spdm_error::codes::INVARIANT)?;
             writer
                 .write(&CertificateRspBody {
                     slot_id: self.slot_id,
@@ -98,13 +98,13 @@ impl CertificateLargeResponse {
                     portion_length: U16::new(self.portion_len),
                     remainder_length: U16::new(self.remainder_len),
                 })
-                .map_err(|_| mcu_error::codes::INVARIANT)?;
+                .map_err(|_| spdm_error::codes::INVARIANT)?;
             let hdr_end = CERTIFICATE_RESPONSE_HEADER_SIZE.min(end);
             let copy_len = hdr_end - offset;
             let src = hdr
                 .get(offset..hdr_end)
-                .ok_or(mcu_error::codes::INVARIANT)?;
-            let dst_head = dst.get_mut(..copy_len).ok_or(mcu_error::codes::INVARIANT)?;
+                .ok_or(spdm_error::codes::INVARIANT)?;
+            let dst_head = dst.get_mut(..copy_len).ok_or(spdm_error::codes::INVARIANT)?;
             for (d, s) in dst_head.iter_mut().zip(src) {
                 *d = *s;
             }
@@ -321,7 +321,7 @@ pub(crate) async fn fill_cert_chain_portion<Pal: SpdmPal>(
     asym_algo: SpdmPalAsymAlgo,
     offset: usize,
     dst: &mut [u8],
-) -> mcu_error::McuResult<()> {
+) -> spdm_error::McuResult<()> {
     if dst.is_empty() {
         return Ok(());
     }
@@ -329,9 +329,9 @@ pub(crate) async fn fill_cert_chain_portion<Pal: SpdmPal>(
     let total_len = SPDM_CERT_CHAIN_HDR_LEN + der_len;
     let end = offset
         .checked_add(dst.len())
-        .ok_or(mcu_error::codes::INVARIANT)?;
+        .ok_or(spdm_error::codes::INVARIANT)?;
     if end > total_len {
-        return Err(mcu_error::codes::INVARIANT);
+        return Err(spdm_error::codes::INVARIANT);
     }
 
     // Bytes from the SPDM cert-chain header (if any) come first.
@@ -345,12 +345,12 @@ pub(crate) async fn fill_cert_chain_portion<Pal: SpdmPal>(
         // bytes 2..4 (Reserved) stay zero
         let root_hash = hdr
             .get_mut(4..4 + SHA384_DIGEST_SIZE)
-            .ok_or(mcu_error::codes::INVARIANT)?;
+            .ok_or(spdm_error::codes::INVARIANT)?;
         pal.root_cert_hash(
             io,
             slot,
             asym_algo,
-            caliptra_mcu_spdm_traits::SpdmPalHashAlgo::Sha384,
+            spdm_traits::SpdmPalHashAlgo::Sha384,
             root_hash,
         )
         .await?;
@@ -358,8 +358,8 @@ pub(crate) async fn fill_cert_chain_portion<Pal: SpdmPal>(
         let copy_len = hdr_end - offset;
         let src = hdr
             .get(offset..hdr_end)
-            .ok_or(mcu_error::codes::INVARIANT)?;
-        let dst_head = dst.get_mut(..copy_len).ok_or(mcu_error::codes::INVARIANT)?;
+            .ok_or(spdm_error::codes::INVARIANT)?;
+        let dst_head = dst.get_mut(..copy_len).ok_or(spdm_error::codes::INVARIANT)?;
         for (d, s) in dst_head.iter_mut().zip(src) {
             *d = *s;
         }
@@ -373,7 +373,7 @@ pub(crate) async fn fill_cert_chain_portion<Pal: SpdmPal>(
             .read_cert_chain(io, slot, asym_algo, der_offset, &mut dst[written..])
             .await?;
         if n != dst.len() - written {
-            return Err(mcu_error::codes::INVARIANT);
+            return Err(spdm_error::codes::INVARIANT);
         }
     }
     Ok(())

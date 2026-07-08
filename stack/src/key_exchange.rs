@@ -13,13 +13,13 @@
 //! 7. Compute responder verify_data (HMAC of TH1')
 //! 8. Build final response with signature + verify_data
 
-use caliptra_mcu_spdm_codec::{
+use spdm_codec::{
     encode_version_selection, parse_supported_versions, select_version, KeyExchangeReqBody,
     KeyExchangeRsp, ResponseBody, SpdmMsgHdrPdu, SpdmVersion, ECC_P384_SIGNATURE_SIZE,
     ECDH_P384_EXCHANGE_DATA_SIZE, KEY_EXCHANGE_RANDOM_DATA_LEN, OPAQUE_VERSION_SELECTION_SIZE,
     SHA384_HASH_SIZE, SPDM_PREFIX_LEN, SPDM_SIGNING_CONTEXT_LEN,
 };
-use caliptra_mcu_spdm_traits::*;
+use spdm_traits::*;
 use zerocopy::FromBytes;
 
 use crate::build::{build_response, write_fixed};
@@ -385,7 +385,7 @@ async fn compute_tbs_hash<Pal: SpdmPal>(
     io: &<Pal as SpdmPalIoTransport>::Io<'_>,
     signing_ctx: &mut [u8; SPDM_SIGNING_CONTEXT_LEN],
     th_hash: &[u8; SHA384_HASH_SIZE],
-) -> mcu_error::McuResult<()> {
+) -> spdm_error::McuResult<()> {
     let mut state = pal
         .hash_init(io, SpdmPalHashAlgo::Sha384, &*signing_ctx)
         .await?;

@@ -6,8 +6,8 @@
 //! [`MeasurementProvider`] type parameter on [`McuSpdmPal`].
 
 use crate::alloc::BitmapAllocator;
-use caliptra_mcu_spdm_traits::{MeasurementInfo, SpdmPalMeasurements, SPDM_NONCE_LEN};
-use mcu_error::McuResult;
+use spdm_traits::{MeasurementInfo, SpdmPalMeasurements, SPDM_NONCE_LEN};
+use spdm_error::McuResult;
 
 use crate::pal::McuSpdmPal;
 
@@ -64,7 +64,7 @@ impl<M: MeasurementProvider> SpdmPalMeasurements for McuSpdmPal<M> {
             let mut scratch = self
                 .allocator
                 .alloc_bytes(M::SCRATCH_SIZE)
-                .map_err(|_| mcu_error::codes::INTERNAL_BUG)?;
+                .map_err(|_| spdm_error::codes::INTERNAL_BUG)?;
             scratch.fill(0);
             self.meas_provider
                 .get_measurement_value(index, nonce, out, &mut scratch, self.allocator)

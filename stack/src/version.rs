@@ -8,8 +8,8 @@
 //! [`ConnectionState::reset_negotiation`] before invoking us so that
 //! GET_VERSION always resets the connection.
 
-use caliptra_mcu_spdm_codec::{ResponseBody, SpdmMsgHdrPdu, SpdmVersion, VersionRsp};
-use caliptra_mcu_spdm_traits::{PalBytes, SpdmPal, SpdmPalAlloc, SpdmPalIo};
+use spdm_codec::{ResponseBody, SpdmMsgHdrPdu, SpdmVersion, VersionRsp};
+use spdm_traits::{PalBytes, SpdmPal, SpdmPalAlloc, SpdmPalIo};
 use zerocopy::FromBytes;
 
 use crate::build::build_response;

@@ -22,11 +22,11 @@
 //! `peer_key_schedule`. Anything else (e.g. `ReqBaseAsymAlg`) is
 //! accepted but ignored.
 
-use caliptra_mcu_spdm_codec::{
+use spdm_codec::{
     alg_type, AeadAlgos, AlgStructEntry, AlgorithmsRsp, CapFlags, DheAlgos, KeyScheduleAlgos,
     NegotiateAlgorithmsReqBodyFixed, OtherParamSupport, ResponseBody, SpdmMsgHdrPdu, SpdmVersion,
 };
-use caliptra_mcu_spdm_traits::{PalBytes, SpdmPal, SpdmPalAlloc, SpdmPalIo, SpdmPalIoTransport};
+use spdm_traits::{PalBytes, SpdmPal, SpdmPalAlloc, SpdmPalIo, SpdmPalIoTransport};
 use zerocopy::FromBytes;
 
 use crate::build::build_response;

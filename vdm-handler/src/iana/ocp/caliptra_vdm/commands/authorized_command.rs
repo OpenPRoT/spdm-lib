@@ -2,10 +2,10 @@
 
 //! AUTHORIZED_COMMAND (0x12): dispatches authorization subcommands.
 
-use caliptra_mcu_spdm_traits::SpdmPalAlloc;
+use spdm_traits::SpdmPalAlloc;
 
 use crate::iana::ocp::caliptra_vdm::CaliptraVdmCommands;
-use caliptra_mcu_spdm_codec::vendor_defined::iana::ocp::caliptra::{
+use spdm_codec::vendor_defined::iana::ocp::caliptra::{
     CaliptraCompletionCode, CaliptraVdmCmdResult,
 };
 

@@ -9,8 +9,8 @@
 
 use super::measurements::MeasurementProvider;
 use super::*;
-use caliptra_mcu_spdm_traits::{SpdmPalHash, SpdmPalHashAlgo, SpdmPalIo};
-use mcu_caliptra_api_lite::{
+use spdm_traits::{SpdmPalHash, SpdmPalHashAlgo, SpdmPalIo};
+use spdm_crypto::{
     sha_finish, sha_init, sha_update, ApiAlloc, HashAlgo, HashState, SHA_CONTEXT_SIZE,
 };
 

@@ -4,9 +4,9 @@
 //!
 //! This module bridges the framed-request/response interface that the
 //! SPDM-Lite stack drives
-//! ([`SpdmPalIoTransport`](caliptra_mcu_spdm_traits::SpdmPalIoTransport))
+//! ([`SpdmPalIoTransport`](spdm_traits::SpdmPalIoTransport))
 //! onto the byte-oriented platform transport
-//! ([`SpdmPalTransport`](caliptra_mcu_spdm_traits::SpdmPalTransport))
+//! ([`SpdmPalTransport`](spdm_traits::SpdmPalTransport))
 //! held inside [`McuSpdmPal`].
 //!
 //! # Buffer flow

@@ -4,11 +4,11 @@
 //! codec.
 //!
 //! Subdomain bytes and the wire-byte encoding live in
-//! [`caliptra_mcu_spdm_errors`]; this module owns the concrete error
+//! [`spdm_errors`]; this module owns the concrete error
 //! constants the codec emits.
 
-use caliptra_mcu_spdm_errors::{spdm_wire, SUBDOMAIN_LOCAL};
-use mcu_error::{domain, McuErrorCode};
+use spdm_errors::{spdm_wire, SUBDOMAIN_LOCAL};
+use spdm_error::{domain, McuErrorCode};
 
 // ---- SPDM wire errors (DSP0274 §10.10.2) ------------------------------------
 

@@ -4,11 +4,11 @@
 
 extern crate std;
 
-use caliptra_mcu_spdm_codec::{
+use spdm_codec::{
     AsymAlgos, CapFlags, HashAlgos, ReqRespCode, SpdmVersion, AES_256_GCM_TAG_SIZE,
     CHUNK_ATTR_LAST_CHUNK, SECURED_MSG_HDR_SIZE,
 };
-use caliptra_mcu_spdm_traits::{
+use spdm_traits::{
     MeasurementInfo, SpdmPalAlloc, SpdmPalAsymAlgo, SpdmPalCertStore, SpdmPalHash, SpdmPalHashAlgo,
     SpdmPalIo, SpdmPalIoKind, SpdmPalIoTransport, SpdmPalMeasurements, SpdmPalSessionCrypto,
     SPDM_NONCE_LEN,
@@ -16,7 +16,7 @@ use caliptra_mcu_spdm_traits::{
 use core::marker::PhantomData;
 use core::ops::{Deref, DerefMut};
 use futures::executor::block_on;
-use mcu_error::{McuErrorCode, McuResult};
+use spdm_error::{McuErrorCode, McuResult};
 use std::boxed::Box;
 use std::cell::RefCell;
 use std::vec;
@@ -123,7 +123,7 @@ impl Default for TestPal {
     }
 }
 
-impl mcu_caliptra_api_lite::ApiAlloc for TestPal {
+impl spdm_crypto::ApiAlloc for TestPal {
     type Buf<'a>
         = Vec<u8>
     where
@@ -191,7 +191,7 @@ impl SpdmPalIoTransport for TestPal {
     }
 
     async fn recv_request(&self) -> McuResult<Self::Io<'_>> {
-        Err(mcu_error::codes::NOT_IMPLEMENTED)
+        Err(spdm_error::codes::NOT_IMPLEMENTED)
     }
 
     async fn send_response(
@@ -200,7 +200,7 @@ impl SpdmPalIoTransport for TestPal {
         _kind: SpdmPalIoKind,
         _msg: &mut [u8],
     ) -> McuResult<()> {
-        Err(mcu_error::codes::NOT_IMPLEMENTED)
+        Err(spdm_error::codes::NOT_IMPLEMENTED)
     }
 }
 
@@ -405,7 +405,7 @@ impl SpdmPalMeasurements for TestPal {
         _nonce: Option<&[u8; SPDM_NONCE_LEN]>,
         _out: &mut [u8],
     ) -> McuResult<usize> {
-        Err(mcu_error::codes::NOT_IMPLEMENTED)
+        Err(spdm_error::codes::NOT_IMPLEMENTED)
     }
 }
 
@@ -504,7 +504,7 @@ impl SpdmPalSessionCrypto for TestPal {
     }
 }
 
-impl caliptra_mcu_spdm_traits::SpdmPal for TestPal {}
+impl spdm_traits::SpdmPal for TestPal {}
 
 pub fn test_digest(data: &[u8]) -> [u8; SHA384_DIGEST_SIZE] {
     let mut digest = [0u8; SHA384_DIGEST_SIZE];

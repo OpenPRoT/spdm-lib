@@ -3,7 +3,7 @@
 extern crate std;
 
 use super::*;
-use caliptra_mcu_spdm_traits::NoVdmBackend;
+use spdm_traits::NoVdmBackend;
 use futures::executor::block_on;
 use std::vec::Vec;
 
