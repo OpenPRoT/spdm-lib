@@ -6,7 +6,7 @@
 //! measurement data (firmware digests, configuration hashes, device mode, etc.)
 //! to the GET_MEASUREMENTS handler.
 
-use mcu_error::McuResult;
+use spdm_error::McuResult;
 
 /// SPDM nonce length in bytes.
 pub const SPDM_NONCE_LEN: usize = 32;

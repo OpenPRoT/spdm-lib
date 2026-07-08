@@ -8,7 +8,7 @@
 //! MLDSA-87 will be added later using the same interfaces.
 
 use crate::SpdmPalHashAlgo;
-use mcu_error::McuResult;
+use spdm_error::McuResult;
 
 /// Maximum number of cert-chain slots the responder advertises.
 /// DSP0274 §10.5 caps this at 8 (`SlotMask` is one byte).

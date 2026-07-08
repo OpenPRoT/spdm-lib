@@ -2,11 +2,11 @@
 
 //! CHUNK_SEND large-request reassembly.
 
-use caliptra_mcu_spdm_codec::{
+use spdm_codec::{
     CapabilitiesBody, ChunkSendAckBody, ChunkSendReqBody, ReqRespCode, SpdmMsgHdrPdu, SpdmVersion,
     WireWriter, CHUNK_ACK_ATTR_EARLY_ERROR, CHUNK_ATTR_LAST_CHUNK,
 };
-use caliptra_mcu_spdm_traits::{
+use spdm_traits::{
     PalBytes, SpdmPal, SpdmPalAlloc, SpdmPalIoTransport, SpdmVdmBackend,
 };
 use zerocopy::{little_endian::U16, FromBytes};
@@ -483,14 +483,14 @@ mod tests {
 
     use core::cell::RefCell;
 
-    use caliptra_mcu_spdm_codec::vendor_defined::iana::ocp::caliptra::{
+    use spdm_codec::vendor_defined::iana::ocp::caliptra::{
         CaliptraVdmCommand, CALIPTRA_VDM_COMMAND_VERSION, CALIPTRA_VENDOR_ID,
     };
-    use caliptra_mcu_spdm_traits::{
+    use spdm_traits::{
         SpdmPalAlloc, SpdmPalIo, SpdmVdmBackend, VdmRegistry, VdmResponse, VdmResponseBuffer,
     };
     use futures::executor::block_on;
-    use mcu_error::McuResult;
+    use spdm_error::McuResult;
     use std::vec;
     use std::vec::Vec;
 

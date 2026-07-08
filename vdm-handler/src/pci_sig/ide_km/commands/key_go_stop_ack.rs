@@ -1,8 +1,8 @@
 // Licensed under the Apache-2.0 license
 
-use caliptra_mcu_spdm_codec::errors::SPDM_INVALID_REQUEST;
-use caliptra_mcu_spdm_codec::{IdeKmHdr, KeySetGoStop, WireWriter};
-use caliptra_mcu_spdm_traits::McuResult;
+use spdm_codec::errors::SPDM_INVALID_REQUEST;
+use spdm_codec::{IdeKmHdr, KeySetGoStop, WireWriter};
+use spdm_traits::McuResult;
 
 pub(crate) fn write_key_go_stop_ack(
     req: KeySetGoStop,
@@ -10,7 +10,7 @@ pub(crate) fn write_key_go_stop_ack(
 ) -> McuResult<usize> {
     writer
         .write(&IdeKmHdr {
-            object_id: caliptra_mcu_spdm_codec::IDE_KM_OBJECT_ID_KEY_GO_STOP_ACK,
+            object_id: spdm_codec::IDE_KM_OBJECT_ID_KEY_GO_STOP_ACK,
         })
         .map_err(|_| SPDM_INVALID_REQUEST)?;
     writer

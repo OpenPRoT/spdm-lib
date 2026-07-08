@@ -76,7 +76,7 @@ const _: () = assert!(core::mem::size_of::<CertificateRspBody>() == CertificateR
 
 /// Builder for a CERTIFICATE response. The handler pre-fills the
 /// `chain_portion` slice (from a pool-allocated buffer) before
-/// calling [`build_response`](caliptra_mcu_spdm_stack::build).
+/// calling [`build_response`](spdm_stack::build).
 pub struct CertificateRsp<'a> {
     pub slot_id: u8,
     pub param2: u8,

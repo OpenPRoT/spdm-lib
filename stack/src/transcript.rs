@@ -2,7 +2,7 @@
 
 //! Transcript manager.
 //!
-//! Generic over the [`Hash::State`](caliptra_mcu_spdm_traits::Hash)
+//! Generic over the [`Hash::State`](spdm_traits::Hash)
 //! associated type so the manager works with any hash backend —
 //! Caliptra mailbox (200-byte ctx), software (sha2 crate), test
 //! mocks (whatever).
@@ -18,7 +18,7 @@
 //! first time M1 / L1 start contributing. This lets heap-backed hash
 //! states report allocation failure instead of panicking.
 
-use caliptra_mcu_spdm_traits::{McuResult, SpdmPalHash, SpdmPalHashAlgo, SpdmPalIo};
+use spdm_traits::{McuResult, SpdmPalHash, SpdmPalHashAlgo, SpdmPalIo};
 
 /// One of the running transcripts the responder maintains.
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
@@ -152,16 +152,16 @@ impl<S> Transcript<S> {
                 return Ok(());
             }
             Slot::M1 if self.m1.is_none() => {
-                let vca = self.vca.as_ref().ok_or(mcu_error::codes::INVARIANT)?;
+                let vca = self.vca.as_ref().ok_or(spdm_error::codes::INVARIANT)?;
                 self.m1 = Some(hash.hash_clone(io, vca)?);
             }
             Slot::L1 if self.l1.is_none() => {
-                let vca = self.vca.as_ref().ok_or(mcu_error::codes::INVARIANT)?;
+                let vca = self.vca.as_ref().ok_or(spdm_error::codes::INVARIANT)?;
                 self.l1 = Some(hash.hash_clone(io, vca)?);
             }
             _ => {}
         }
-        let state = self.slot_mut(slot).ok_or(mcu_error::codes::INVARIANT)?;
+        let state = self.slot_mut(slot).ok_or(spdm_error::codes::INVARIANT)?;
         hash.hash_update(io, state, bytes).await
     }
 
@@ -176,7 +176,7 @@ impl<S> Transcript<S> {
     where
         H: SpdmPalHash<State = S>,
     {
-        let state = self.slot_mut(slot).ok_or(mcu_error::codes::INVARIANT)?;
+        let state = self.slot_mut(slot).ok_or(spdm_error::codes::INVARIANT)?;
         hash.hash_finish(io, state, out).await?;
         *self.slot_opt_mut(slot) = None;
         Ok(())
@@ -215,7 +215,7 @@ impl<S> Transcript<S> {
     where
         H: SpdmPalHash<State = S>,
     {
-        let vca = self.vca.as_ref().ok_or(mcu_error::codes::INVARIANT)?;
+        let vca = self.vca.as_ref().ok_or(spdm_error::codes::INVARIANT)?;
         let mut clone = hash.hash_clone(io, vca)?;
         hash.hash_finish(io, &mut clone, out).await
     }

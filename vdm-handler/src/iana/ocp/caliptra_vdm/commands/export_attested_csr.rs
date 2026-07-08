@@ -7,10 +7,10 @@
 //! `large` staging buffer's tail, then framed inline when the whole response
 //! fits one transport frame, otherwise as a chunked large response.
 
-use caliptra_mcu_spdm_traits::SpdmPalAlloc;
+use spdm_traits::SpdmPalAlloc;
 
 use crate::iana::ocp::caliptra_vdm::CaliptraVdmCommands;
-use caliptra_mcu_spdm_codec::vendor_defined::iana::ocp::caliptra::{
+use spdm_codec::vendor_defined::iana::ocp::caliptra::{
     CaliptraCompletionCode, CaliptraVdmCmdResult, CALIPTRA_VDM_COMMAND_VERSION,
 };
 

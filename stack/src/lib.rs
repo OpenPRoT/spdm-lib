@@ -1,10 +1,10 @@
 // Licensed under the Apache-2.0 license
 
-//! `caliptra-mcu-spdm-stack` — SPDM responder state machine and dispatcher.
+//! `spdm-stack` — SPDM responder state machine and dispatcher.
 //!
 //! This crate implements the responder side of the SPDM protocol on
 //! top of the SPDM-Lite Platform Abstraction Layer
-//! ([`caliptra_mcu_spdm_traits`]). It owns:
+//! ([`spdm_traits`]). It owns:
 //!
 //! * A [`SpdmStack`] — the main `run()` loop that receives an SPDM
 //!   request, dispatches it to a handler, and sends back either the
@@ -24,8 +24,8 @@
 //!   dispatcher turns into an `ERROR` PDU.
 //!
 //! Below the handler/dispatcher boundary this crate uses the
-//! workspace-wide [`McuErrorCode`](mcu_error::McuErrorCode) /
-//! [`McuResult`](mcu_error::McuResult) types; `?` lifts those into
+//! workspace-wide [`McuErrorCode`](spdm_error::McuErrorCode) /
+//! [`McuResult`](spdm_error::McuResult) types; `?` lifts those into
 //! [`SpdmError`] automatically (see [`error`]).
 
 #![no_std]

@@ -2,11 +2,11 @@
 
 //! CHUNK_GET large-response transfer.
 
-use caliptra_mcu_spdm_codec::{
+use spdm_codec::{
     ChunkGetReqBody, ChunkResponseBody, ReqRespCode, SpdmMsgHdrPdu, WireWriter,
     CHUNK_ATTR_LAST_CHUNK, CHUNK_RESPONSE_FIXED_BODY_SIZE, LARGE_RESPONSE_SIZE_FIELD_SIZE,
 };
-use caliptra_mcu_spdm_traits::{PalBytes, SpdmPal, SpdmPalAlloc, SpdmPalIoTransport};
+use spdm_traits::{PalBytes, SpdmPal, SpdmPalAlloc, SpdmPalIoTransport};
 use zerocopy::{little_endian::U16, little_endian::U32, FromBytes};
 
 use crate::build::alloc_padded;

@@ -2,10 +2,10 @@
 
 //! START_INTERFACE command handler.
 
-use caliptra_mcu_spdm_traits::{McuResult, SpdmPalAlloc};
+use spdm_traits::{McuResult, SpdmPalAlloc};
 
 use crate::pci_sig::tdisp::{TdispDriver, TdispHandlerResult, TdispResponder};
-use caliptra_mcu_spdm_codec::vendor_defined::pci_sig::tdisp::{
+use spdm_codec::vendor_defined::pci_sig::tdisp::{
     ct_eq, tdisp_error_code, TdispMessageHeader, TDISP_ERROR_INVALID_INTERFACE,
     TDISP_ERROR_INVALID_INTERFACE_STATE, TDISP_ERROR_UNSPECIFIED,
 };

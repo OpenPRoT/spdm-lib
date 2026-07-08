@@ -2,11 +2,11 @@
 
 //! GET_TDISP_CAPABILITIES command handler.
 
-use caliptra_mcu_spdm_codec::errors::SPDM_UNSPECIFIED;
-use caliptra_mcu_spdm_traits::{McuResult, SpdmPalAlloc};
+use spdm_codec::errors::SPDM_UNSPECIFIED;
+use spdm_traits::{McuResult, SpdmPalAlloc};
 
 use crate::pci_sig::tdisp::{TdispDriver, TdispHandlerResult, TdispResponder};
-use caliptra_mcu_spdm_codec::vendor_defined::pci_sig::tdisp::{
+use spdm_codec::vendor_defined::pci_sig::tdisp::{
     tdisp_error_code, TdispMessageHeader, TdispReqCapabilities, TdispRespCapabilities,
     TDISP_CAPS_RSP_LEN, TDISP_ERROR_UNSPECIFIED, TDISP_HEADER_LEN,
 };

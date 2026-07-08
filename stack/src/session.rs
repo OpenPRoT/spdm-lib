@@ -11,8 +11,8 @@
 //! 3. Session used for secured message framing
 //! 4. GET_VERSION or error → [`SessionManager::remove_all_and_destroy`]
 
-use caliptra_mcu_spdm_codec::{errors::SPDM_SESSION_LIMIT_EXCEEDED, SpdmVersion};
-use caliptra_mcu_spdm_traits::{McuResult, SpdmPalHash, SpdmPalIo};
+use spdm_codec::{errors::SPDM_SESSION_LIMIT_EXCEEDED, SpdmVersion};
+use spdm_traits::{McuResult, SpdmPalHash, SpdmPalIo};
 use core::ops::{Deref, DerefMut};
 
 use crate::key_schedule::{spdm_version_str, KeySchedule};
@@ -98,7 +98,7 @@ impl<S> SessionTranscript<S> {
         io: &impl SpdmPalIo,
         data: &[u8],
     ) -> McuResult<()> {
-        let state = self.th.as_mut().ok_or(mcu_error::codes::INVARIANT)?;
+        let state = self.th.as_mut().ok_or(spdm_error::codes::INVARIANT)?;
         hash.hash_update(io, state, data).await
     }
 
@@ -112,7 +112,7 @@ impl<S> SessionTranscript<S> {
         io: &impl SpdmPalIo,
         out: &mut [u8],
     ) -> McuResult<()> {
-        let state = self.th.as_ref().ok_or(mcu_error::codes::INVARIANT)?;
+        let state = self.th.as_ref().ok_or(spdm_error::codes::INVARIANT)?;
         let mut clone = hash.hash_clone(io, state)?;
         hash.hash_finish(io, &mut clone, out).await
     }
@@ -124,7 +124,7 @@ impl<S> SessionTranscript<S> {
         io: &impl SpdmPalIo,
         out: &mut [u8],
     ) -> McuResult<()> {
-        let state = self.th.as_mut().ok_or(mcu_error::codes::INVARIANT)?;
+        let state = self.th.as_mut().ok_or(spdm_error::codes::INVARIANT)?;
         hash.hash_finish(io, state, out).await?;
         self.th = None;
         Ok(())

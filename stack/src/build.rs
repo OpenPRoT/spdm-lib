@@ -12,8 +12,8 @@
 //! never touch the PAL allocator directly, and never forget to
 //! reserve the transport-framing header.
 
-use caliptra_mcu_spdm_codec::{ResponseBody, SpdmVersion, WireWriter};
-use caliptra_mcu_spdm_traits::{PalBytes, SpdmPal};
+use spdm_codec::{ResponseBody, SpdmVersion, WireWriter};
+use spdm_traits::{PalBytes, SpdmPal};
 
 use crate::error::SpdmResult;
 
@@ -78,7 +78,7 @@ pub(crate) fn alloc_padded<'a, Pal: SpdmPal>(
 ///
 /// * `Ok(PalBytes)` — Owning handle to the fully-encoded response,
 ///   ready to pass to
-///   [`SpdmPalIoTransport::send_response`](caliptra_mcu_spdm_traits::SpdmPalIoTransport::send_response).
+///   [`SpdmPalIoTransport::send_response`](spdm_traits::SpdmPalIoTransport::send_response).
 /// * `Err(SpdmError)` — Either the PAL allocator was exhausted (mapped
 ///   to [`SPDM_BUSY`](crate::error::SPDM_BUSY)) or the codec failed
 ///   while encoding the body (mapped to
@@ -121,7 +121,7 @@ pub(crate) fn build_error_response<'a, Pal: SpdmPal>(
     error_data: u8,
     extended_data: &[u8],
 ) -> SpdmResult<PalBytes<'a, Pal>> {
-    use caliptra_mcu_spdm_codec::{ReqRespCode, SpdmMsgHdrPdu};
+    use spdm_codec::{ReqRespCode, SpdmMsgHdrPdu};
     let head = pal.header_size();
     let raw_len = head + SpdmMsgHdrPdu::SIZE + 2 + extended_data.len();
     let mut buf = alloc_padded(pal, io, raw_len)?;

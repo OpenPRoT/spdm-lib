@@ -5,7 +5,7 @@
 //! Every SPDM-Lite crate that produces errors picks a [subdomain
 //! byte](#subdomains) from this central registry, then defines its
 //! own concrete [`McuErrorCode`] constants in its own `errors` module
-//! using `mcu_error::McuErrorCode::new(domain::SPDM, SUBDOMAIN_*, code)`.
+//! using `spdm_error::McuErrorCode::new(domain::SPDM, SUBDOMAIN_*, code)`.
 //!
 //! Centralizing **just the subdomain bytes** here gives:
 //!
@@ -24,15 +24,15 @@
 #![no_std]
 #![forbid(unsafe_code)]
 
-use mcu_error::{domain, McuErrorCode};
+use spdm_error::{domain, McuErrorCode};
 
-// ----- Subdomain registry under [`mcu_error::domain::SPDM`] ------------------
+// ----- Subdomain registry under [`spdm_error::domain::SPDM`] ------------------
 
 /// spdm-lib stack / codec local errors (never appear on the wire).
 ///
 /// Used by:
-/// * `caliptra-mcu-spdm-codec` for parser/encoder failures
-/// * `caliptra-mcu-spdm-stack` for dispatch/state-machine errors
+/// * `spdm-codec` for parser/encoder failures
+/// * `spdm-stack` for dispatch/state-machine errors
 pub const SUBDOMAIN_LOCAL: u8 = 0x00;
 
 /// SPDM wire errors per DSP0274 §10.10.2.
@@ -44,7 +44,7 @@ pub const SUBDOMAIN_WIRE: u8 = 0x01;
 
 /// MCTP transport (used by SPDM).
 ///
-/// Used by `caliptra-mcu-spdm-transports::mctp`.
+/// Used by `spdm-transports::mctp`.
 pub const SUBDOMAIN_MCTP: u8 = 0x10;
 
 /// PCIe DOE transport (used by SPDM) — reserved for future use.

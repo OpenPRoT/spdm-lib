@@ -2,7 +2,7 @@
 
 //! END_SESSION handler.
 
-use caliptra_mcu_spdm_codec::{EndSessionReqBody, ReqRespCode, SpdmMsgHdrPdu, SpdmVersion};
+use spdm_codec::{EndSessionReqBody, ReqRespCode, SpdmMsgHdrPdu, SpdmVersion};
 use zerocopy::FromBytes;
 
 use crate::error::{SpdmResult, SPDM_INVALID_REQUEST};

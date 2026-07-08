@@ -2,16 +2,16 @@
 
 //! PCI-SIG IDE-KM VDM responder for SPDM-Lite.
 
-use caliptra_mcu_spdm_codec::{
+use spdm_codec::{
     IdeKmCommand, IdeKmHdr, PciSigProtocolHdr, StandardsBodyId, WireReader, WireWriter,
     IDE_KM_PROTOCOL_ID,
 };
 
-use caliptra_mcu_spdm_codec::errors::{
+use spdm_codec::errors::{
     SPDM_INVALID_REQUEST, SPDM_UNSPECIFIED, SPDM_UNSUPPORTED_REQUEST,
 };
-use caliptra_mcu_spdm_errors::VDM_NO_RESPONSE;
-use caliptra_mcu_spdm_traits::{
+use spdm_errors::VDM_NO_RESPONSE;
+use spdm_traits::{
     McuResult, SpdmPalAlloc, SpdmPalIo, SpdmVdmBackend, VdmRegistry, VdmResponse, VdmResponseBuffer,
 };
 
@@ -230,7 +230,7 @@ mod tests {
     use core::marker::PhantomData;
     use core::ops::{Deref, DerefMut};
 
-    use caliptra_mcu_spdm_codec::{
+    use spdm_codec::{
         AddrAssociationRegBlock, IdeCapabilityReg, IdeControlReg, IdeRegBlock, KeyInfo,
         LinkIdeStreamControlReg, LinkIdeStreamRegBlock, LinkIdeStreamStatusReg, PortConfig, Query,
         SelectiveIdeRidAssociationReg1, SelectiveIdeRidAssociationReg2,
@@ -773,7 +773,7 @@ mod tests {
 
     struct TestAlloc;
 
-    impl mcu_caliptra_api_lite::ApiAlloc for TestAlloc {
+    impl spdm_crypto::ApiAlloc for TestAlloc {
         type Buf<'a>
             = Vec<u8>
         where
@@ -826,8 +826,8 @@ mod tests {
 
     struct TestIo;
     impl SpdmPalIo for TestIo {
-        fn kind(&self) -> caliptra_mcu_spdm_traits::SpdmPalIoKind {
-            caliptra_mcu_spdm_traits::SpdmPalIoKind::SecuredMessage
+        fn kind(&self) -> spdm_traits::SpdmPalIoKind {
+            spdm_traits::SpdmPalIoKind::SecuredMessage
         }
 
         fn request(&self) -> &[u8] {
@@ -869,8 +869,8 @@ mod tests {
 
         let mut key_prog = [0u8; PciSigProtocolHdr::SIZE
             + IdeKmHdr::SIZE
-            + caliptra_mcu_spdm_codec::KeyProg::SIZE
-            + caliptra_mcu_spdm_codec::KeyData::SIZE];
+            + spdm_codec::KeyProg::SIZE
+            + spdm_codec::KeyData::SIZE];
         key_prog[0] = IDE_KM_PROTOCOL_ID;
         key_prog[1] = IdeKmCommand::KeyProg as u8;
         assert_eq!(backend.large_response_capacity(&key_prog), 0);
@@ -922,8 +922,8 @@ mod tests {
         let backend = PciSigIdeKmVdm::new(0x1234, driver);
         let mut payload = [0u8; PciSigProtocolHdr::SIZE
             + IdeKmHdr::SIZE
-            + caliptra_mcu_spdm_codec::KeyProg::SIZE
-            + caliptra_mcu_spdm_codec::KeyData::SIZE];
+            + spdm_codec::KeyProg::SIZE
+            + spdm_codec::KeyData::SIZE];
         payload[0] = IDE_KM_PROTOCOL_ID;
         payload[1] = IdeKmCommand::KeyProg as u8;
         let mut inline = [0u8; 16];
@@ -937,7 +937,7 @@ mod tests {
         };
         assert_eq!(
             len,
-            PciSigProtocolHdr::SIZE + IdeKmHdr::SIZE + caliptra_mcu_spdm_codec::KeyProg::SIZE
+            PciSigProtocolHdr::SIZE + IdeKmHdr::SIZE + spdm_codec::KeyProg::SIZE
         );
         assert_eq!(inline[0], IDE_KM_PROTOCOL_ID);
         assert_eq!(inline[1], IdeKmCommand::KeyProgAck as u8);
@@ -964,7 +964,7 @@ mod tests {
 
         assert_eq!(
             len,
-            IdeKmHdr::SIZE + caliptra_mcu_spdm_codec::KeySetGoStop::SIZE
+            IdeKmHdr::SIZE + spdm_codec::KeySetGoStop::SIZE
         );
         assert_eq!(rsp[0], IdeKmCommand::KeyGoStopAck as u8);
         assert_eq!(rsp[5], request_key_info.raw());
@@ -989,7 +989,7 @@ mod tests {
 
         assert_eq!(
             len,
-            IdeKmHdr::SIZE + caliptra_mcu_spdm_codec::KeySetGoStop::SIZE
+            IdeKmHdr::SIZE + spdm_codec::KeySetGoStop::SIZE
         );
         assert_eq!(rsp[0], IdeKmCommand::KeyGoStopAck as u8);
         assert_eq!(rsp[5], request_key_info.raw());
@@ -1019,12 +1019,12 @@ mod tests {
         };
         let responder = IdeKmResponder::new(driver);
         let mut req = [0u8; IdeKmHdr::SIZE
-            + caliptra_mcu_spdm_codec::KeyProg::SIZE
-            + caliptra_mcu_spdm_codec::KeyData::SIZE];
+            + spdm_codec::KeyProg::SIZE
+            + spdm_codec::KeyData::SIZE];
         req[0] = IdeKmCommand::KeyProg as u8;
         req[3] = driver.expected_stream_id;
         req[5] = expected_key_info.raw();
-        let mut offset = IdeKmHdr::SIZE + caliptra_mcu_spdm_codec::KeyProg::SIZE;
+        let mut offset = IdeKmHdr::SIZE + spdm_codec::KeyProg::SIZE;
         for value in expected_key {
             req[offset..offset + core::mem::size_of::<u32>()].copy_from_slice(&value.to_le_bytes());
             offset += core::mem::size_of::<u32>();
@@ -1037,7 +1037,7 @@ mod tests {
         let mut rsp = [0u8; 16];
         let len = block_on(responder.handle_request(&req, &mut rsp, scratch())).unwrap();
 
-        assert_eq!(len, IdeKmHdr::SIZE + caliptra_mcu_spdm_codec::KeyProg::SIZE);
+        assert_eq!(len, IdeKmHdr::SIZE + spdm_codec::KeyProg::SIZE);
         assert_eq!(rsp[0], IdeKmCommand::KeyProgAck as u8);
         assert_eq!(rsp[4], driver.status);
     }
@@ -1046,8 +1046,8 @@ mod tests {
     fn ide_driver_errors_drop_vdm_response() {
         let responder = IdeKmResponder::new(StopOnlyDriver);
         let mut req = [0u8; IdeKmHdr::SIZE
-            + caliptra_mcu_spdm_codec::KeyProg::SIZE
-            + caliptra_mcu_spdm_codec::KeyData::SIZE];
+            + spdm_codec::KeyProg::SIZE
+            + spdm_codec::KeyData::SIZE];
         req[0] = IdeKmCommand::KeyProg as u8;
         let mut rsp = [0u8; 16];
 

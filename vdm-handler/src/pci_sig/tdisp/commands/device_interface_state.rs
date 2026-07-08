@@ -2,11 +2,11 @@
 
 //! GET_DEVICE_INTERFACE_STATE command handler.
 
-use caliptra_mcu_spdm_codec::errors::SPDM_UNSPECIFIED;
-use caliptra_mcu_spdm_traits::{McuResult, SpdmPalAlloc};
+use spdm_codec::errors::SPDM_UNSPECIFIED;
+use spdm_traits::{McuResult, SpdmPalAlloc};
 
 use crate::pci_sig::tdisp::{TdispDriver, TdispHandlerResult, TdispResponder};
-use caliptra_mcu_spdm_codec::vendor_defined::pci_sig::tdisp::{
+use spdm_codec::vendor_defined::pci_sig::tdisp::{
     tdisp_error_code, TdiStatus, TdispMessageHeader, TDISP_ERROR_INVALID_INTERFACE_STATE,
     TDISP_ERROR_UNSPECIFIED, TDISP_HEADER_LEN,
 };

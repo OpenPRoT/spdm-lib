@@ -2,9 +2,9 @@
 
 //! TDISP platform driver abstraction.
 
-use caliptra_mcu_spdm_traits::SpdmPalAlloc;
+use spdm_traits::SpdmPalAlloc;
 
-use caliptra_mcu_spdm_codec::vendor_defined::pci_sig::tdisp::{
+use spdm_codec::vendor_defined::pci_sig::tdisp::{
     FunctionId, TdiStatus, TdispLockInterfaceParam, TdispReqCapabilities, TdispRespCapabilities,
     START_INTERFACE_NONCE_SIZE,
 };

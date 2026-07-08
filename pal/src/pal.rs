@@ -3,13 +3,13 @@
 //! Concrete MCU implementation of the SPDM-Lite Platform Abstraction Layer.
 //!
 //! This module defines [`McuSpdmPal`], the MCU-side type that satisfies
-//! the [`SpdmPal`](caliptra_mcu_spdm_traits::SpdmPal) super-trait by
+//! the [`SpdmPal`](spdm_traits::SpdmPal) super-trait by
 //! wrapping a boxed
-//! [`SpdmPalTransport`](caliptra_mcu_spdm_traits::SpdmPalTransport)
+//! [`SpdmPalTransport`](spdm_traits::SpdmPalTransport)
 //! implementation (e.g.,
 //! [`McuMctpTransport`](../../../transports/src/mctp.rs)) and re-exposing
 //! it as a framed
-//! [`SpdmIoTransport`](caliptra_mcu_spdm_traits::SpdmIoTransport) via the
+//! [`SpdmIoTransport`](spdm_traits::SpdmIoTransport) via the
 //! companion [`io`](super::io) module.
 //!
 //! The MCU SPDM-Lite stack consumes `McuSpdmPal` as its single entry

@@ -7,8 +7,8 @@
 //! array. Chunk buffers come from the per-IO bitmap pool — no
 //! stack-allocated `[u8; N]` arrays for cert content.
 
-use caliptra_mcu_spdm_codec::{DigestsRsp, ResponseBody, SpdmMsgHdrPdu, SHA384_HASH_SIZE};
-use caliptra_mcu_spdm_traits::{
+use spdm_codec::{DigestsRsp, ResponseBody, SpdmMsgHdrPdu, SHA384_HASH_SIZE};
+use spdm_traits::{
     PalBytes, SpdmPal, SpdmPalAlloc, SpdmPalAsymAlgo, SpdmPalHashAlgo, SpdmPalIo,
     SpdmPalIoTransport, MAX_SLOTS,
 };
@@ -149,9 +149,9 @@ pub(crate) async fn cert_chain_hash<Pal: SpdmPal>(
     asym_algo: SpdmPalAsymAlgo,
     algo: SpdmPalHashAlgo,
     out: &mut [u8],
-) -> mcu_error::McuResult<()> {
+) -> spdm_error::McuResult<()> {
     if (pal.provisioned_slots() & (1 << slot)) == 0 {
-        return Err(mcu_error::codes::INVARIANT);
+        return Err(spdm_error::codes::INVARIANT);
     }
 
     let der_len = pal.cert_chain_len(io, slot, asym_algo).await?;
@@ -185,7 +185,7 @@ pub(crate) async fn cert_chain_hash<Pal: SpdmPal>(
     }
 
     if (pal.provisioned_slots() & (1 << slot)) == 0 {
-        return Err(mcu_error::codes::INVARIANT);
+        return Err(spdm_error::codes::INVARIANT);
     }
 
     pal.hash_finish(io, &mut state, out).await

@@ -10,13 +10,13 @@ mod commands;
 mod driver;
 mod state;
 
-use caliptra_mcu_spdm_codec::errors::{SPDM_INVALID_REQUEST, SPDM_VERSION_MISMATCH};
-use caliptra_mcu_spdm_codec::vendor_defined::pci_sig::tdisp::{
+use spdm_codec::errors::{SPDM_INVALID_REQUEST, SPDM_VERSION_MISMATCH};
+use spdm_codec::vendor_defined::pci_sig::tdisp::{
     TdispMessageHeader, TDISP_HEADER_LEN,
 };
-use caliptra_mcu_spdm_traits::{McuResult, SpdmPalAlloc, VdmResponse};
+use spdm_traits::{McuResult, SpdmPalAlloc, VdmResponse};
 
-pub use caliptra_mcu_spdm_codec::vendor_defined::pci_sig::tdisp::{
+pub use spdm_codec::vendor_defined::pci_sig::tdisp::{
     FunctionId, InterfaceId, TdiStatus, TdispCommand, TdispErrorCode, TdispLockInterfaceFlags,
     TdispLockInterfaceParam, TdispReqCapabilities, TdispRespCapabilities, TdispVersion,
     START_INTERFACE_NONCE_SIZE, TDISP_ERROR_BUSY, TDISP_ERROR_INSUFFICIENT_ENTROPY,

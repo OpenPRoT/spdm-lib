@@ -23,7 +23,7 @@
 //! * `IC`  — Integrity Check bit (always `0` for this transport).
 //! * `message type` — A 7-bit MCTP message type. For SPDM this is
 //!   `0x05`; the value used on the wire is whatever
-//!   [`Mctp::msg_type`](caliptra_mcu_libsyscall_caliptra::mctp::Mctp::msg_type)
+//!   [`Mctp::msg_type`](spdm_transport_sys::mctp::Mctp::msg_type)
 //!   returns for the bound driver number.
 //!
 //! On receive, the transport validates the header byte, captures the
@@ -61,8 +61,8 @@ extern crate alloc;
 use alloc::boxed::Box;
 
 use async_trait::async_trait;
-use caliptra_mcu_libsyscall_caliptra::mctp::{driver_num, Mctp, MessageInfo};
-use caliptra_mcu_spdm_traits::{McuResult, SpdmPalIoKind, SpdmPalTransport};
+use spdm_transport_sys::mctp::{driver_num, Mctp, MessageInfo};
+use spdm_traits::{McuResult, SpdmPalIoKind, SpdmPalTransport};
 
 /// MCTP transport message header size in bytes.
 const MCTP_MSG_HEADER_SIZE: usize = 1;
@@ -83,7 +83,7 @@ use crate::errors::mctp as error_code;
 ///
 /// Wraps a single [`Mctp`] syscall handle bound to a specific driver
 /// number (e.g.,
-/// [`MCTP_SPDM`](caliptra_mcu_libsyscall_caliptra::mctp::driver_num::MCTP_SPDM)).
+/// [`MCTP_SPDM`](spdm_transport_sys::mctp::driver_num::MCTP_SPDM)).
 /// Each `recv_request` / `send_response` pair is correlated by the
 /// [`MessageInfo`] captured on receive and stored in
 /// [`cur_resp_ctx`](Self::cur_resp_ctx).

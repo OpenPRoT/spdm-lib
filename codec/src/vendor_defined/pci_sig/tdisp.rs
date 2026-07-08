@@ -2,7 +2,7 @@
 
 //! Shared TDISP wire protocol types.
 
-use caliptra_mcu_spdm_traits::McuResult;
+use spdm_traits::McuResult;
 
 use crate::errors::{SPDM_INVALID_REQUEST, SPDM_UNSPECIFIED};
 

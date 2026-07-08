@@ -1,10 +1,10 @@
 // Licensed under the Apache-2.0 license
 
-//! `caliptra-mcu-spdm-transports` — Concrete SPDM-Lite PAL transport
+//! `spdm-transports` — Concrete SPDM-Lite PAL transport
 //! implementations for MCU userspace.
 //!
 //! This crate provides ready-to-use implementations of the
-//! [`SpdmPalTransport`](caliptra_mcu_spdm_traits::SpdmPalTransport) trait
+//! [`SpdmPalTransport`](spdm_traits::SpdmPalTransport) trait
 //! over MCU platform transports.
 
 #![no_std]

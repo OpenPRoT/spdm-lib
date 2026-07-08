@@ -8,11 +8,11 @@
 //! or `Managed` (slots 1-2) without dynamic dispatch.
 
 #[cfg(feature = "set-certificate")]
-use caliptra_mcu_libsyscall_caliptra::{flash::SpiFlash, DefaultSyscalls};
+use spdm_transport_sys::{flash::SpiFlash, DefaultSyscalls};
 #[cfg(feature = "set-certificate")]
-use caliptra_mcu_libtock_platform::ErrorCode;
-use caliptra_mcu_spdm_traits::SpdmPalAsymAlgo;
-use mcu_error::McuResult;
+use spdm_platform::ErrorCode;
+use spdm_traits::SpdmPalAsymAlgo;
+use spdm_error::McuResult;
 
 use core::sync::atomic::{AtomicBool, Ordering};
 
@@ -119,7 +119,7 @@ impl SlotEndorsement {
             Self::ReadOnly(e) => e.root_cert_hash(algo, out),
             #[cfg(feature = "set-certificate")]
             Self::Managed(e) => e.root_cert_hash(algo, out),
-            Self::Empty => Err(mcu_error::codes::INVARIANT),
+            Self::Empty => Err(spdm_error::codes::INVARIANT),
         }
     }
 
@@ -128,7 +128,7 @@ impl SlotEndorsement {
             Self::ReadOnly(e) => e.size(algo),
             #[cfg(feature = "set-certificate")]
             Self::Managed(e) => e.size(algo),
-            Self::Empty => Err(mcu_error::codes::INVARIANT),
+            Self::Empty => Err(spdm_error::codes::INVARIANT),
         }
     }
 
@@ -137,7 +137,7 @@ impl SlotEndorsement {
             Self::ReadOnly(e) => e.size(algo),
             #[cfg(feature = "set-certificate")]
             Self::Managed(e) => e.capacity(algo),
-            Self::Empty => Err(mcu_error::codes::INVARIANT),
+            Self::Empty => Err(spdm_error::codes::INVARIANT),
         }
     }
 
@@ -151,7 +151,7 @@ impl SlotEndorsement {
             Self::ReadOnly(e) => e.read(algo, offset, buf),
             #[cfg(feature = "set-certificate")]
             Self::Managed(e) => e.read(algo, offset, buf).await,
-            Self::Empty => Err(mcu_error::codes::INVARIANT),
+            Self::Empty => Err(spdm_error::codes::INVARIANT),
         }
     }
 
@@ -356,7 +356,7 @@ impl ManagedEndorsement {
 
     fn root_cert_hash(&self, _algo: SpdmPalAsymAlgo, out: &mut [u8]) -> McuResult<()> {
         if !self.initialized {
-            return Err(mcu_error::codes::INVARIANT);
+            return Err(spdm_error::codes::INVARIANT);
         }
         let n = out.len().min(self.root_hash.len());
         out[..n].copy_from_slice(&self.root_hash[..n]);
@@ -367,7 +367,7 @@ impl ManagedEndorsement {
         if self.initialized {
             Ok(self.len)
         } else {
-            Err(mcu_error::codes::INVARIANT)
+            Err(spdm_error::codes::INVARIANT)
         }
     }
 
@@ -382,7 +382,7 @@ impl ManagedEndorsement {
         buf: &mut [u8],
     ) -> McuResult<usize> {
         if !self.initialized {
-            return Err(mcu_error::codes::INVARIANT);
+            return Err(spdm_error::codes::INVARIANT);
         }
         if offset >= self.len || buf.is_empty() {
             return Ok(0);
@@ -404,7 +404,7 @@ impl ManagedEndorsement {
         data: &[u8],
     ) -> McuResult<Self> {
         if algo != SpdmPalAsymAlgo::EccP384 || data.len() > self.der_capacity() {
-            return Err(mcu_error::codes::INVARIANT);
+            return Err(spdm_error::codes::INVARIANT);
         }
 
         let record = ManagedRecord {
@@ -589,8 +589,8 @@ fn checksum(data: &[u8]) -> u32 {
 }
 
 #[cfg(feature = "set-certificate")]
-fn map_flash_error(err: ErrorCode) -> mcu_error::McuErrorCode {
-    use caliptra_mcu_spdm_codec::errors::*;
+fn map_flash_error(err: ErrorCode) -> spdm_error::McuErrorCode {
+    use spdm_codec::errors::*;
 
     match err {
         ErrorCode::Busy => SPDM_BUSY,

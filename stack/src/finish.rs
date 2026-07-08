@@ -14,11 +14,11 @@
 //! with `ResponseHandshakeKey`, destroying handshake secrets, and
 //! transitioning the session to [`SessionState::Established`].
 
-use caliptra_mcu_spdm_codec::{
+use spdm_codec::{
     FinishReqBody, FinishRsp, ResponseBody, SpdmMsgHdrPdu, SpdmVersion, WireWriter,
     SHA384_HASH_SIZE,
 };
-use caliptra_mcu_spdm_traits::*;
+use spdm_traits::*;
 use zerocopy::FromBytes;
 
 use crate::error::{SpdmResult, SPDM_DECRYPT_ERROR, SPDM_INVALID_REQUEST, SPDM_UNSPECIFIED};

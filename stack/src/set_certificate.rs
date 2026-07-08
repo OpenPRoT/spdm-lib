@@ -7,15 +7,15 @@
 //! place and passes borrowed DER bytes to the PAL, avoiding a second
 //! certificate-sized allocation.
 
-use caliptra_mcu_spdm_codec::{
+use spdm_codec::{
     AsymAlgos, CapFlags, HashAlgos, ReqRespCode, SetCertificateReqBody, SetCertificateRsp,
     SpdmMsgHdrPdu, SpdmVersion,
 };
-use caliptra_mcu_spdm_errors::as_spdm_wire;
-use caliptra_mcu_spdm_traits::{
+use spdm_errors::as_spdm_wire;
+use spdm_traits::{
     PalBytes, SpdmPal, SpdmPalAlloc, SpdmPalIo, SpdmPalIoTransport, MAX_SLOTS,
 };
-use mcu_error::McuErrorCode;
+use spdm_error::McuErrorCode;
 use zerocopy::FromBytes;
 
 use crate::build::build_response;

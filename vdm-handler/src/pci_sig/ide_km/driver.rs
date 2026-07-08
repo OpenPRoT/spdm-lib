@@ -2,12 +2,12 @@
 
 //! IDE-KM platform driver abstraction.
 
-use caliptra_mcu_spdm_codec::{
+use spdm_codec::{
     IdeRegBlock, KeyInfo, LinkIdeStreamRegBlock, PortConfig, SelectiveIdeStreamRegBlock,
     IDE_STREAM_IV_SIZE_DW, IDE_STREAM_KEY_SIZE_DW,
 };
-use caliptra_mcu_spdm_errors::VDM_NO_RESPONSE;
-use caliptra_mcu_spdm_traits::{McuErrorCode, SpdmPalAlloc};
+use spdm_errors::VDM_NO_RESPONSE;
+use spdm_traits::{McuErrorCode, SpdmPalAlloc};
 use zerocopy::little_endian::U32;
 
 /// IDE-KM driver-level failures.

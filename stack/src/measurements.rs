@@ -2,13 +2,13 @@
 
 //! GET_MEASUREMENTS / MEASUREMENTS handler.
 
-use caliptra_mcu_spdm_codec::{
+use spdm_codec::{
     DmtfMeasurementBlockHeader, GetMeasurementsReqBody, ReqRespCode, SpdmMsgHdrPdu, SpdmVersion,
     WireWriter, ECC_P384_SIGNATURE_SIZE, MEAS_BLOCK_METADATA_SIZE, REQUESTER_CONTEXT_LEN,
     SHA384_HASH_SIZE, SPDM_CONTEXT_LEN, SPDM_PREFIX_LEN, SPDM_SIGNING_CONTEXT_LEN,
 };
-use caliptra_mcu_spdm_traits::SpdmPalAlloc;
-use caliptra_mcu_spdm_traits::*;
+use spdm_traits::SpdmPalAlloc;
+use spdm_traits::*;
 use zerocopy::{FromBytes, IntoBytes};
 
 use crate::build::alloc_padded;
@@ -550,7 +550,7 @@ fn write_u24_le(w: &mut WireWriter<'_>, len: usize) -> SpdmResult<()> {
 
 fn u24_le(len: usize) -> SpdmResult<[u8; 3]> {
     let len = u32::try_from(len).map_err(|_| SPDM_UNSPECIFIED)?;
-    if len > caliptra_mcu_spdm_codec::SPDM_MAX_MEASUREMENT_RECORD_SIZE {
+    if len > spdm_codec::SPDM_MAX_MEASUREMENT_RECORD_SIZE {
         return Err(SPDM_UNSPECIFIED);
     }
     Ok([
@@ -621,7 +621,7 @@ async fn compute_tbs_hash<Pal: SpdmPal>(
     io: &<Pal as SpdmPalIoTransport>::Io<'_>,
     signing_ctx: &[u8; SPDM_SIGNING_CONTEXT_LEN],
     hash: &mut [u8; SHA384_HASH_SIZE],
-) -> mcu_error::McuResult<()> {
+) -> spdm_error::McuResult<()> {
     let mut state = pal
         .hash_init(io, SpdmPalHashAlgo::Sha384, signing_ctx)
         .await?;

@@ -14,8 +14,8 @@
 //! via [`From<McuErrorCode> for SpdmError`] — `?` does the lifting at
 //! every layer boundary, no `.map_err(...)` ever needed.
 
-use caliptra_mcu_spdm_errors::{as_spdm_wire, is_mctp_error, is_vdm_no_response};
-use mcu_error::{domain, McuErrorCode};
+use spdm_errors::{as_spdm_wire, is_mctp_error, is_vdm_no_response};
+use spdm_error::{domain, McuErrorCode};
 
 /// SPDM-level error suitable for emission as an `ERROR` PDU.
 ///
@@ -120,9 +120,9 @@ impl From<McuErrorCode> for SpdmError {
 /// Implicit conversion from the codec's ZST [`WireError`] — every
 /// wire-format read/write failure becomes
 /// [`SPDM_INVALID_REQUEST`] when it bubbles up through `?`.
-impl From<caliptra_mcu_spdm_codec::WireError> for SpdmError {
+impl From<spdm_codec::WireError> for SpdmError {
     #[inline]
-    fn from(_: caliptra_mcu_spdm_codec::WireError) -> Self {
+    fn from(_: spdm_codec::WireError) -> Self {
         SPDM_INVALID_REQUEST
     }
 }

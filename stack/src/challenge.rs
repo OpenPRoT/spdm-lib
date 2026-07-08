@@ -2,13 +2,13 @@
 
 //! CHALLENGE / CHALLENGE_AUTH handler.
 
-use caliptra_mcu_spdm_codec::{
+use spdm_codec::{
     ChallengeAuthRsp, ChallengeReqBody, ResponseBody, SpdmMsgHdrPdu, SpdmVersion,
     ECC_P384_SIGNATURE_SIZE, REQUESTER_CONTEXT_LEN, SHA384_HASH_SIZE, SPDM_CONTEXT_LEN,
     SPDM_PREFIX_LEN, SPDM_SIGNING_CONTEXT_LEN,
 };
-use caliptra_mcu_spdm_traits::SpdmPalAlloc;
-use caliptra_mcu_spdm_traits::*;
+use spdm_traits::SpdmPalAlloc;
+use spdm_traits::*;
 use zerocopy::FromBytes;
 
 use crate::build::build_response;
@@ -198,7 +198,7 @@ async fn compute_tbs_hash<Pal: SpdmPal>(
     io: &<Pal as SpdmPalIoTransport>::Io<'_>,
     signing_ctx: &[u8; SPDM_SIGNING_CONTEXT_LEN],
     m1_hash: &[u8; SHA384_HASH_SIZE],
-) -> mcu_error::McuResult<[u8; SHA384_HASH_SIZE]> {
+) -> spdm_error::McuResult<[u8; SHA384_HASH_SIZE]> {
     let mut state = pal
         .hash_init(io, SpdmPalHashAlgo::Sha384, signing_ctx)
         .await?;

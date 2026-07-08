@@ -16,16 +16,16 @@ pub mod store;
 
 use super::measurements::MeasurementProvider;
 use super::*;
-use caliptra_mcu_spdm_traits::{SpdmPalAsymAlgo, SpdmPalCertStore, SpdmPalHashAlgo};
+use spdm_traits::{SpdmPalAsymAlgo, SpdmPalCertStore, SpdmPalHashAlgo};
 use core::sync::atomic::Ordering;
 use endorsement::slot_index;
-use mcu_caliptra_api_lite::{
+use spdm_crypto::{
     dpe_certify_key_cert_size, dpe_certify_key_cert_slice, dpe_get_cert_chain_chunk,
     dpe_sign_ecc_p384, walk_dpe_chain, DpeChainSink, DPE_LABEL_LEN, DPE_MAX_CHUNK_SIZE,
 };
 #[cfg(feature = "set-certificate")]
-use mcu_caliptra_api_lite::{sha_finish, sha_init, sha_update, HashAlgo, SHA_CONTEXT_SIZE};
-use mcu_error::codes::{INTERNAL_BUG, INVARIANT};
+use spdm_crypto::{sha_finish, sha_init, sha_update, HashAlgo, SHA_CONTEXT_SIZE};
+use spdm_error::codes::{INTERNAL_BUG, INVARIANT};
 
 /// 48-byte label fed to DPE `CertifyKey`. Keep this stable so DPE
 /// leaf-cert key continuity matches what existing tooling expects.
@@ -352,7 +352,7 @@ impl<M: MeasurementProvider> SpdmPalCertStore for McuSpdmPal<M> {
             let managed = match &self.cert_store.cert_slots()[idx].endorsement {
                 endorsement::SlotEndorsement::Managed(e) => *e,
                 endorsement::SlotEndorsement::ReadOnly(_) => {
-                    return Err(mcu_error::codes::NOT_IMPLEMENTED);
+                    return Err(spdm_error::codes::NOT_IMPLEMENTED);
                 }
                 endorsement::SlotEndorsement::Empty => return Err(INVARIANT),
             };
@@ -389,7 +389,7 @@ impl<M: MeasurementProvider> SpdmPalCertStore for McuSpdmPal<M> {
             let managed = match &self.cert_store.cert_slots()[idx].endorsement {
                 endorsement::SlotEndorsement::Managed(e) => *e,
                 endorsement::SlotEndorsement::ReadOnly(_) => {
-                    return Err(mcu_error::codes::NOT_IMPLEMENTED);
+                    return Err(spdm_error::codes::NOT_IMPLEMENTED);
                 }
                 endorsement::SlotEndorsement::Empty => return Err(INVARIANT),
             };
@@ -451,7 +451,7 @@ impl<M: MeasurementProvider> SpdmPalCertStore for McuSpdmPal<M> {
     }
 
     async fn generate_nonce(&self, _io: &Self::Io<'_>, out: &mut [u8]) -> McuResult<()> {
-        mcu_caliptra_api_lite::rng_generate(self, out).await
+        spdm_crypto::rng_generate(self, out).await
     }
 }
 

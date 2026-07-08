@@ -14,13 +14,13 @@
 //! before invoking [`version::handle_get_version`] so the handler
 //! itself is unaware of the phase.
 
-use caliptra_mcu_spdm_codec::{
+use spdm_codec::{
     encode_aad, AeadAlgos, AsymAlgos, CapFlags, DheAlgos, HashAlgos, KeyScheduleAlgos,
     MeasHashAlgos, MeasSpec, OtherParamSupport, ReqRespCode, SecuredMessageHeader, SpdmMsgHdrPdu,
     SpdmVersion, AES_256_GCM_TAG_SIZE, SECURED_MSG_HDR_SIZE,
 };
-use caliptra_mcu_spdm_traits::SpdmPalAlloc;
-use caliptra_mcu_spdm_traits::*;
+use spdm_traits::SpdmPalAlloc;
+use spdm_traits::*;
 use zerocopy::FromBytes;
 
 use crate::build::{alloc_padded, build_error_response};
@@ -381,8 +381,8 @@ impl<Pal: SpdmPal, const MAX_SESSIONS: usize, Vdm: SpdmVdmBackend>
         #[cfg(feature = "debug-trace")]
         use core::fmt::Write;
         #[cfg(feature = "debug-trace")]
-        let mut console = caliptra_mcu_libtock_console::Console::<
-            caliptra_mcu_libsyscall_caliptra::DefaultSyscalls,
+        let mut console = spdm_console::Console::<
+            spdm_transport_sys::DefaultSyscalls,
         >::writer();
         loop {
             let io = self.pal.recv_request().await?;
