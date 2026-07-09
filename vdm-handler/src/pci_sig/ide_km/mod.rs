@@ -902,9 +902,8 @@ mod tests {
         let payload = [IDE_KM_PROTOCOL_ID, IdeKmCommand::Query as u8, 0, 0];
         let mut inline = [0u8; 1];
         let mut large = [0u8; 256];
-        let err = match 
-            backend.handle_request(&payload, response_buffer(&mut inline, &mut large)),
-         {
+        let err = match backend.handle_request(&payload, response_buffer(&mut inline, &mut large))
+        {
             Ok(_) => panic!("IDE-KM query should fail when inline storage is too small"),
             Err(err) => err,
         };
