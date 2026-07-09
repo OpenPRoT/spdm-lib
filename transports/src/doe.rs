@@ -23,11 +23,6 @@
 //! SPDM payload follows the header directly. On send, the payload is
 //! padded to 4-byte (DWORD) alignment.
 
-extern crate alloc;
-
-use alloc::boxed::Box;
-
-use async_trait::async_trait;
 use spdm_transport_sys::doe::{driver_num, Doe};
 use spdm_traits::{PalResult, SpdmPalIoKind, SpdmPalTransport};
 
@@ -76,7 +71,6 @@ impl Default for SpdmDoeTransport {
     }
 }
 
-#[async_trait]
 impl SpdmPalTransport for SpdmDoeTransport {
     fn secure_message_supported(&self) -> bool {
         true // DOE carries both plain and secured on same transport

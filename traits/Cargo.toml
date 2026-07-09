@@ -7,7 +7,6 @@ authors.workspace = true
 edition.workspace = true
 
 [dependencies]
-async-trait.workspace = true
 spdm-crypto = { workspace = true }
 spdm-error = { workspace = true }
 
