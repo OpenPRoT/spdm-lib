@@ -13,12 +13,6 @@
 //! Secured Messages and convey per-message security framing on each
 //! exchange.
 
-extern crate alloc;
-
-use alloc::boxed::Box;
-
-use async_trait::async_trait;
-
 use super::*;
 
 /// Asynchronous, byte-oriented transport interface for the SPDM-Lite PAL.
@@ -29,7 +23,6 @@ use super::*;
 /// and includes a capability query plus a per-message "secured" flag so
 /// the stack can distinguish plain SPDM messages from SPDM Secured
 /// Messages on the wire.
-#[async_trait]
 pub trait SpdmPalTransport {
     /// Reports whether this transport supports SPDM Secured Messages.
     fn secure_message_supported(&self) -> bool;

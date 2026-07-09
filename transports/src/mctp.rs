@@ -56,11 +56,6 @@
 //! This implementation operates on raw byte buffers as required by the
 //! SPDM-Lite PAL trait.
 
-extern crate alloc;
-
-use alloc::boxed::Box;
-
-use async_trait::async_trait;
 use spdm_transport_sys::mctp::{driver_num, Mctp, MessageInfo};
 use spdm_traits::{PalResult, SpdmPalIoKind, SpdmPalTransport};
 
@@ -147,7 +142,6 @@ impl SpdmMctpTransport {
     }
 }
 
-#[async_trait]
 impl SpdmPalTransport for SpdmMctpTransport {
     fn secure_message_supported(&self) -> bool {
         // A single instance is bound to exactly one MCTP message type,
