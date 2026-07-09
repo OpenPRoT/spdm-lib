@@ -58,14 +58,14 @@ pub mod mctp {
             }
         }
 
-        pub async fn receive_request(
+        pub fn receive_request(
             &self,
             _req: &mut [u8],
         ) -> Result<(u32, MessageInfo), ErrorCode> {
             unimplemented!("spdm-transport-sys placeholder: mctp::receive_request")
         }
 
-        pub async fn send_response(
+        pub fn send_response(
             &self,
             _resp: &[u8],
             _info: MessageInfo,
@@ -108,11 +108,11 @@ pub mod doe {
             false
         }
 
-        pub async fn receive_message(&self, _buf: &mut [u8]) -> Result<u32, ErrorCode> {
+        pub fn receive_message(&self, _buf: &mut [u8]) -> Result<u32, ErrorCode> {
             unimplemented!("spdm-transport-sys placeholder: doe::receive_message")
         }
 
-        pub async fn send_message(&self, _buf: &[u8]) -> Result<(), ErrorCode> {
+        pub fn send_message(&self, _buf: &[u8]) -> Result<(), ErrorCode> {
             unimplemented!("spdm-transport-sys placeholder: doe::send_message")
         }
 
@@ -161,7 +161,7 @@ pub mod flash {
             unimplemented!("spdm-transport-sys placeholder: flash::get_chunk_size")
         }
 
-        pub async fn read(
+        pub fn read(
             &self,
             _address: usize,
             _len: usize,
@@ -170,7 +170,7 @@ pub mod flash {
             unimplemented!("spdm-transport-sys placeholder: flash::read")
         }
 
-        pub async fn write(
+        pub fn write(
             &self,
             _address: usize,
             _len: usize,
@@ -179,7 +179,7 @@ pub mod flash {
             unimplemented!("spdm-transport-sys placeholder: flash::write")
         }
 
-        pub async fn erase(&self, _address: usize, _len: usize) -> Result<(), ErrorCode> {
+        pub fn erase(&self, _address: usize, _len: usize) -> Result<(), ErrorCode> {
             unimplemented!("spdm-transport-sys placeholder: flash::erase")
         }
     }

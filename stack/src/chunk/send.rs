@@ -25,7 +25,7 @@ struct ChunkInfo {
     complete: bool,
 }
 
-pub(crate) async fn handle_chunk_send<'a, Pal: SpdmPal, Vdm: SpdmVdmBackend>(
+pub(crate) fn handle_chunk_send<'a, Pal: SpdmPal, Vdm: SpdmVdmBackend>(
     state: &mut ConnectionState<Pal::State, <Pal as SpdmPalAlloc>::LargeBuf>,
     pal: &'a Pal,
     io: &<Pal as SpdmPalIoTransport>::Io<'_>,
@@ -46,7 +46,7 @@ pub(crate) async fn handle_chunk_send<'a, Pal: SpdmPal, Vdm: SpdmVdmBackend>(
                     info.handle,
                     info.chunk_seq_num,
                 )
-                .await;
+                ;
                 if state.large_msg_ctx.request_in_progress() {
                     state.reset_chunk_assembly();
                 }
@@ -318,7 +318,7 @@ impl From<SpdmError> for LargeRequestError {
     }
 }
 
-async fn build_final_chunk_send_ack<'a, Pal: SpdmPal, Vdm: SpdmVdmBackend>(
+fn build_final_chunk_send_ack<'a, Pal: SpdmPal, Vdm: SpdmVdmBackend>(
     state: &mut ConnectionState<Pal::State, <Pal as SpdmPalAlloc>::LargeBuf>,
     pal: &'a Pal,
     io: &<Pal as SpdmPalIoTransport>::Io<'_>,
@@ -348,7 +348,7 @@ async fn build_final_chunk_send_ack<'a, Pal: SpdmPal, Vdm: SpdmVdmBackend>(
             secure_session,
             &mut response_to_large_request,
         )
-        .await
+        
         {
             Ok(response_len) => (response_len, false),
             Err(err) => (
@@ -384,7 +384,7 @@ async fn build_final_chunk_send_ack<'a, Pal: SpdmPal, Vdm: SpdmVdmBackend>(
     )
 }
 
-async fn dispatch_large_request<Pal: SpdmPal, Vdm: SpdmVdmBackend>(
+fn dispatch_large_request<Pal: SpdmPal, Vdm: SpdmVdmBackend>(
     state: &mut ConnectionState<Pal::State, <Pal as SpdmPalAlloc>::LargeBuf>,
     pal: &Pal,
     io: &<Pal as SpdmPalIoTransport>::Io<'_>,
@@ -418,7 +418,7 @@ async fn dispatch_large_request<Pal: SpdmPal, Vdm: SpdmVdmBackend>(
                 return Err(SPDM_UNSUPPORTED_REQUEST.into());
             }
             let slot_id =
-                set_certificate::handle_set_certificate_request(state, pal, io, large_req).await?;
+                set_certificate::handle_set_certificate_request(state, pal, io, large_req)?;
             let bytes = [
                 state.version.to_u8(),
                 ReqRespCode::SET_CERTIFICATE_RSP.0,
@@ -439,7 +439,7 @@ async fn dispatch_large_request<Pal: SpdmPal, Vdm: SpdmVdmBackend>(
             secure_session,
             out,
         )
-        .await
+        
         .map_err(Into::into),
         _ => Err(SPDM_UNSUPPORTED_REQUEST.into()),
     }
@@ -517,7 +517,7 @@ mod tests {
             registry.standard_id == 0x0004 && registry.vendor_id == CALIPTRA_VENDOR_ID_BYTES
         }
 
-        async fn handle_request<Alloc, Io>(
+        fn handle_request<Alloc, Io>(
             &self,
             req: &[u8],
             rsp: VdmResponseBuffer<'_, Alloc, Io>,

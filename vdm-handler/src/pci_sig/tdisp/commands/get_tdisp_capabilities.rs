@@ -11,7 +11,7 @@ use spdm_codec::vendor_defined::pci_sig::tdisp::{
     TDISP_CAPS_RSP_LEN, TDISP_ERROR_UNSPECIFIED, TDISP_HEADER_LEN,
 };
 
-pub(crate) async fn handle<D, Alloc>(
+pub(crate) fn handle<D, Alloc>(
     tdisp: &TdispResponder<D>,
     _req_hdr: TdispMessageHeader,
     req_payload: &[u8],
@@ -27,7 +27,7 @@ where
     match tdisp
         .driver
         .get_capabilities(req_caps, scratch, &mut rsp_caps)
-        .await
+        
     {
         Ok(0) => {
             rsp_caps.encode(

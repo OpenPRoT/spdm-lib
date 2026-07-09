@@ -72,7 +72,7 @@ impl<S> Transcript<S> {
         self.l1 = None;
     }
 
-    pub async fn append_vca<H>(
+    pub fn append_vca<H>(
         &mut self,
         hash: &H,
         io: &impl SpdmPalIo,
@@ -81,10 +81,10 @@ impl<S> Transcript<S> {
     where
         H: SpdmPalHash<State = S>,
     {
-        self.append(Slot::Vca, hash, io, bytes).await
+        self.append(Slot::Vca, hash, io, bytes)
     }
 
-    pub async fn append_m1<H>(
+    pub fn append_m1<H>(
         &mut self,
         hash: &H,
         io: &impl SpdmPalIo,
@@ -93,10 +93,10 @@ impl<S> Transcript<S> {
     where
         H: SpdmPalHash<State = S>,
     {
-        self.append(Slot::M1, hash, io, bytes).await
+        self.append(Slot::M1, hash, io, bytes)
     }
 
-    pub async fn append_l1<H>(
+    pub fn append_l1<H>(
         &mut self,
         hash: &H,
         io: &impl SpdmPalIo,
@@ -105,10 +105,10 @@ impl<S> Transcript<S> {
     where
         H: SpdmPalHash<State = S>,
     {
-        self.append(Slot::L1, hash, io, bytes).await
+        self.append(Slot::L1, hash, io, bytes)
     }
 
-    pub async fn finalize_m1<H>(
+    pub fn finalize_m1<H>(
         &mut self,
         hash: &H,
         io: &impl SpdmPalIo,
@@ -117,10 +117,10 @@ impl<S> Transcript<S> {
     where
         H: SpdmPalHash<State = S>,
     {
-        self.finalize(Slot::M1, hash, io, out).await
+        self.finalize(Slot::M1, hash, io, out)
     }
 
-    pub async fn finalize_l1<H>(
+    pub fn finalize_l1<H>(
         &mut self,
         hash: &H,
         io: &impl SpdmPalIo,
@@ -129,13 +129,13 @@ impl<S> Transcript<S> {
     where
         H: SpdmPalHash<State = S>,
     {
-        self.finalize(Slot::L1, hash, io, out).await
+        self.finalize(Slot::L1, hash, io, out)
     }
 
     // ---- Workhorses (the only `#[inline(never)]` symbols) ---------------
 
     #[inline(never)]
-    async fn append<H>(
+    fn append<H>(
         &mut self,
         slot: Slot,
         hash: &H,
@@ -148,7 +148,7 @@ impl<S> Transcript<S> {
         // Lazy init / fork on first call after reset.
         match slot {
             Slot::Vca if self.vca.is_none() => {
-                self.vca = Some(hash.hash_init(io, SpdmPalHashAlgo::Sha384, bytes).await?);
+                self.vca = Some(hash.hash_init(io, SpdmPalHashAlgo::Sha384, bytes)?);
                 return Ok(());
             }
             Slot::M1 if self.m1.is_none() => {
@@ -162,11 +162,11 @@ impl<S> Transcript<S> {
             _ => {}
         }
         let state = self.slot_mut(slot).ok_or(spdm_error::codes::INVARIANT)?;
-        hash.hash_update(io, state, bytes).await
+        hash.hash_update(io, state, bytes)
     }
 
     #[inline(never)]
-    async fn finalize<H>(
+    fn finalize<H>(
         &mut self,
         slot: Slot,
         hash: &H,
@@ -177,7 +177,7 @@ impl<S> Transcript<S> {
         H: SpdmPalHash<State = S>,
     {
         let state = self.slot_mut(slot).ok_or(spdm_error::codes::INVARIANT)?;
-        hash.hash_finish(io, state, out).await?;
+        hash.hash_finish(io, state, out)?;
         *self.slot_opt_mut(slot) = None;
         Ok(())
     }
@@ -206,7 +206,7 @@ impl<S> Transcript<S> {
     /// This is used to seed per-session TH transcripts: TH starts
     /// with `hash(VCA)` (the 48-byte SHA-384 digest), not a fork of
     /// the running VCA hash state.
-    pub async fn vca_digest<H>(
+    pub fn vca_digest<H>(
         &self,
         hash: &H,
         io: &impl SpdmPalIo,
@@ -217,6 +217,6 @@ impl<S> Transcript<S> {
     {
         let vca = self.vca.as_ref().ok_or(spdm_error::codes::INVARIANT)?;
         let mut clone = hash.hash_clone(io, vca)?;
-        hash.hash_finish(io, &mut clone, out).await
+        hash.hash_finish(io, &mut clone, out)
     }
 }

@@ -8,7 +8,7 @@ use crate::iana::ocp::caliptra_vdm::{
     CaliptraCompletionCode, CaliptraVdmCmdResult, CaliptraVdmCommands,
 };
 
-pub(crate) async fn handle_request_debug_unlock<H, A>(
+pub(crate) fn handle_request_debug_unlock<H, A>(
     cmds: &H,
     req: &[u8],
     scratch: &A,
@@ -27,13 +27,13 @@ where
         Ok(data) => data,
         Err(code) => return CaliptraVdmCmdResult::Error(code),
     };
-    match cmds.request_debug_unlock(unlock_level, scratch, data).await {
+    match cmds.request_debug_unlock(unlock_level, scratch, data) {
         Ok(n) => CaliptraVdmCmdResult::Response(1 + n),
         Err(code) => CaliptraVdmCmdResult::Error(code),
     }
 }
 
-pub(crate) async fn handle_authorize_debug_unlock_token<H, A>(
+pub(crate) fn handle_authorize_debug_unlock_token<H, A>(
     cmds: &H,
     req: &[u8],
     scratch: &A,
@@ -43,7 +43,7 @@ where
     H: CaliptraVdmCommands,
     A: SpdmPalAlloc,
 {
-    match cmds.authorize_debug_unlock_token(req, scratch).await {
+    match cmds.authorize_debug_unlock_token(req, scratch) {
         Ok(()) => match super::write_success(out) {
             Ok(_) => CaliptraVdmCmdResult::Response(1),
             Err(code) => CaliptraVdmCmdResult::Error(code),

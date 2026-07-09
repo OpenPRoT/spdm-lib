@@ -128,7 +128,7 @@ impl<K: Clone> KeySchedule<K> {
     ///
     /// Destroys the DHE secret handle on success.
     #[inline(never)]
-    pub async fn generate_handshake_keys<P: SpdmPalAlloc + SpdmPalSessionCrypto<Key = K>>(
+    pub fn generate_handshake_keys<P: SpdmPalAlloc + SpdmPalSessionCrypto<Key = K>>(
         &mut self,
         pal: &P,
         io: &impl SpdmPalIo,
@@ -142,7 +142,7 @@ impl<K: Clone> KeySchedule<K> {
             .ok_or(spdm_error::codes::INVARIANT)?;
         let mut salt_0 = pal.alloc_bytes(io, SHA384_HASH_SIZE)?;
         salt_0.fill(0);
-        let hs = pal.hkdf_extract_bytes(io, &salt_0, &dhe).await?;
+        let hs = pal.hkdf_extract_bytes(io, &salt_0, &dhe)?;
         self.master_ctx.handshake_secret = Some(hs);
 
         let hs_ref = self
@@ -161,7 +161,7 @@ impl<K: Clone> KeySchedule<K> {
                 BinStr::Str1,
                 Some(th1_hash),
             )
-            .await?,
+            ?,
         );
 
         // response_hs = HKDF-Expand(hs, bin_str2(th1_hash), Hash.Length)
@@ -174,7 +174,7 @@ impl<K: Clone> KeySchedule<K> {
                 BinStr::Str2,
                 Some(th1_hash),
             )
-            .await?,
+            ?,
         );
 
         // finished keys = HKDF-Expand(handshake_secret, bin_str7, Hash.Length)
@@ -190,7 +190,7 @@ impl<K: Clone> KeySchedule<K> {
                 BinStr::Str7,
                 None,
             )
-            .await?,
+            ?,
         );
 
         self.handshake_ctx.response_finished_key = Some(
@@ -205,7 +205,7 @@ impl<K: Clone> KeySchedule<K> {
                 BinStr::Str7,
                 None,
             )
-            .await?,
+            ?,
         );
 
         Ok(())
@@ -219,7 +219,7 @@ impl<K: Clone> KeySchedule<K> {
     /// - master_secret (intermediate, kept for export if needed)
     /// - request / response data secrets (AEAD major secrets)
     #[inline(never)]
-    pub async fn generate_data_keys<P: SpdmPalAlloc + SpdmPalSessionCrypto<Key = K>>(
+    pub fn generate_data_keys<P: SpdmPalAlloc + SpdmPalSessionCrypto<Key = K>>(
         &mut self,
         pal: &P,
         io: &impl SpdmPalIo,
@@ -233,13 +233,13 @@ impl<K: Clone> KeySchedule<K> {
 
         // Salt_1 = HKDF-Expand(hs, bin_str0, Hash.Length)
         let salt_1 =
-            hkdf_expand_bin_str(pal, io, self.version_str, hs_ref, BinStr::Str0, None).await?;
+            hkdf_expand_bin_str(pal, io, self.version_str, hs_ref, BinStr::Str0, None)?;
 
         // Master-Secret = HKDF-Extract(Salt_1, zero_filled)
         let mut zero_filled = pal.alloc_bytes(io, SHA384_HASH_SIZE)?;
         zero_filled.fill(0);
-        let zero_cmk = pal.import_key(io, &zero_filled).await?;
-        self.master_ctx.master_secret = Some(pal.hkdf_extract_key(io, &salt_1, &zero_cmk).await?);
+        let zero_cmk = pal.import_key(io, &zero_filled)?;
+        self.master_ctx.master_secret = Some(pal.hkdf_extract_key(io, &salt_1, &zero_cmk)?);
 
         let ms_ref = self
             .master_ctx
@@ -257,7 +257,7 @@ impl<K: Clone> KeySchedule<K> {
                 BinStr::Str3,
                 Some(th2_hash),
             )
-            .await?,
+            ?,
         );
 
         // rsp_data = HKDF-Expand(ms, bin_str4(th2), Hash.Length)
@@ -270,7 +270,7 @@ impl<K: Clone> KeySchedule<K> {
                 BinStr::Str4,
                 Some(th2_hash),
             )
-            .await?,
+            ?,
         );
 
         Ok(())
@@ -279,7 +279,7 @@ impl<K: Clone> KeySchedule<K> {
     // ── Crypto operations ───────────────────────────────────────────
 
     /// Compute HMAC with the specified finished key.
-    pub async fn hmac_finished<P: SpdmPalSessionCrypto<Key = K>>(
+    pub fn hmac_finished<P: SpdmPalSessionCrypto<Key = K>>(
         &self,
         pal: &P,
         io: &impl SpdmPalIo,
@@ -288,12 +288,12 @@ impl<K: Clone> KeySchedule<K> {
         out: &mut [u8],
     ) -> PalResult<usize> {
         let key = self.finished_key(key_type)?;
-        pal.hmac(io, key, data, out).await
+        pal.hmac(io, key, data, out)
     }
 
     /// Encrypt with the appropriate session key.
     #[allow(clippy::too_many_arguments)]
-    pub async fn encrypt<P: SpdmPalSessionCrypto<Key = K>>(
+    pub fn encrypt<P: SpdmPalSessionCrypto<Key = K>>(
         &mut self,
         pal: &P,
         io: &impl SpdmPalIo,
@@ -306,14 +306,14 @@ impl<K: Clone> KeySchedule<K> {
         let (key, seq) = self.aead_key_and_seq(key_type)?;
         let result = pal
             .aead_encrypt(io, key, spdm_version, seq, aad, plaintext, ciphertext)
-            .await?;
+            ?;
         self.increment_seq(key_type);
         Ok(result)
     }
 
     /// Decrypt with the appropriate session key.
     #[allow(clippy::too_many_arguments)]
-    pub async fn decrypt<P: SpdmPalSessionCrypto<Key = K>>(
+    pub fn decrypt<P: SpdmPalSessionCrypto<Key = K>>(
         &mut self,
         pal: &P,
         io: &impl SpdmPalIo,
@@ -327,7 +327,7 @@ impl<K: Clone> KeySchedule<K> {
         let (key, seq) = self.aead_key_and_seq(key_type)?;
         let result = pal
             .aead_decrypt(io, key, spdm_version, seq, aad, ciphertext, tag, plaintext)
-            .await?;
+            ?;
         self.increment_seq(key_type);
         Ok(result)
     }
@@ -449,7 +449,7 @@ impl BinStr {
 }
 
 #[inline(never)]
-async fn hkdf_expand_bin_str<P: SpdmPalAlloc + SpdmPalSessionCrypto>(
+fn hkdf_expand_bin_str<P: SpdmPalAlloc + SpdmPalSessionCrypto>(
     pal: &P,
     io: &impl SpdmPalIo,
     version_str: &[u8],
@@ -467,7 +467,7 @@ async fn hkdf_expand_bin_str<P: SpdmPalAlloc + SpdmPalSessionCrypto>(
     )?;
     let info = info.get(..len).ok_or(spdm_error::codes::INVARIANT)?;
     pal.hkdf_expand(io, prk, SHA384_HASH_SIZE as u32, info)
-        .await
+        
 }
 
 /// Build the SPDM HKDF info field in caller-provided scratch.

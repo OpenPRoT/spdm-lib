@@ -101,7 +101,7 @@ pub trait SpdmPalIoTransport {
     ///   payload and kind.
     /// * `Err(PalErrorCode)` — A transport-level error if the receive
     ///   failed.
-    async fn recv_request(&self) -> PalResult<Self::Io<'_>>;
+    fn recv_request(&self) -> PalResult<Self::Io<'_>>;
 
     /// Sends an SPDM response back to the remote endpoint.
     ///
@@ -110,7 +110,7 @@ pub trait SpdmPalIoTransport {
     /// `msg[header_size()..]` must contain the SPDM payload written
     /// by the caller. The whole `&mut [u8]` is forwarded to the
     /// underlying transport without any extra copies.
-    async fn send_response(
+    fn send_response(
         &self,
         io: &Self::Io<'_>,
         kind: SpdmPalIoKind,

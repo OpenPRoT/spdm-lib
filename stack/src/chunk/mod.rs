@@ -211,7 +211,7 @@ impl<L: core::ops::DerefMut<Target = [u8]>> LargeMessageCtx<L> {
     /// # Example (e.g., `SET_CERTIFICATE` reassembly dispatch):
     /// ```ignore
     /// state.large_msg_ctx.with_request_buf(len, |assembled_req| {
-    ///     set_certificate::handle_set_certificate_request(state, pal, io, assembled_req).await
+    ///     set_certificate::handle_set_certificate_request(state, pal, io, assembled_req)
     /// })
     /// ```
     ///

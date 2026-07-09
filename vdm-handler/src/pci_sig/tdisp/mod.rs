@@ -61,7 +61,7 @@ where
     D: TdispDriver,
 {
     /// Handles a TDISP payload excluding the PCI-SIG protocol id byte.
-    pub async fn handle_tdisp_payload<Alloc>(
+    pub fn handle_tdisp_payload<Alloc>(
         &self,
         payload: &[u8],
         alloc: &Alloc,
@@ -106,23 +106,23 @@ where
             }
             TdispCommand::GetTdispCapabilities => {
                 commands::get_tdisp_capabilities::handle(self, req_hdr, req_payload, scratch, out)
-                    .await
+                    
             }
             TdispCommand::LockInterface => {
-                commands::lock_interface::handle(self, req_hdr, req_payload, scratch, out).await
+                commands::lock_interface::handle(self, req_hdr, req_payload, scratch, out)
             }
             TdispCommand::GetDeviceInterfaceReport => {
                 commands::device_interface_report::handle(self, req_hdr, req_payload, scratch, out)
-                    .await
+                    
             }
             TdispCommand::GetDeviceInterfaceState => {
-                commands::device_interface_state::handle(self, req_hdr, scratch, out).await
+                commands::device_interface_state::handle(self, req_hdr, scratch, out)
             }
             TdispCommand::StartInterfaceRequest => {
-                commands::start_interface::handle(self, req_hdr, req_payload, scratch).await
+                commands::start_interface::handle(self, req_hdr, req_payload, scratch)
             }
             TdispCommand::StopInterfaceRequest => {
-                commands::stop_interface::handle(self, req_hdr, scratch).await
+                commands::stop_interface::handle(self, req_hdr, scratch)
             }
             TdispCommand::BindP2PStreamRequest
             | TdispCommand::UnbindP2PStreamRequest

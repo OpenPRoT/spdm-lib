@@ -36,7 +36,7 @@ const INLINE_PREFIX_LEN: usize = 1 + CSR_LEN_FIELD;
 /// copied back inline (if it fits one frame) or framed in place as a large
 /// response.
 #[allow(clippy::too_many_arguments)]
-pub(crate) async fn handle<H, A>(
+pub(crate) fn handle<H, A>(
     cmds: &H,
     req: &[u8],
     command_code: u8,
@@ -67,7 +67,7 @@ where
                 scratch,
                 &mut large[CSR_PAYLOAD_HEADER_LEN..],
             )
-            .await
+            
         {
             Ok(n) => n,
             Err(code) => return CaliptraVdmCmdResult::Error(code),
@@ -102,7 +102,7 @@ where
                 scratch,
                 &mut inline_payload[INLINE_PREFIX_LEN..],
             )
-            .await
+            
         {
             Ok(n) => n,
             Err(code) => return CaliptraVdmCmdResult::Error(code),

@@ -15,7 +15,7 @@ use crate::build::build_response;
 use crate::error::{SpdmResult, SPDM_INVALID_REQUEST, SPDM_UNEXPECTED_REQUEST, SPDM_UNSPECIFIED};
 use crate::stack::{ConnectionState, Phase};
 
-pub(crate) async fn handle_challenge<'a, Pal: SpdmPal>(
+pub(crate) fn handle_challenge<'a, Pal: SpdmPal>(
     state: &mut ConnectionState<Pal::State, <Pal as SpdmPalAlloc>::LargeBuf>,
     pal: &'a Pal,
     io: &<Pal as SpdmPalIoTransport>::Io<'_>,
@@ -63,7 +63,7 @@ pub(crate) async fn handle_challenge<'a, Pal: SpdmPal>(
     }
 
     // Append CHALLENGE request to M1 transcript.
-    state.transcript.append_m1(pal, io, req).await?;
+    state.transcript.append_m1(pal, io, req)?;
 
     let asym_algo = state.asym_algo();
 
@@ -80,7 +80,7 @@ pub(crate) async fn handle_challenge<'a, Pal: SpdmPal>(
             SpdmPalHashAlgo::Sha384,
             &mut cert_chain_hash,
         )
-        .await
+        
         .map_err(|_| SPDM_UNSPECIFIED)?;
         pal.cache_chain_digest(slot_id, SpdmPalHashAlgo::Sha384, &cert_chain_hash);
     }
@@ -88,7 +88,7 @@ pub(crate) async fn handle_challenge<'a, Pal: SpdmPal>(
     // Generate nonce via PAL RNG.
     let mut nonce = [0u8; SPDM_NONCE_LEN];
     pal.generate_nonce(io, &mut nonce)
-        .await
+        
         .map_err(|_| SPDM_UNSPECIFIED)?;
 
     let mut meas_summary_hash = [0u8; SHA384_HASH_SIZE];
@@ -99,7 +99,7 @@ pub(crate) async fn handle_challenge<'a, Pal: SpdmPal>(
             meas_hash_type,
             &mut meas_summary_hash,
         )
-        .await?;
+        ?;
     }
     let meas_hash_ref = if meas_hash_type != 0 {
         Some(&meas_summary_hash)
@@ -109,7 +109,7 @@ pub(crate) async fn handle_challenge<'a, Pal: SpdmPal>(
 
     // Build the full response with a zeroed signature placeholder, then sign
     // into the trailing signature slot in place. This avoids a 96-byte stack
-    // buffer that would live across the sign `.await`, and avoids building the
+    // buffer that would live across the sign ``, and avoids building the
     // response twice.
     const ZERO_SIG: [u8; ECC_P384_SIGNATURE_SIZE] = [0u8; ECC_P384_SIGNATURE_SIZE];
     let body = ChallengeAuthRsp {
@@ -135,16 +135,16 @@ pub(crate) async fn handle_challenge<'a, Pal: SpdmPal>(
     // Append CHALLENGE_AUTH response (without signature) to M1.
     // Only the SPDM message bytes, not transport padding.
     let prefix = resp.get(head..head + no_sig_len).ok_or(SPDM_UNSPECIFIED)?;
-    state.transcript.append_m1(pal, io, prefix).await?;
+    state.transcript.append_m1(pal, io, prefix)?;
 
     // Finalize M1 transcript hash.
     let mut m1_hash = [0u8; SHA384_HASH_SIZE];
-    state.transcript.finalize_m1(pal, io, &mut m1_hash).await?;
+    state.transcript.finalize_m1(pal, io, &mut m1_hash)?;
 
     // Build signing context and compute TBS hash.
     let signing_ctx = build_signing_context(state.version);
     let tbs_hash = compute_tbs_hash(pal, io, &signing_ctx, &m1_hash)
-        .await
+        
         .map_err(|_| SPDM_UNSPECIFIED)?;
 
     // Sign the TBS hash directly into the response's signature slot.
@@ -153,7 +153,7 @@ pub(crate) async fn handle_challenge<'a, Pal: SpdmPal>(
         .ok_or(SPDM_UNSPECIFIED)?;
     let sig_len = pal
         .sign_hash(io, slot_id, asym_algo, &tbs_hash, sig_slot)
-        .await
+        
         .map_err(|_| SPDM_UNSPECIFIED)?;
     if sig_len != ECC_P384_SIGNATURE_SIZE {
         return Err(SPDM_UNSPECIFIED);
@@ -193,7 +193,7 @@ fn build_signing_context(version: SpdmVersion) -> [u8; SPDM_SIGNING_CONTEXT_LEN]
 }
 
 /// Hash(signing_context || M1_hash) → TBS digest for signing.
-async fn compute_tbs_hash<Pal: SpdmPal>(
+fn compute_tbs_hash<Pal: SpdmPal>(
     pal: &Pal,
     io: &<Pal as SpdmPalIoTransport>::Io<'_>,
     signing_ctx: &[u8; SPDM_SIGNING_CONTEXT_LEN],
@@ -201,9 +201,9 @@ async fn compute_tbs_hash<Pal: SpdmPal>(
 ) -> spdm_error::PalResult<[u8; SHA384_HASH_SIZE]> {
     let mut state = pal
         .hash_init(io, SpdmPalHashAlgo::Sha384, signing_ctx)
-        .await?;
-    pal.hash_update(io, &mut state, m1_hash).await?;
+        ?;
+    pal.hash_update(io, &mut state, m1_hash)?;
     let mut tbs = [0u8; SHA384_HASH_SIZE];
-    pal.hash_finish(io, &mut state, &mut tbs).await?;
+    pal.hash_finish(io, &mut state, &mut tbs)?;
     Ok(tbs)
 }

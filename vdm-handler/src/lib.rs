@@ -13,7 +13,6 @@
 //! * [`iana`] — IANA-registered vendors (OCP / Caliptra VDM).
 //! * [`pci_sig`] — PCI-SIG protocols (IDE-KM and TDISP).
 #![no_std]
-#![allow(async_fn_in_trait)]
 
 pub mod iana;
 pub mod pci_sig;

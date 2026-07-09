@@ -8,7 +8,7 @@ use crate::pci_sig::ide_km::{map_ide_error, IdeDriver};
 
 use super::key_go_stop_ack::write_key_go_stop_ack;
 
-pub(crate) async fn handle_key_set_go<D, Alloc>(
+pub(crate) fn handle_key_set_go<D, Alloc>(
     driver: &D,
     scratch: &Alloc,
     reader: &mut WireReader<'_>,
@@ -28,7 +28,7 @@ where
             key_set_go.port_index,
             scratch,
         )
-        .await
+        
         .map_err(map_ide_error)?;
 
     write_key_go_stop_ack(key_set_go, writer)

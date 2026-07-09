@@ -53,7 +53,7 @@ use crate::version::SUPPORTED_VERSIONS;
 ///   `DataTransferSize` / `MaxSPDMmsgSize` violate the corresponding table.
 /// * [`SPDM_VERSION_MISMATCH`] — requested version is not in
 ///   [`SUPPORTED_VERSIONS`].
-pub(crate) async fn handle_get_capabilities<'a, Pal: SpdmPal>(
+pub(crate) fn handle_get_capabilities<'a, Pal: SpdmPal>(
     state: &mut ConnectionState<Pal::State, <Pal as SpdmPalAlloc>::LargeBuf>,
     pal: &'a Pal,
     io: &<Pal as SpdmPalIoTransport>::Io<'_>,
@@ -104,11 +104,11 @@ pub(crate) async fn handle_get_capabilities<'a, Pal: SpdmPal>(
 
     // SPDM: GET_CAPABILITIES + CAPABILITIES contribute to VCA.
     let head = pal.header_size();
-    state.transcript.append_vca(pal, io, io.request()).await?;
+    state.transcript.append_vca(pal, io, io.request())?;
     state
         .transcript
         .append_vca(pal, io, &resp[head..head + spdm_len])
-        .await?;
+        ?;
 
     state.phase = Phase::AfterCapabilities;
     Ok(resp)

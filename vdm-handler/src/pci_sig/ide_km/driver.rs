@@ -33,7 +33,6 @@ pub type IdeDriverResult<T> = core::result::Result<T, IdeDriverError>;
 /// The trait uses static dispatch and borrowed little-endian key arrays so
 /// spdm-lib does not allocate or copy the KEY_PROG key material before handing
 /// it to the platform.
-#[allow(async_fn_in_trait)]
 pub trait IdeDriver {
     /// Gets the port configuration for a given port index.
     fn port_config<Alloc>(&self, port_index: u8, scratch: &Alloc) -> IdeDriverResult<PortConfig>
@@ -66,7 +65,7 @@ pub trait IdeDriver {
         Alloc: SpdmPalAlloc;
 
     /// Programs a stream key and IV.
-    async fn key_prog<Alloc>(
+    fn key_prog<Alloc>(
         &self,
         stream_id: u8,
         key_info: KeyInfo,
@@ -82,7 +81,7 @@ pub trait IdeDriver {
     ///
     /// The IDE-KM `KEY_GO_STOP_ACK` response echoes the request `KeyInfo` for
     /// the wire response, so this hook reports only operation success or failure.
-    async fn key_set_go<Alloc>(
+    fn key_set_go<Alloc>(
         &self,
         stream_id: u8,
         key_info: KeyInfo,
@@ -96,7 +95,7 @@ pub trait IdeDriver {
     ///
     /// The IDE-KM `KEY_GO_STOP_ACK` response echoes the request `KeyInfo` for
     /// the wire response, so this hook reports only operation success or failure.
-    async fn key_set_stop<Alloc>(
+    fn key_set_stop<Alloc>(
         &self,
         stream_id: u8,
         key_info: KeyInfo,
@@ -146,7 +145,7 @@ impl<T: IdeDriver> IdeDriver for &T {
         (**self).selective_ide_reg_block(port_index, block_index, scratch)
     }
 
-    async fn key_prog<Alloc>(
+    fn key_prog<Alloc>(
         &self,
         stream_id: u8,
         key_info: KeyInfo,
@@ -160,10 +159,10 @@ impl<T: IdeDriver> IdeDriver for &T {
     {
         (**self)
             .key_prog(stream_id, key_info, port_index, key, iv, scratch)
-            .await
+            
     }
 
-    async fn key_set_go<Alloc>(
+    fn key_set_go<Alloc>(
         &self,
         stream_id: u8,
         key_info: KeyInfo,
@@ -175,10 +174,10 @@ impl<T: IdeDriver> IdeDriver for &T {
     {
         (**self)
             .key_set_go(stream_id, key_info, port_index, scratch)
-            .await
+            
     }
 
-    async fn key_set_stop<Alloc>(
+    fn key_set_stop<Alloc>(
         &self,
         stream_id: u8,
         key_info: KeyInfo,
@@ -190,7 +189,7 @@ impl<T: IdeDriver> IdeDriver for &T {
     {
         (**self)
             .key_set_stop(stream_id, key_info, port_index, scratch)
-            .await
+            
     }
 }
 

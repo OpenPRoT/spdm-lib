@@ -42,7 +42,7 @@ const MAX_LARGE_VDM_PAYLOAD_LEN: usize = VDM_HEADER_LEN + 1 + 4 + MAX_LARGE_COMM
 /// stage device interactions without owning persistent buffers.
 pub trait CaliptraVdmCommands {
     /// Drains log bytes of `log_type` into `out`.
-    async fn get_log<A: SpdmPalAlloc>(
+    fn get_log<A: SpdmPalAlloc>(
         &self,
         log_type: u32,
         scratch: &A,
@@ -50,12 +50,12 @@ pub trait CaliptraVdmCommands {
     ) -> CaliptraVdmResult<CaliptraVdmLogResult>;
 
     /// Clears the log identified by `log_type`.
-    async fn clear_log<A: SpdmPalAlloc>(&self, log_type: u32, scratch: &A)
+    fn clear_log<A: SpdmPalAlloc>(&self, log_type: u32, scratch: &A)
         -> CaliptraVdmResult<()>;
 
     /// Requests a production debug unlock challenge for `unlock_level`, writing
     /// `[unique_device_identifier, challenge]` into `out`.
-    async fn request_debug_unlock<A: SpdmPalAlloc>(
+    fn request_debug_unlock<A: SpdmPalAlloc>(
         &self,
         unlock_level: u8,
         scratch: &A,
@@ -64,7 +64,7 @@ pub trait CaliptraVdmCommands {
 
     /// Submits a production debug unlock token. `token_data` is the remaining
     /// command payload exactly as sent by the requester.
-    async fn authorize_debug_unlock_token<A: SpdmPalAlloc>(
+    fn authorize_debug_unlock_token<A: SpdmPalAlloc>(
         &self,
         token_data: &[u8],
         scratch: &A,
@@ -72,7 +72,7 @@ pub trait CaliptraVdmCommands {
 
     /// Exports an attested CSR for `device_key_id` using `algorithm` and `nonce`,
     /// writing the raw CSR bytes into `out` and returning their length.
-    async fn export_attested_csr<A: SpdmPalAlloc>(
+    fn export_attested_csr<A: SpdmPalAlloc>(
         &self,
         device_key_id: u32,
         algorithm: u32,
@@ -82,14 +82,14 @@ pub trait CaliptraVdmCommands {
     ) -> CaliptraVdmResult<usize>;
 
     /// Generates an authorization challenge nonce into `out`.
-    async fn get_auth_challenge<A: SpdmPalAlloc>(
+    fn get_auth_challenge<A: SpdmPalAlloc>(
         &self,
         scratch: &A,
         out: &mut [u8],
     ) -> CaliptraVdmResult<usize>;
 
     /// Verifies `mac` for FE_PROG and programs field entropy for `partition`.
-    async fn program_field_entropy<A: SpdmPalAlloc>(
+    fn program_field_entropy<A: SpdmPalAlloc>(
         &self,
         partition: u32,
         mac: &[u8; 48],
@@ -128,7 +128,7 @@ impl<H: CaliptraVdmCommands> SpdmVdmBackend for CaliptraVdm<'_, H> {
             && registry.vendor_id == CALIPTRA_VENDOR_ID.to_le_bytes()
     }
 
-    async fn handle_request<Alloc, Io>(
+    fn handle_request<Alloc, Io>(
         &self,
         req: &[u8],
         rsp: VdmResponseBuffer<'_, Alloc, Io>,
@@ -175,22 +175,22 @@ impl<H: CaliptraVdmCommands> SpdmVdmBackend for CaliptraVdm<'_, H> {
 
         let result = match CaliptraVdmCommand::try_from(command_code) {
             Ok(CaliptraVdmCommand::GetDebugLog) => {
-                commands::get_debug_log::handle(self.cmds, cmd_req, scratch, payload).await
+                commands::get_debug_log::handle(self.cmds, cmd_req, scratch, payload)
             }
             Ok(CaliptraVdmCommand::ClearDebugLog) => {
-                commands::clear_debug_log::handle(self.cmds, cmd_req, scratch, payload).await
+                commands::clear_debug_log::handle(self.cmds, cmd_req, scratch, payload)
             }
             Ok(CaliptraVdmCommand::RequestDebugUnlock) => {
                 commands::debug_unlock::handle_request_debug_unlock(
                     self.cmds, cmd_req, scratch, payload,
                 )
-                .await
+                
             }
             Ok(CaliptraVdmCommand::AuthorizeDebugUnlockToken) => {
                 commands::debug_unlock::handle_authorize_debug_unlock_token(
                     self.cmds, cmd_req, scratch, payload,
                 )
-                .await
+                
             }
             Ok(CaliptraVdmCommand::ExportAttestedCsr) => {
                 commands::export_attested_csr::handle(
@@ -201,10 +201,10 @@ impl<H: CaliptraVdmCommands> SpdmVdmBackend for CaliptraVdm<'_, H> {
                     large,
                     scratch,
                 )
-                .await
+                
             }
             Ok(CaliptraVdmCommand::AuthorizedCommand) => {
-                commands::authorized_command::handle(self.cmds, cmd_req, scratch, payload).await
+                commands::authorized_command::handle(self.cmds, cmd_req, scratch, payload)
             }
             // Recognized-but-unimplemented and unknown command codes both map to
             // an UnsupportedOperation completion.
@@ -357,7 +357,7 @@ mod tests {
     }
 
     impl CaliptraVdmCommands for TestCommands {
-        async fn get_log<A: SpdmPalAlloc>(
+        fn get_log<A: SpdmPalAlloc>(
             &self,
             _log_type: u32,
             _scratch: &A,
@@ -366,7 +366,7 @@ mod tests {
             Err(CaliptraCompletionCode::UnsupportedOperation)
         }
 
-        async fn clear_log<A: SpdmPalAlloc>(
+        fn clear_log<A: SpdmPalAlloc>(
             &self,
             _log_type: u32,
             _scratch: &A,
@@ -374,7 +374,7 @@ mod tests {
             Err(CaliptraCompletionCode::UnsupportedOperation)
         }
 
-        async fn request_debug_unlock<A: SpdmPalAlloc>(
+        fn request_debug_unlock<A: SpdmPalAlloc>(
             &self,
             unlock_level: u8,
             _scratch: &A,
@@ -392,7 +392,7 @@ mod tests {
             Ok(needed)
         }
 
-        async fn authorize_debug_unlock_token<A: SpdmPalAlloc>(
+        fn authorize_debug_unlock_token<A: SpdmPalAlloc>(
             &self,
             token_data: &[u8],
             _scratch: &A,
@@ -401,7 +401,7 @@ mod tests {
             Ok(())
         }
 
-        async fn export_attested_csr<A: SpdmPalAlloc>(
+        fn export_attested_csr<A: SpdmPalAlloc>(
             &self,
             _device_key_id: u32,
             _algorithm: u32,
@@ -412,7 +412,7 @@ mod tests {
             self.write_csr(out)
         }
 
-        async fn get_auth_challenge<A: SpdmPalAlloc>(
+        fn get_auth_challenge<A: SpdmPalAlloc>(
             &self,
             _scratch: &A,
             out: &mut [u8],
@@ -424,7 +424,7 @@ mod tests {
             Ok(32)
         }
 
-        async fn program_field_entropy<A: SpdmPalAlloc>(
+        fn program_field_entropy<A: SpdmPalAlloc>(
             &self,
             _partition: u32,
             _mac: &[u8; 48],
