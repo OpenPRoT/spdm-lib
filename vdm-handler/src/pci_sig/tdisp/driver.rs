@@ -38,10 +38,9 @@ pub enum TdispDriverError {
 pub type TdispDriverResult<T> = Result<T, TdispDriverError>;
 
 /// Platform abstraction used by the TDISP responder.
-#[allow(async_fn_in_trait)]
 pub trait TdispDriver {
     /// Fills `out` with a START_INTERFACE nonce.
-    async fn generate_start_interface_nonce<Alloc>(
+    fn generate_start_interface_nonce<Alloc>(
         &self,
         scratch: &Alloc,
         out: &mut [u8; START_INTERFACE_NONCE_SIZE],
@@ -50,7 +49,7 @@ pub trait TdispDriver {
         Alloc: SpdmPalAlloc;
 
     /// Gets responder capabilities.
-    async fn get_capabilities<Alloc>(
+    fn get_capabilities<Alloc>(
         &self,
         req_caps: TdispReqCapabilities,
         scratch: &Alloc,
@@ -60,7 +59,7 @@ pub trait TdispDriver {
         Alloc: SpdmPalAlloc;
 
     /// Locks an interface.
-    async fn lock_interface<Alloc>(
+    fn lock_interface<Alloc>(
         &self,
         function_id: FunctionId,
         param: TdispLockInterfaceParam,
@@ -70,7 +69,7 @@ pub trait TdispDriver {
         Alloc: SpdmPalAlloc;
 
     /// Returns the total device interface report length.
-    async fn get_device_interface_report_len<Alloc>(
+    fn get_device_interface_report_len<Alloc>(
         &self,
         function_id: FunctionId,
         scratch: &Alloc,
@@ -80,7 +79,7 @@ pub trait TdispDriver {
         Alloc: SpdmPalAlloc;
 
     /// Copies a device interface report portion.
-    async fn get_device_interface_report<Alloc>(
+    fn get_device_interface_report<Alloc>(
         &self,
         function_id: FunctionId,
         offset: u16,
@@ -92,7 +91,7 @@ pub trait TdispDriver {
         Alloc: SpdmPalAlloc;
 
     /// Gets the current device interface state.
-    async fn get_device_interface_state<Alloc>(
+    fn get_device_interface_state<Alloc>(
         &self,
         function_id: FunctionId,
         scratch: &Alloc,
@@ -102,7 +101,7 @@ pub trait TdispDriver {
         Alloc: SpdmPalAlloc;
 
     /// Starts an interface.
-    async fn start_interface<Alloc>(
+    fn start_interface<Alloc>(
         &self,
         function_id: FunctionId,
         scratch: &Alloc,
@@ -111,7 +110,7 @@ pub trait TdispDriver {
         Alloc: SpdmPalAlloc;
 
     /// Stops an interface.
-    async fn stop_interface<Alloc>(
+    fn stop_interface<Alloc>(
         &self,
         function_id: FunctionId,
         scratch: &Alloc,

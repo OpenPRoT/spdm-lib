@@ -7,7 +7,7 @@ use spdm_traits::SpdmPalAlloc;
 use crate::iana::ocp::caliptra_vdm::CaliptraVdmCommands;
 use spdm_codec::vendor_defined::iana::ocp::caliptra::CaliptraVdmCmdResult;
 
-pub(crate) async fn handle<H, A>(
+pub(crate) fn handle<H, A>(
     cmds: &H,
     req: &[u8],
     scratch: &A,
@@ -20,7 +20,7 @@ where
     if let Err(code) = super::require_empty(req) {
         return CaliptraVdmCmdResult::Error(code);
     }
-    match cmds.clear_log(super::LOG_TYPE_DEBUG, scratch).await {
+    match cmds.clear_log(super::LOG_TYPE_DEBUG, scratch) {
         Ok(()) => match super::write_success(out) {
             Ok(_) => CaliptraVdmCmdResult::Response(1),
             Err(code) => CaliptraVdmCmdResult::Error(code),

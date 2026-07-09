@@ -35,18 +35,17 @@ pub enum SpdmPalAsymAlgo {
 ///
 /// The PAL uses this to compose the full SPDM cert chain:
 /// `endorsement (this) + DPE device chain + leaf (CertifyKey)`
-#[allow(async_fn_in_trait)]
 pub trait EndorsementCertChain {
     /// Hash of the root certificate under the given algorithm.
-    async fn root_cert_hash(&self, algo: SpdmPalAsymAlgo, out: &mut [u8]) -> PalResult<()>;
+    fn root_cert_hash(&self, algo: SpdmPalAsymAlgo, out: &mut [u8]) -> PalResult<()>;
 
     /// Total byte length of the endorsement cert chain for the
     /// given algorithm.
-    async fn size(&mut self, algo: SpdmPalAsymAlgo) -> PalResult<usize>;
+    fn size(&mut self, algo: SpdmPalAsymAlgo) -> PalResult<usize>;
 
     /// Read endorsement chain bytes at `offset` into `buf`.
     /// Returns bytes written.
-    async fn read(
+    fn read(
         &mut self,
         algo: SpdmPalAsymAlgo,
         offset: usize,
@@ -56,14 +55,13 @@ pub trait EndorsementCertChain {
     /// Write endorsement cert chain data for the given algorithm.
     /// `ReadOnlyEndorsement` rejects this; `MutableEndorsement`
     /// persists to flash.
-    async fn write(&mut self, algo: SpdmPalAsymAlgo, data: &[u8]) -> PalResult<()>;
+    fn write(&mut self, algo: SpdmPalAsymAlgo, data: &[u8]) -> PalResult<()>;
 
     /// Erase the endorsement cert chain for the given algorithm.
-    async fn erase(&mut self, algo: SpdmPalAsymAlgo) -> PalResult<()>;
+    fn erase(&mut self, algo: SpdmPalAsymAlgo) -> PalResult<()>;
 }
 
 /// Slot-indexed cert-store backend.
-#[allow(async_fn_in_trait)]
 pub trait SpdmPalCertStore: crate::SpdmPalIoTransport {
     /// Bitmask of supported slots, bits 0..=7.
     fn supported_slots(&self) -> u8;
@@ -74,7 +72,7 @@ pub trait SpdmPalCertStore: crate::SpdmPalIoTransport {
     fn provisioned_slots(&self) -> u8;
 
     /// Raw DER capacity/size for a slot-size query.
-    async fn cert_chain_slot_size(
+    fn cert_chain_slot_size(
         &self,
         io: &Self::Io<'_>,
         slot: u8,
@@ -100,7 +98,7 @@ pub trait SpdmPalCertStore: crate::SpdmPalIoTransport {
     /// machinery and avoids a duplicate async hash pass at the SPDM
     /// responder layer.
     #[cfg(feature = "set-certificate")]
-    async fn validate_set_certificate_chain(
+    fn validate_set_certificate_chain(
         &self,
         io: &Self::Io<'_>,
         slot: u8,
@@ -112,7 +110,7 @@ pub trait SpdmPalCertStore: crate::SpdmPalIoTransport {
 
     /// Length in bytes of slot's raw DER cert chain for the given
     /// algorithm (excludes the 52-byte SPDM cert-chain header).
-    async fn cert_chain_len(
+    fn cert_chain_len(
         &self,
         io: &Self::Io<'_>,
         slot: u8,
@@ -120,7 +118,7 @@ pub trait SpdmPalCertStore: crate::SpdmPalIoTransport {
     ) -> PalResult<usize>;
 
     /// Write the digest of slot's **root certificate** into `out`.
-    async fn root_cert_hash(
+    fn root_cert_hash(
         &self,
         io: &Self::Io<'_>,
         slot: u8,
@@ -131,7 +129,7 @@ pub trait SpdmPalCertStore: crate::SpdmPalIoTransport {
 
     /// Read at most `dst.len()` bytes from slot's raw cert chain
     /// for the given algorithm at `offset` into `dst`.
-    async fn read_cert_chain(
+    fn read_cert_chain(
         &self,
         io: &Self::Io<'_>,
         slot: u8,
@@ -141,7 +139,7 @@ pub trait SpdmPalCertStore: crate::SpdmPalIoTransport {
     ) -> PalResult<usize>;
 
     /// Sign `digest` using the key in `slot` for the given algorithm.
-    async fn sign_hash(
+    fn sign_hash(
         &self,
         io: &Self::Io<'_>,
         slot: u8,
@@ -154,7 +152,7 @@ pub trait SpdmPalCertStore: crate::SpdmPalIoTransport {
     /// Used by SET_CERTIFICATE.
     #[cfg(feature = "set-certificate")]
     #[allow(clippy::too_many_arguments)]
-    async fn write_cert_chain(
+    fn write_cert_chain(
         &self,
         io: &Self::Io<'_>,
         slot: u8,
@@ -167,7 +165,7 @@ pub trait SpdmPalCertStore: crate::SpdmPalIoTransport {
 
     /// Erase the cert chain in `slot` for the given algorithm.
     #[cfg(feature = "set-certificate")]
-    async fn erase_cert_chain(
+    fn erase_cert_chain(
         &self,
         io: &Self::Io<'_>,
         slot: u8,
@@ -202,5 +200,5 @@ pub trait SpdmPalCertStore: crate::SpdmPalIoTransport {
     fn cache_chain_digest(&self, _slot: u8, _algo: SpdmPalHashAlgo, _digest: &[u8]) {}
 
     /// Fill `out` with random bytes from the platform RNG.
-    async fn generate_nonce(&self, io: &Self::Io<'_>, out: &mut [u8]) -> PalResult<()>;
+    fn generate_nonce(&self, io: &Self::Io<'_>, out: &mut [u8]) -> PalResult<()>;
 }

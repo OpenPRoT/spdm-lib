@@ -377,7 +377,7 @@ impl<Pal: SpdmPal, const MAX_SESSIONS: usize, Vdm: SpdmVdmBackend>
     ///
     /// * `Err(PalErrorCode)` — A fatal transport error. Successful
     ///   loops never return.
-    pub async fn run(&mut self) -> PalResult<()> {
+    pub fn run(&mut self) -> PalResult<()> {
         #[cfg(feature = "debug-trace")]
         use core::fmt::Write;
         #[cfg(feature = "debug-trace")]
@@ -385,7 +385,7 @@ impl<Pal: SpdmPal, const MAX_SESSIONS: usize, Vdm: SpdmVdmBackend>
             spdm_transport_sys::DefaultSyscalls,
         >::writer();
         loop {
-            let io = self.pal.recv_request().await?;
+            let io = self.pal.recv_request()?;
             #[cfg(feature = "debug-trace")]
             {
                 let r = io.request();
@@ -408,7 +408,7 @@ impl<Pal: SpdmPal, const MAX_SESSIONS: usize, Vdm: SpdmVdmBackend>
                         code,
                         &self.vdm_backend,
                     )
-                    .await
+                    
                     {
                         Ok(mut rsp) => {
                             #[cfg(feature = "debug-trace")]
@@ -424,7 +424,7 @@ impl<Pal: SpdmPal, const MAX_SESSIONS: usize, Vdm: SpdmVdmBackend>
                             }
                             self.pal
                                 .send_response(&io, SpdmPalIoKind::Message, &mut rsp)
-                                .await?
+                                ?
                         }
                         Err(e) => {
                             if e.is_no_response() {
@@ -439,7 +439,7 @@ impl<Pal: SpdmPal, const MAX_SESSIONS: usize, Vdm: SpdmVdmBackend>
                                     req_version.to_u8()
                                 );
                             }
-                            self.send_error_pdu(&io, e, req_version).await?
+                            self.send_error_pdu(&io, e, req_version)?
                         }
                     }
                 }
@@ -451,7 +451,7 @@ impl<Pal: SpdmPal, const MAX_SESSIONS: usize, Vdm: SpdmVdmBackend>
                         &io,
                         &self.vdm_backend,
                     )
-                    .await
+                    
                     {
                         Ok(Some(mut rsp)) => {
                             #[cfg(feature = "debug-trace")]
@@ -460,7 +460,7 @@ impl<Pal: SpdmPal, const MAX_SESSIONS: usize, Vdm: SpdmVdmBackend>
                             }
                             self.pal
                                 .send_response(&io, SpdmPalIoKind::SecuredMessage, &mut rsp)
-                                .await?
+                                ?
                         }
                         Ok(None) => {}
                         Err(e) => {
@@ -475,7 +475,7 @@ impl<Pal: SpdmPal, const MAX_SESSIONS: usize, Vdm: SpdmVdmBackend>
                                     e.spec_byte()
                                 );
                             }
-                            self.send_error_pdu(&io, e, self.state.version).await?
+                            self.send_error_pdu(&io, e, self.state.version)?
                         }
                     }
                 }
@@ -509,7 +509,7 @@ impl<Pal: SpdmPal, const MAX_SESSIONS: usize, Vdm: SpdmVdmBackend>
     /// # Errors
     ///
     /// * `Err(PalErrorCode)` — Transport-level failure during send.
-    async fn send_error_pdu(
+    fn send_error_pdu(
         &self,
         io: &<Pal as SpdmPalIoTransport>::Io<'_>,
         err: SpdmError,
@@ -546,7 +546,7 @@ impl<Pal: SpdmPal, const MAX_SESSIONS: usize, Vdm: SpdmVdmBackend>
 
         self.pal
             .send_response(io, SpdmPalIoKind::Message, &mut err_rsp)
-            .await
+            
     }
 }
 
@@ -575,7 +575,7 @@ impl<Pal: SpdmPal, const MAX_SESSIONS: usize, Vdm: SpdmVdmBackend>
 ///   not handled by this responder.
 /// * Whatever the specific handler returns.
 #[inline(never)]
-async fn dispatch<'a, Pal: SpdmPal, Vdm: SpdmVdmBackend, const MAX_SESSIONS: usize>(
+fn dispatch<'a, Pal: SpdmPal, Vdm: SpdmVdmBackend, const MAX_SESSIONS: usize>(
     state: &mut ConnectionState<Pal::State, <Pal as SpdmPalAlloc>::LargeBuf>,
     sessions: &mut Sessions<Pal, MAX_SESSIONS>,
     pal: &'a Pal,
@@ -594,30 +594,30 @@ async fn dispatch<'a, Pal: SpdmPal, Vdm: SpdmVdmBackend, const MAX_SESSIONS: usi
         ReqRespCode::GET_VERSION => {
             state.reset_negotiation();
             sessions.remove_all_and_destroy();
-            version::handle_get_version(state, pal, io).await
+            version::handle_get_version(state, pal, io)
         }
         ReqRespCode::GET_CAPABILITIES => {
-            capabilities::handle_get_capabilities(state, pal, io).await
+            capabilities::handle_get_capabilities(state, pal, io)
         }
         ReqRespCode::NEGOTIATE_ALGORITHMS => {
-            algorithms::handle_negotiate_algorithms(state, pal, io).await
+            algorithms::handle_negotiate_algorithms(state, pal, io)
         }
-        ReqRespCode::GET_DIGESTS => digests::handle_get_digests(state, pal, io).await,
-        ReqRespCode::GET_CERTIFICATE => certificate::handle_get_certificate(state, pal, io).await,
-        ReqRespCode::CHALLENGE => challenge::handle_challenge(state, pal, io).await,
+        ReqRespCode::GET_DIGESTS => digests::handle_get_digests(state, pal, io),
+        ReqRespCode::GET_CERTIFICATE => certificate::handle_get_certificate(state, pal, io),
+        ReqRespCode::CHALLENGE => challenge::handle_challenge(state, pal, io),
         ReqRespCode::CHUNK_SEND => {
-            chunk::handle_chunk_send(state, pal, io, vdm, io.request(), false).await
+            chunk::handle_chunk_send(state, pal, io, vdm, io.request(), false)
         }
-        ReqRespCode::CHUNK_GET => chunk::handle_chunk_get(state, pal, io, io.request()).await,
+        ReqRespCode::CHUNK_GET => chunk::handle_chunk_get(state, pal, io, io.request()),
         #[cfg(feature = "set-certificate")]
         ReqRespCode::SET_CERTIFICATE => {
-            crate::set_certificate::handle_set_certificate(state, pal, io).await
+            crate::set_certificate::handle_set_certificate(state, pal, io)
         }
         #[cfg(not(feature = "set-certificate"))]
         ReqRespCode::SET_CERTIFICATE => Err(SPDM_UNSUPPORTED_REQUEST.with_data(code.0)),
         ReqRespCode::GET_MEASUREMENTS => {
             let (resp, _) =
-                measurements::handle_get_measurements_req(state, pal, io, io.request()).await?;
+                measurements::handle_get_measurements_req(state, pal, io, io.request())?;
             Ok(resp)
         }
         ReqRespCode::VENDOR_DEFINED_REQUEST => {
@@ -629,11 +629,11 @@ async fn dispatch<'a, Pal: SpdmPal, Vdm: SpdmVdmBackend, const MAX_SESSIONS: usi
                 io.request(),
                 false,
             )
-            .await?;
+            ?;
             Ok(resp)
         }
         ReqRespCode::KEY_EXCHANGE => {
-            key_exchange::handle_key_exchange(state, sessions, pal, io).await
+            key_exchange::handle_key_exchange(state, sessions, pal, io)
         }
         ReqRespCode::FINISH | ReqRespCode::END_SESSION => Err(SPDM_SESSION_REQUIRED),
         ReqRespCode(0) => Err(SPDM_INVALID_REQUEST),
@@ -657,7 +657,7 @@ where
 /// Parses the session ID, dispatches to the inner handler, and
 /// destroys the session on any error (conservative cleanup).
 #[inline(never)]
-async fn handle_secured_request<
+fn handle_secured_request<
     'a,
     Pal: SpdmPal,
     Vdm: SpdmVdmBackend,
@@ -678,7 +678,7 @@ async fn handle_secured_request<
         return Ok(None);
     }
 
-    match handle_secured_inner(state, sessions, pal, io, session_id, vdm).await {
+    match handle_secured_inner(state, sessions, pal, io, session_id, vdm) {
         Ok(rsp) => Ok(Some(rsp)),
         Err(e) => {
             if e.is_no_response() {
@@ -706,7 +706,7 @@ async fn handle_secured_request<
                 key_type,
                 &error_rsp,
             )
-            .await
+            
             .ok();
             if e.spec_byte() == SPDM_DECRYPT_ERROR.spec_byte() {
                 sessions.remove_and_destroy(session_id);
@@ -718,7 +718,7 @@ async fn handle_secured_request<
 
 /// Inner secured message handler: decrypt → dispatch → encrypt.
 #[inline(never)]
-async fn handle_secured_inner<'a, Pal: SpdmPal, Vdm: SpdmVdmBackend, const MAX_SESSIONS: usize>(
+fn handle_secured_inner<'a, Pal: SpdmPal, Vdm: SpdmVdmBackend, const MAX_SESSIONS: usize>(
     state: &mut ConnectionState<Pal::State, <Pal as SpdmPalAlloc>::LargeBuf>,
     sessions: &mut Sessions<Pal, MAX_SESSIONS>,
     pal: &'a Pal,
@@ -769,7 +769,7 @@ async fn handle_secured_inner<'a, Pal: SpdmPal, Vdm: SpdmVdmBackend, const MAX_S
                 tag,
                 &mut plaintext[..ct_len],
             )
-            .await
+            
             .map_err(|_| SPDM_DECRYPT_ERROR)?
             != ct_len
         {
@@ -807,7 +807,7 @@ async fn handle_secured_inner<'a, Pal: SpdmPal, Vdm: SpdmVdmBackend, const MAX_S
         ReqRespCode::FINISH => {
             let session = sessions.find_mut(session_id).ok_or(SPDM_UNSPECIFIED)?;
             let finish_rsp =
-                finish::handle_finish::<Pal>(version, session, pal, io, spdm_msg).await?;
+                finish::handle_finish::<Pal>(version, session, pal, io, spdm_msg)?;
             let rsp = encrypt_secured_spdm_response(
                 pal,
                 io,
@@ -817,7 +817,7 @@ async fn handle_secured_inner<'a, Pal: SpdmPal, Vdm: SpdmVdmBackend, const MAX_S
                 response_key_type,
                 &finish_rsp,
             )
-            .await?;
+            ?;
             session.key_schedule.destroy_handshake_secrets();
             session.state = SessionState::Established;
             Ok(rsp)
@@ -834,13 +834,13 @@ async fn handle_secured_inner<'a, Pal: SpdmPal, Vdm: SpdmVdmBackend, const MAX_S
                 response_key_type,
                 &end_session_ack,
             )
-            .await?;
+            ?;
             sessions.remove_and_destroy(session_id);
             Ok(rsp)
         }
         ReqRespCode::GET_DIGESTS => {
             let (digests_rsp, spdm_len) =
-                digests::handle_get_digests_req(state, pal, io, spdm_msg).await?;
+                digests::handle_get_digests_req(state, pal, io, spdm_msg)?;
             let head = pal.header_size();
             let spdm_rsp = &digests_rsp[head..head + spdm_len];
             let session = sessions.find_mut(session_id).ok_or(SPDM_UNSPECIFIED)?;
@@ -853,11 +853,11 @@ async fn handle_secured_inner<'a, Pal: SpdmPal, Vdm: SpdmVdmBackend, const MAX_S
                 response_key_type,
                 spdm_rsp,
             )
-            .await
+            
         }
         ReqRespCode::GET_CERTIFICATE => {
             let (certificate_rsp, spdm_len) =
-                certificate::handle_get_certificate_req(state, pal, io, spdm_msg).await?;
+                certificate::handle_get_certificate_req(state, pal, io, spdm_msg)?;
             let head = pal.header_size();
             let spdm_rsp = &certificate_rsp[head..head + spdm_len];
             let session = sessions.find_mut(session_id).ok_or(SPDM_UNSPECIFIED)?;
@@ -870,11 +870,11 @@ async fn handle_secured_inner<'a, Pal: SpdmPal, Vdm: SpdmVdmBackend, const MAX_S
                 response_key_type,
                 spdm_rsp,
             )
-            .await
+            
         }
         ReqRespCode::GET_MEASUREMENTS => {
             let (measurements_rsp, spdm_len) =
-                measurements::handle_get_measurements_req(state, pal, io, spdm_msg).await?;
+                measurements::handle_get_measurements_req(state, pal, io, spdm_msg)?;
             let head = pal.header_size();
             let spdm_rsp = &measurements_rsp[head..head + spdm_len];
             let session = sessions.find_mut(session_id).ok_or(SPDM_UNSPECIFIED)?;
@@ -887,12 +887,12 @@ async fn handle_secured_inner<'a, Pal: SpdmPal, Vdm: SpdmVdmBackend, const MAX_S
                 response_key_type,
                 spdm_rsp,
             )
-            .await
+            
         }
         ReqRespCode::VENDOR_DEFINED_REQUEST => {
             let (rsp, spdm_len) =
                 vendor_defined::handle_vendor_defined_request(vdm, state, pal, io, spdm_msg, true)
-                    .await?;
+                    ?;
             let head = pal.header_size();
             let spdm_rsp = &rsp[head..head + spdm_len];
             let session = sessions.find_mut(session_id).ok_or(SPDM_UNSPECIFIED)?;
@@ -905,10 +905,10 @@ async fn handle_secured_inner<'a, Pal: SpdmPal, Vdm: SpdmVdmBackend, const MAX_S
                 response_key_type,
                 spdm_rsp,
             )
-            .await
+            
         }
         ReqRespCode::CHUNK_GET => {
-            let chunk_rsp = chunk::handle_chunk_get(state, pal, io, spdm_msg).await?;
+            let chunk_rsp = chunk::handle_chunk_get(state, pal, io, spdm_msg)?;
             let head = pal.header_size();
             let spdm_rsp = &chunk_rsp[head..];
             let session = sessions.find_mut(session_id).ok_or(SPDM_UNSPECIFIED)?;
@@ -921,11 +921,11 @@ async fn handle_secured_inner<'a, Pal: SpdmPal, Vdm: SpdmVdmBackend, const MAX_S
                 response_key_type,
                 spdm_rsp,
             )
-            .await
+            
         }
         ReqRespCode::CHUNK_SEND => {
             let chunk_send_ack =
-                chunk::handle_chunk_send(state, pal, io, vdm, spdm_msg, true).await?;
+                chunk::handle_chunk_send(state, pal, io, vdm, spdm_msg, true)?;
             let head = pal.header_size();
             let spdm_rsp = &chunk_send_ack[head..];
             let session = sessions.find_mut(session_id).ok_or(SPDM_UNSPECIFIED)?;
@@ -938,7 +938,7 @@ async fn handle_secured_inner<'a, Pal: SpdmPal, Vdm: SpdmVdmBackend, const MAX_S
                 response_key_type,
                 spdm_rsp,
             )
-            .await
+            
         }
         _ => Err(SPDM_UNSUPPORTED_REQUEST.with_data(spdm_hdr.code.0)),
     }
@@ -987,7 +987,7 @@ fn validate_message_allowed_phase(
 }
 
 #[inline(never)]
-async fn encrypt_secured_spdm_response<'a, Pal: SpdmPal>(
+fn encrypt_secured_spdm_response<'a, Pal: SpdmPal>(
     pal: &'a Pal,
     io: &<Pal as SpdmPalIoTransport>::Io<'_>,
     session: &mut crate::session::SessionInfo<<Pal as SpdmPalSessionCrypto>::Key, Pal::State>,
@@ -1026,7 +1026,7 @@ async fn encrypt_secured_spdm_response<'a, Pal: SpdmPal>(
             &rsp_plaintext,
             &mut rsp_ct,
         )
-        .await
+        
         .map_err(|_| SPDM_UNSPECIFIED)?;
     if rsp_written != rsp_ct_len {
         return Err(SPDM_UNSPECIFIED);

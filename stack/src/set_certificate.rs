@@ -31,7 +31,7 @@ const CERT_MODEL_DEVICE_CERT: u8 = 1;
 const CERT_MODEL_ALIAS_CERT: u8 = 2;
 const CERT_MODEL_GENERIC_CERT: u8 = 3;
 
-pub(crate) async fn handle_set_certificate<'a, Pal: SpdmPal>(
+pub(crate) fn handle_set_certificate<'a, Pal: SpdmPal>(
     state: &mut ConnectionState<Pal::State, <Pal as SpdmPalAlloc>::LargeBuf>,
     pal: &'a Pal,
     io: &<Pal as SpdmPalIoTransport>::Io<'_>,
@@ -40,11 +40,11 @@ pub(crate) async fn handle_set_certificate<'a, Pal: SpdmPal>(
     if req.len() > pal.mtu() {
         return Err(SPDM_INVALID_REQUEST);
     }
-    let slot_id = handle_set_certificate_request(state, pal, io, req).await?;
+    let slot_id = handle_set_certificate_request(state, pal, io, req)?;
     build_response(pal, io, state.version, &SetCertificateRsp { slot_id })
 }
 
-pub(crate) async fn handle_set_certificate_request<Pal: SpdmPal>(
+pub(crate) fn handle_set_certificate_request<Pal: SpdmPal>(
     state: &mut ConnectionState<Pal::State, <Pal as SpdmPalAlloc>::LargeBuf>,
     pal: &Pal,
     io: &<Pal as SpdmPalIoTransport>::Io<'_>,
@@ -94,7 +94,7 @@ pub(crate) async fn handle_set_certificate_request<Pal: SpdmPal>(
         if !payload.is_empty() || req_body.cert_model() != 0 {
             return Err(SPDM_INVALID_REQUEST);
         }
-        pal.erase_cert_chain(io, slot_id, state.asym_algo()).await?;
+        pal.erase_cert_chain(io, slot_id, state.asym_algo())?;
     } else {
         let (root_hash, der) = validate_spdm_cert_chain(payload)?;
         pal.validate_set_certificate_chain(
@@ -105,7 +105,7 @@ pub(crate) async fn handle_set_certificate_request<Pal: SpdmPal>(
             root_hash,
             der,
         )
-        .await
+        
         .map_err(map_set_cert_validation_error)?;
         pal.write_cert_chain(
             io,
@@ -116,7 +116,7 @@ pub(crate) async fn handle_set_certificate_request<Pal: SpdmPal>(
             root_hash,
             der,
         )
-        .await?;
+        ?;
     }
 
     Ok(slot_id)

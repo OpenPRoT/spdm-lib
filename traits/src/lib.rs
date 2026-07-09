@@ -19,7 +19,6 @@
 //! the re-exports below. There is no SPDM-specific error alias —
 //! every runtime userspace API shares one error type.
 #![no_std]
-#![allow(async_fn_in_trait)]
 
 mod alloc;
 mod cert;

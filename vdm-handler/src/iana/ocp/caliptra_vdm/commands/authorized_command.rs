@@ -15,7 +15,7 @@ pub const GET_AUTH_CHALLENGE_CMD_ID: u32 = 0x4D41_4343;
 pub const FE_PROG_CMD_ID: u32 = 0x4D43_4650;
 const MAC_LEN: usize = 48;
 
-pub(crate) async fn handle<H, A>(
+pub(crate) fn handle<H, A>(
     cmds: &H,
     req: &[u8],
     scratch: &A,
@@ -36,13 +36,13 @@ where
     ]);
     let payload = &req[4..];
     match sub_cmd {
-        GET_AUTH_CHALLENGE_CMD_ID => handle_get_auth_challenge(cmds, payload, scratch, out).await,
-        FE_PROG_CMD_ID => handle_fe_prog(cmds, payload, scratch, out).await,
+        GET_AUTH_CHALLENGE_CMD_ID => handle_get_auth_challenge(cmds, payload, scratch, out),
+        FE_PROG_CMD_ID => handle_fe_prog(cmds, payload, scratch, out),
         _ => CaliptraVdmCmdResult::Error(CaliptraCompletionCode::InvalidParameter),
     }
 }
 
-async fn handle_get_auth_challenge<H, A>(
+fn handle_get_auth_challenge<H, A>(
     cmds: &H,
     req: &[u8],
     scratch: &A,
@@ -59,13 +59,13 @@ where
         Ok(data) => data,
         Err(code) => return CaliptraVdmCmdResult::Error(code),
     };
-    match cmds.get_auth_challenge(scratch, data).await {
+    match cmds.get_auth_challenge(scratch, data) {
         Ok(n) => CaliptraVdmCmdResult::Response(1 + n),
         Err(code) => CaliptraVdmCmdResult::Error(code),
     }
 }
 
-async fn handle_fe_prog<H, A>(
+fn handle_fe_prog<H, A>(
     cmds: &H,
     req: &[u8],
     scratch: &A,
@@ -81,7 +81,7 @@ where
     let partition = u32::from_le_bytes([req[0], req[1], req[2], req[3]]);
     let mut mac = [0u8; MAC_LEN];
     mac.copy_from_slice(&req[4..4 + MAC_LEN]);
-    match cmds.program_field_entropy(partition, &mac, scratch).await {
+    match cmds.program_field_entropy(partition, &mac, scratch) {
         Ok(()) => match super::write_success(out) {
             Ok(_) => CaliptraVdmCmdResult::Response(1),
             Err(code) => CaliptraVdmCmdResult::Error(code),

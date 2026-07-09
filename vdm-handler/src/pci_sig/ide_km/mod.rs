@@ -42,7 +42,7 @@ impl<D> IdeKmResponder<D> {
 
 impl<D: IdeDriver> IdeKmResponder<D> {
     /// Handles an IDE-KM request payload after the PCI-SIG protocol byte.
-    pub async fn handle_request<Alloc>(
+    pub fn handle_request<Alloc>(
         &self,
         req: &[u8],
         rsp: &mut [u8],
@@ -69,13 +69,13 @@ impl<D: IdeDriver> IdeKmResponder<D> {
                 commands::handle_query(&self.driver, scratch, &mut reader, &mut writer)
             }
             IdeKmCommand::KeyProg => {
-                commands::handle_key_prog(&self.driver, scratch, &mut reader, &mut writer).await
+                commands::handle_key_prog(&self.driver, scratch, &mut reader, &mut writer)
             }
             IdeKmCommand::KeySetGo => {
-                commands::handle_key_set_go(&self.driver, scratch, &mut reader, &mut writer).await
+                commands::handle_key_set_go(&self.driver, scratch, &mut reader, &mut writer)
             }
             IdeKmCommand::KeySetStop => {
-                commands::handle_key_set_stop(&self.driver, scratch, &mut reader, &mut writer).await
+                commands::handle_key_set_stop(&self.driver, scratch, &mut reader, &mut writer)
             }
             _ => Err(SPDM_INVALID_REQUEST),
         }
@@ -109,7 +109,7 @@ impl<D> PciSigIdeKmVdm<D> {
 }
 
 impl<D: IdeDriver> PciSigIdeKmVdm<D> {
-    async fn handle_ide_km_protocol_payload<Alloc>(
+    fn handle_ide_km_protocol_payload<Alloc>(
         &self,
         protocol_id: u8,
         req: &[u8],
@@ -123,7 +123,7 @@ impl<D: IdeDriver> PciSigIdeKmVdm<D> {
             return Err(SPDM_UNSPECIFIED);
         };
         *protocol_out = protocol_id;
-        let ide_len = self.ide_km.handle_request(req, ide_out, scratch).await?;
+        let ide_len = self.ide_km.handle_request(req, ide_out, scratch)?;
         Ok(PciSigProtocolHdr::SIZE + ide_len)
     }
 }
@@ -135,7 +135,7 @@ impl<D: IdeDriver> SpdmVdmBackend for PciSigIdeKmVdm<D> {
             && registry.secure_session
     }
 
-    async fn handle_request<Alloc, Io>(
+    fn handle_request<Alloc, Io>(
         &self,
         req: &[u8],
         rsp: VdmResponseBuffer<'_, Alloc, Io>,
@@ -161,7 +161,7 @@ impl<D: IdeDriver> SpdmVdmBackend for PciSigIdeKmVdm<D> {
                 rsp.inline,
                 scratch,
             )
-            .await
+            
             .map_err(|_| VDM_NO_RESPONSE)?;
         Ok(VdmResponse::Inline(len))
     }
@@ -199,7 +199,7 @@ where
         pci_sig_envelope_matches(registry, self.vendor_id)
     }
 
-    async fn handle_request<Alloc, Io>(
+    fn handle_request<Alloc, Io>(
         &self,
         req: &[u8],
         rsp: VdmResponseBuffer<'_, Alloc, Io>,
@@ -212,11 +212,11 @@ where
             return Err(SPDM_INVALID_REQUEST);
         };
         match protocol_id {
-            IDE_KM_PROTOCOL_ID => self.ide_km.handle_request(req, rsp).await,
+            IDE_KM_PROTOCOL_ID => self.ide_km.handle_request(req, rsp),
             TDISP_PROTOCOL_ID => {
                 let VdmResponseBuffer { inline, alloc, .. } = rsp;
                 handle_tdisp_protocol_payload(&self.tdisp, protocol_id, payload, inline, alloc)
-                    .await
+                    
             }
             _ => Err(SPDM_UNSUPPORTED_REQUEST),
         }
@@ -405,7 +405,7 @@ mod tests {
             })
         }
 
-        async fn key_prog<Alloc>(
+        fn key_prog<Alloc>(
             &self,
             _stream_id: u8,
             _key_info: KeyInfo,
@@ -421,7 +421,7 @@ mod tests {
             Ok(0)
         }
 
-        async fn key_set_go<Alloc>(
+        fn key_set_go<Alloc>(
             &self,
             _stream_id: u8,
             key_info: KeyInfo,
@@ -436,7 +436,7 @@ mod tests {
             Ok(())
         }
 
-        async fn key_set_stop<Alloc>(
+        fn key_set_stop<Alloc>(
             &self,
             _stream_id: u8,
             key_info: KeyInfo,
@@ -510,7 +510,7 @@ mod tests {
             TestIdeDriver::default().selective_ide_reg_block(port_index, block_index, scratch)
         }
 
-        async fn key_prog<Alloc>(
+        fn key_prog<Alloc>(
             &self,
             _stream_id: u8,
             _key_info: KeyInfo,
@@ -525,7 +525,7 @@ mod tests {
             Ok(self.key_prog_status)
         }
 
-        async fn key_set_go<Alloc>(
+        fn key_set_go<Alloc>(
             &self,
             _stream_id: u8,
             _key_info: KeyInfo,
@@ -538,7 +538,7 @@ mod tests {
             Ok(())
         }
 
-        async fn key_set_stop<Alloc>(
+        fn key_set_stop<Alloc>(
             &self,
             _stream_id: u8,
             _key_info: KeyInfo,
@@ -598,7 +598,7 @@ mod tests {
             TestIdeDriver::default().selective_ide_reg_block(port_index, block_index, scratch)
         }
 
-        async fn key_prog<Alloc>(
+        fn key_prog<Alloc>(
             &self,
             _stream_id: u8,
             _key_info: KeyInfo,
@@ -613,7 +613,7 @@ mod tests {
             Err(IdeDriverError::KeyProgFail)
         }
 
-        async fn key_set_go<Alloc>(
+        fn key_set_go<Alloc>(
             &self,
             _stream_id: u8,
             _key_info: KeyInfo,
@@ -626,7 +626,7 @@ mod tests {
             Err(IdeDriverError::KeySetGoFail)
         }
 
-        async fn key_set_stop<Alloc>(
+        fn key_set_stop<Alloc>(
             &self,
             _stream_id: u8,
             _key_info: KeyInfo,
@@ -693,7 +693,7 @@ mod tests {
             TestIdeDriver::default().selective_ide_reg_block(port_index, block_index, scratch)
         }
 
-        async fn key_prog<Alloc>(
+        fn key_prog<Alloc>(
             &self,
             stream_id: u8,
             key_info: KeyInfo,
@@ -717,7 +717,7 @@ mod tests {
             Ok(self.status)
         }
 
-        async fn key_set_go<Alloc>(
+        fn key_set_go<Alloc>(
             &self,
             _stream_id: u8,
             _key_info: KeyInfo,
@@ -730,7 +730,7 @@ mod tests {
             Err(IdeDriverError::KeySetGoFail)
         }
 
-        async fn key_set_stop<Alloc>(
+        fn key_set_stop<Alloc>(
             &self,
             _stream_id: u8,
             _key_info: KeyInfo,

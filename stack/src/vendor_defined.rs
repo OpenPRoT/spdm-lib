@@ -30,7 +30,7 @@ use crate::stack::ConnectionState;
 /// it is `io.request()`; for a secured message it is the decrypted payload.
 ///
 /// Returns the framed response buffer and its SPDM-payload length.
-pub(crate) async fn handle_vendor_defined_request<'a, Pal: SpdmPal, V: SpdmVdmBackend>(
+pub(crate) fn handle_vendor_defined_request<'a, Pal: SpdmPal, V: SpdmVdmBackend>(
     vdm: &V,
     state: &mut ConnectionState<Pal::State, <Pal as SpdmPalAlloc>::LargeBuf>,
     pal: &'a Pal,
@@ -107,7 +107,7 @@ pub(crate) async fn handle_vendor_defined_request<'a, Pal: SpdmPal, V: SpdmVdmBa
             alloc: pal,
             io,
         };
-        vdm.handle_request(decoded.payload, rsp).await?
+        vdm.handle_request(decoded.payload, rsp)?
     };
 
     match outcome {
@@ -165,7 +165,7 @@ pub(crate) async fn handle_vendor_defined_request<'a, Pal: SpdmPal, V: SpdmVdmBa
 /// large-message buffer is still occupied by the reassembled request, so large
 /// VDM responses are intentionally disabled here; handlers get only the inline
 /// response area and must return [`VdmResponse::Inline`].
-pub(crate) async fn handle_large_vendor_defined_request<Pal: SpdmPal, V: SpdmVdmBackend>(
+pub(crate) fn handle_large_vendor_defined_request<Pal: SpdmPal, V: SpdmVdmBackend>(
     vdm: &V,
     state: &ConnectionState<Pal::State, <Pal as SpdmPalAlloc>::LargeBuf>,
     pal: &Pal,
@@ -200,7 +200,7 @@ pub(crate) async fn handle_large_vendor_defined_request<Pal: SpdmPal, V: SpdmVdm
             alloc: pal,
             io,
         };
-        vdm.handle_request(decoded.payload, rsp).await?
+        vdm.handle_request(decoded.payload, rsp)?
     };
     let VdmResponse::Inline(payload_len) = outcome else {
         return Err(SPDM_UNSPECIFIED);

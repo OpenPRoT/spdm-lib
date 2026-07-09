@@ -22,16 +22,16 @@ use crate::stack::{multi_key_conn_rsp, ConnectionState, Phase};
 /// per-IO bitmap pool, not the stack.
 const CERT_CHUNK_SIZE: usize = 1024;
 
-pub(crate) async fn handle_get_digests<'a, Pal: SpdmPal>(
+pub(crate) fn handle_get_digests<'a, Pal: SpdmPal>(
     state: &mut ConnectionState<Pal::State, <Pal as SpdmPalAlloc>::LargeBuf>,
     pal: &'a Pal,
     io: &<Pal as SpdmPalIoTransport>::Io<'_>,
 ) -> SpdmResult<PalBytes<'a, Pal>> {
-    let (resp, _) = handle_get_digests_req(state, pal, io, io.request()).await?;
+    let (resp, _) = handle_get_digests_req(state, pal, io, io.request())?;
     Ok(resp)
 }
 
-pub(crate) async fn handle_get_digests_req<'a, Pal: SpdmPal>(
+pub(crate) fn handle_get_digests_req<'a, Pal: SpdmPal>(
     state: &mut ConnectionState<Pal::State, <Pal as SpdmPalAlloc>::LargeBuf>,
     pal: &'a Pal,
     io: &<Pal as SpdmPalIoTransport>::Io<'_>,
@@ -81,7 +81,7 @@ pub(crate) async fn handle_get_digests_req<'a, Pal: SpdmPal>(
             *dst = cached;
         } else {
             cert_chain_hash(pal, io, slot, asym_algo, SpdmPalHashAlgo::Sha384, dst)
-                .await
+                
                 .map_err(|_| SPDM_UNSPECIFIED)?;
             pal.cache_chain_digest(slot, SpdmPalHashAlgo::Sha384, dst);
         }
@@ -101,11 +101,11 @@ pub(crate) async fn handle_get_digests_req<'a, Pal: SpdmPal>(
     let resp = build_response(pal, io, state.version, &digests_body)?;
 
     let head = pal.header_size();
-    state.transcript.append_m1(pal, io, spdm_msg).await?;
+    state.transcript.append_m1(pal, io, spdm_msg)?;
     state
         .transcript
         .append_m1(pal, io, &resp[head..head + spdm_len])
-        .await?;
+        ?;
 
     state.phase = Phase::AfterDigests;
     Ok((resp, spdm_len))
@@ -142,7 +142,7 @@ fn fill_multi_key_conn_rsp_data<Pal: SpdmPal>(pal: &Pal, provisioned: u8, dst: &
 /// allowed this small allocation) and stream the variable-length
 /// DER bytes from a pool-allocated chunk buffer.
 #[inline(never)]
-pub(crate) async fn cert_chain_hash<Pal: SpdmPal>(
+pub(crate) fn cert_chain_hash<Pal: SpdmPal>(
     pal: &Pal,
     io: &<Pal as SpdmPalIoTransport>::Io<'_>,
     slot: u8,
@@ -154,7 +154,7 @@ pub(crate) async fn cert_chain_hash<Pal: SpdmPal>(
         return Err(spdm_error::codes::INVARIANT);
     }
 
-    let der_len = pal.cert_chain_len(io, slot, asym_algo).await?;
+    let der_len = pal.cert_chain_len(io, slot, asym_algo)?;
     let digest_size = algo.hash_size();
 
     // 52-byte SPDM cert-chain header on the stack. Per the user:
@@ -164,20 +164,20 @@ pub(crate) async fn cert_chain_hash<Pal: SpdmPal>(
     write_fixed(&mut hdr, 0, &total.to_le_bytes());
     // bytes 2..4 (Reserved) already zero
     pal.root_cert_hash(io, slot, asym_algo, algo, &mut hdr[4..4 + digest_size])
-        .await?;
+        ?;
 
-    let mut state = pal.hash_init(io, algo, &hdr).await?;
+    let mut state = pal.hash_init(io, algo, &hdr)?;
 
     let mut offset = 0;
     loop {
         let mut buf = pal.alloc_bytes(io, CERT_CHUNK_SIZE)?;
         let n = pal
             .read_cert_chain(io, slot, asym_algo, offset, &mut buf)
-            .await?;
+            ?;
         if n == 0 {
             break;
         }
-        pal.hash_update(io, &mut state, &buf[..n]).await?;
+        pal.hash_update(io, &mut state, &buf[..n])?;
         offset += n;
         if n < buf.len() {
             break;
@@ -188,5 +188,5 @@ pub(crate) async fn cert_chain_hash<Pal: SpdmPal>(
         return Err(spdm_error::codes::INVARIANT);
     }
 
-    pal.hash_finish(io, &mut state, out).await
+    pal.hash_finish(io, &mut state, out)
 }

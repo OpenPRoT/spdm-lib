@@ -52,7 +52,7 @@ pub(crate) const SUPPORTED_VERSIONS: &[SpdmVersion] = &[SpdmVersion::V13, SpdmVe
 /// * Allocator / codec errors from [`build_response`] propagate via
 ///   `?` and end up as [`SPDM_BUSY`](crate::error::SPDM_BUSY) /
 ///   [`SPDM_INVALID_REQUEST`] respectively.
-pub(crate) async fn handle_get_version<'a, Pal: SpdmPal>(
+pub(crate) fn handle_get_version<'a, Pal: SpdmPal>(
     state: &mut ConnectionState<Pal::State, <Pal as SpdmPalAlloc>::LargeBuf>,
     pal: &'a Pal,
     io: &Pal::Io<'_>,
@@ -77,11 +77,11 @@ pub(crate) async fn handle_get_version<'a, Pal: SpdmPal>(
     // DSP0274 §10.4.1: GET_VERSION + VERSION contribute to VCA.
     // Use spdm_len to exclude any transport-layer padding (e.g. DOE DWORD alignment).
     let head = pal.header_size();
-    state.transcript.append_vca(pal, io, io.request()).await?;
+    state.transcript.append_vca(pal, io, io.request())?;
     state
         .transcript
         .append_vca(pal, io, &resp[head..head + spdm_len])
-        .await?;
+        ?;
 
     state.phase = Phase::AfterVersion;
     Ok(resp)

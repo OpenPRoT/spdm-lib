@@ -39,7 +39,7 @@ pub(crate) const FINISH_RSP_SPDM_SIZE: usize = SpdmMsgHdrPdu::SIZE + 2;
 /// 2. Destroy handshake secrets
 /// 3. Transition session state to [`SessionState::Established`]
 #[inline(never)]
-pub(crate) async fn handle_finish<Pal: SpdmPal>(
+pub(crate) fn handle_finish<Pal: SpdmPal>(
     version: SpdmVersion,
     session: &mut SessionInfo<<Pal as SpdmPalSessionCrypto>::Key, Pal::State>,
     pal: &Pal,
@@ -76,14 +76,14 @@ pub(crate) async fn handle_finish<Pal: SpdmPal>(
     session
         .transcript
         .append(pal, io, &spdm_msg[..finish_hdr_len])
-        .await?;
+        ?;
 
     // ── Verify requester HMAC ───────────────────────────────────────
     let mut th_hash = [0u8; SHA384_HASH_SIZE];
     session
         .transcript
         .clone_and_finalize(pal, io, &mut th_hash)
-        .await?;
+        ?;
 
     let mut expected_vd = [0u8; SHA384_HASH_SIZE];
     let vd_len = session
@@ -95,7 +95,7 @@ pub(crate) async fn handle_finish<Pal: SpdmPal>(
             &th_hash,
             &mut expected_vd,
         )
-        .await?;
+        ?;
     if vd_len != SHA384_HASH_SIZE {
         return Err(SPDM_UNSPECIFIED);
     }
@@ -110,7 +110,7 @@ pub(crate) async fn handle_finish<Pal: SpdmPal>(
     }
 
     // ── Feed verify_data to TH (completes FINISH_REQ in TH) ────────
-    session.transcript.append(pal, io, req_verify_data).await?;
+    session.transcript.append(pal, io, req_verify_data)?;
 
     // ── Build FINISH_RSP SPDM message ──────────────────────────────
     let mut rsp_buf = [0u8; FINISH_RSP_SPDM_SIZE];
@@ -119,17 +119,17 @@ pub(crate) async fn handle_finish<Pal: SpdmPal>(
         .map_err(|_| SPDM_UNSPECIFIED)?;
 
     // ── Feed FINISH_RSP to TH ──────────────────────────────────────
-    session.transcript.append(pal, io, &rsp_buf).await?;
+    session.transcript.append(pal, io, &rsp_buf)?;
 
     // ── Finalize TH → TH2 ─────────────────────────────────────────
     let mut th2 = [0u8; SHA384_HASH_SIZE];
-    session.transcript.finalize(pal, io, &mut th2).await?;
+    session.transcript.finalize(pal, io, &mut th2)?;
 
     // ── Derive data keys ───────────────────────────────────────────
     session
         .key_schedule
         .generate_data_keys(pal, io, &th2)
-        .await?;
+        ?;
 
     Ok(rsp_buf)
 }

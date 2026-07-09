@@ -92,21 +92,21 @@ impl<S> SessionTranscript<S> {
     }
 
     /// Append data to the running TH.
-    pub async fn append<H: SpdmPalHash<State = S>>(
+    pub fn append<H: SpdmPalHash<State = S>>(
         &mut self,
         hash: &H,
         io: &impl SpdmPalIo,
         data: &[u8],
     ) -> PalResult<()> {
         let state = self.th.as_mut().ok_or(spdm_error::codes::INVARIANT)?;
-        hash.hash_update(io, state, data).await
+        hash.hash_update(io, state, data)
     }
 
     /// Clone the running state and finalize the clone to produce a
     /// digest, leaving the original state intact for further appending.
     ///
     /// Used for TH1 (signing) and TH1' (HMAC) snapshots.
-    pub async fn clone_and_finalize<H: SpdmPalHash<State = S>>(
+    pub fn clone_and_finalize<H: SpdmPalHash<State = S>>(
         &self,
         hash: &H,
         io: &impl SpdmPalIo,
@@ -114,18 +114,18 @@ impl<S> SessionTranscript<S> {
     ) -> PalResult<()> {
         let state = self.th.as_ref().ok_or(spdm_error::codes::INVARIANT)?;
         let mut clone = hash.hash_clone(io, state)?;
-        hash.hash_finish(io, &mut clone, out).await
+        hash.hash_finish(io, &mut clone, out)
     }
 
     /// Finalize destructively (last use — e.g. TH2).
-    pub async fn finalize<H: SpdmPalHash<State = S>>(
+    pub fn finalize<H: SpdmPalHash<State = S>>(
         &mut self,
         hash: &H,
         io: &impl SpdmPalIo,
         out: &mut [u8],
     ) -> PalResult<()> {
         let state = self.th.as_mut().ok_or(spdm_error::codes::INVARIANT)?;
-        hash.hash_finish(io, state, out).await?;
+        hash.hash_finish(io, state, out)?;
         self.th = None;
         Ok(())
     }

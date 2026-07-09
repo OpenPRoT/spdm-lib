@@ -10,7 +10,6 @@
 //! are wired later.
 
 #![no_std]
-#![allow(async_fn_in_trait)]
 #![forbid(unsafe_code)]
 
 use core::ops::{Deref, DerefMut};
@@ -21,7 +20,7 @@ pub use spdm_error::{PalErrorCode, PalResult as CryptoResult};
 // ----- Allocator contract ----------------------------------------------------
 
 /// Per-call scratch allocator. Mailbox request/response buffers come from
-/// here so large payloads never sit on the stack across an `.await`.
+/// here so large payloads never sit on the stack across an ``.
 pub trait ApiAlloc {
     type Buf<'a>: DerefMut<Target = [u8]>
     where
@@ -97,7 +96,7 @@ impl<B: Deref<Target = [u8]> + DerefMut> HashState<B> {
     }
 }
 
-pub async fn sha_init<A: ApiAlloc, B: Deref<Target = [u8]> + DerefMut>(
+pub fn sha_init<A: ApiAlloc, B: Deref<Target = [u8]> + DerefMut>(
     _alloc: &A,
     _buf: B,
     _algo: HashAlgo,
@@ -106,7 +105,7 @@ pub async fn sha_init<A: ApiAlloc, B: Deref<Target = [u8]> + DerefMut>(
     unimplemented!("spdm-crypto placeholder: sha_init")
 }
 
-pub async fn sha_update<A: ApiAlloc, B: Deref<Target = [u8]> + DerefMut>(
+pub fn sha_update<A: ApiAlloc, B: Deref<Target = [u8]> + DerefMut>(
     _alloc: &A,
     _state: &mut HashState<B>,
     _data: &[u8],
@@ -114,7 +113,7 @@ pub async fn sha_update<A: ApiAlloc, B: Deref<Target = [u8]> + DerefMut>(
     unimplemented!("spdm-crypto placeholder: sha_update")
 }
 
-pub async fn sha_finish<A: ApiAlloc, B: Deref<Target = [u8]> + DerefMut>(
+pub fn sha_finish<A: ApiAlloc, B: Deref<Target = [u8]> + DerefMut>(
     _alloc: &A,
     _state: &mut HashState<B>,
     _out: &mut [u8],
@@ -133,7 +132,7 @@ pub enum HkdfSalt<'a> {
     Data(&'a [u8]),
 }
 
-pub async fn cm_hmac<A: ApiAlloc>(
+pub fn cm_hmac<A: ApiAlloc>(
     _alloc: &A,
     _cmk: &Cmk,
     _data: &[u8],
@@ -142,7 +141,7 @@ pub async fn cm_hmac<A: ApiAlloc>(
     unimplemented!("spdm-crypto placeholder: cm_hmac")
 }
 
-pub async fn hkdf_extract<A: ApiAlloc>(
+pub fn hkdf_extract<A: ApiAlloc>(
     _alloc: &A,
     _salt: HkdfSalt<'_>,
     _ikm: &Cmk,
@@ -150,7 +149,7 @@ pub async fn hkdf_extract<A: ApiAlloc>(
     unimplemented!("spdm-crypto placeholder: hkdf_extract")
 }
 
-pub async fn hkdf_expand<A: ApiAlloc>(
+pub fn hkdf_expand<A: ApiAlloc>(
     _alloc: &A,
     _prk: &Cmk,
     _key_usage: CmKeyUsage,
@@ -162,7 +161,7 @@ pub async fn hkdf_expand<A: ApiAlloc>(
 
 // ----- Key import ------------------------------------------------------------
 
-pub async fn cm_import<A: ApiAlloc>(
+pub fn cm_import<A: ApiAlloc>(
     _alloc: &A,
     _usage: CmKeyUsage,
     _data: &[u8],
@@ -177,7 +176,7 @@ pub const CMB_ECDH_ENCRYPTED_CONTEXT_SIZE: usize = 76;
 /// Max ECDH exchange-data size (bytes).
 pub const CMB_ECDH_EXCHANGE_DATA_MAX_SIZE: usize = 96;
 
-pub async fn ecdh_generate<A: ApiAlloc>(
+pub fn ecdh_generate<A: ApiAlloc>(
     _alloc: &A,
     _context: &mut [u8],
     _exchange_data: &mut [u8],
@@ -185,7 +184,7 @@ pub async fn ecdh_generate<A: ApiAlloc>(
     unimplemented!("spdm-crypto placeholder: ecdh_generate")
 }
 
-pub async fn ecdh_finish<A: ApiAlloc>(
+pub fn ecdh_finish<A: ApiAlloc>(
     _alloc: &A,
     _context: &[u8],
     _key_usage: CmKeyUsage,
@@ -202,7 +201,7 @@ pub type Aes256GcmTag = [u8; 16];
 /// Opaque AES-GCM context (borrowed from the allocator).
 pub type AesGcmCtx<'a, A> = <A as ApiAlloc>::Buf<'a>;
 
-pub async fn spdm_aes_gcm_encrypt<A: ApiAlloc>(
+pub fn spdm_aes_gcm_encrypt<A: ApiAlloc>(
     _alloc: &A,
     _cmk: &Cmk,
     _spdm_version: u8,
@@ -214,7 +213,7 @@ pub async fn spdm_aes_gcm_encrypt<A: ApiAlloc>(
     unimplemented!("spdm-crypto placeholder: spdm_aes_gcm_encrypt")
 }
 
-pub async fn spdm_aes_gcm_decrypt<A: ApiAlloc>(
+pub fn spdm_aes_gcm_decrypt<A: ApiAlloc>(
     _alloc: &A,
     _cmk: &Cmk,
     _spdm_version: u8,
@@ -240,10 +239,10 @@ pub const DPE_P384_SIGNATURE_SIZE: usize = 96;
 
 /// Sink fed successive DPE cert-chain chunks by [`walk_dpe_chain`].
 pub trait DpeChainSink {
-    async fn on_chunk(&mut self, chunk: &[u8]) -> PalResult<()>;
+    fn on_chunk(&mut self, chunk: &[u8]) -> PalResult<()>;
 }
 
-pub async fn dpe_get_cert_chain_chunk<A: ApiAlloc>(
+pub fn dpe_get_cert_chain_chunk<A: ApiAlloc>(
     _alloc: &A,
     _offset: u32,
     _dst: &mut [u8],
@@ -251,14 +250,14 @@ pub async fn dpe_get_cert_chain_chunk<A: ApiAlloc>(
     unimplemented!("spdm-crypto placeholder: dpe_get_cert_chain_chunk")
 }
 
-pub async fn dpe_certify_key_cert_size<A: ApiAlloc>(
+pub fn dpe_certify_key_cert_size<A: ApiAlloc>(
     _alloc: &A,
     _label: &[u8; DPE_LABEL_LEN],
 ) -> PalResult<usize> {
     unimplemented!("spdm-crypto placeholder: dpe_certify_key_cert_size")
 }
 
-pub async fn dpe_certify_key_cert_slice<A: ApiAlloc>(
+pub fn dpe_certify_key_cert_slice<A: ApiAlloc>(
     _alloc: &A,
     _label: &[u8; DPE_LABEL_LEN],
     _cert_offset: u32,
@@ -267,7 +266,7 @@ pub async fn dpe_certify_key_cert_slice<A: ApiAlloc>(
     unimplemented!("spdm-crypto placeholder: dpe_certify_key_cert_slice")
 }
 
-pub async fn dpe_sign_ecc_p384<A: ApiAlloc>(
+pub fn dpe_sign_ecc_p384<A: ApiAlloc>(
     _alloc: &A,
     _label: &[u8; DPE_LABEL_LEN],
     _digest: &[u8],
@@ -276,7 +275,7 @@ pub async fn dpe_sign_ecc_p384<A: ApiAlloc>(
     unimplemented!("spdm-crypto placeholder: dpe_sign_ecc_p384")
 }
 
-pub async fn walk_dpe_chain<A: ApiAlloc, S: DpeChainSink>(
+pub fn walk_dpe_chain<A: ApiAlloc, S: DpeChainSink>(
     _alloc: &A,
     _sink: &mut S,
 ) -> PalResult<u32> {
@@ -285,6 +284,6 @@ pub async fn walk_dpe_chain<A: ApiAlloc, S: DpeChainSink>(
 
 // ----- RNG -------------------------------------------------------------------
 
-pub async fn rng_generate<A: ApiAlloc>(_alloc: &A, _out: &mut [u8]) -> PalResult<()> {
+pub fn rng_generate<A: ApiAlloc>(_alloc: &A, _out: &mut [u8]) -> PalResult<()> {
     unimplemented!("spdm-crypto placeholder: rng_generate")
 }

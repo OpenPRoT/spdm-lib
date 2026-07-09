@@ -12,7 +12,7 @@ use spdm_codec::vendor_defined::pci_sig::tdisp::{
     TDISP_HEADER_LEN,
 };
 
-pub(crate) async fn handle<D, Alloc>(
+pub(crate) fn handle<D, Alloc>(
     tdisp: &TdispResponder<D>,
     req_hdr: TdispMessageHeader,
     req_payload: &[u8],
@@ -35,7 +35,7 @@ where
     if tdisp
         .driver
         .generate_start_interface_nonce(scratch, nonce)
-        .await
+        
         .is_err()
     {
         return Ok(TdispHandlerResult::Error(
@@ -49,7 +49,7 @@ where
     match tdisp
         .driver
         .lock_interface(req_hdr.interface_id.function_id, param, scratch)
-        .await
+        
     {
         Ok(0) => Ok(TdispHandlerResult::Response(START_INTERFACE_NONCE_SIZE)),
         Ok(e) => Ok(TdispHandlerResult::Error(tdisp_error_code(e), 0)),

@@ -10,7 +10,7 @@ use spdm_codec::vendor_defined::pci_sig::tdisp::{
     TDISP_ERROR_INVALID_INTERFACE_STATE, TDISP_ERROR_UNSPECIFIED,
 };
 
-pub(crate) async fn handle<D, Alloc>(
+pub(crate) fn handle<D, Alloc>(
     tdisp: &TdispResponder<D>,
     req_hdr: TdispMessageHeader,
     req_payload: &[u8],
@@ -38,7 +38,7 @@ where
     match tdisp
         .driver
         .start_interface(req_hdr.interface_id.function_id, scratch)
-        .await
+        
     {
         Ok(0) => {
             tdisp.state.set_nonce(req_hdr.interface_id, None);

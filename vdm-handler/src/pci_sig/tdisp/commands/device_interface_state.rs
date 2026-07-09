@@ -11,7 +11,7 @@ use spdm_codec::vendor_defined::pci_sig::tdisp::{
     TDISP_ERROR_UNSPECIFIED, TDISP_HEADER_LEN,
 };
 
-pub(crate) async fn handle<D, Alloc>(
+pub(crate) fn handle<D, Alloc>(
     tdisp: &TdispResponder<D>,
     req_hdr: TdispMessageHeader,
     scratch: &Alloc,
@@ -25,7 +25,7 @@ where
     match tdisp
         .driver
         .get_device_interface_state(req_hdr.interface_id.function_id, scratch, &mut tdi_status)
-        .await
+        
     {
         Ok(0) if tdi_status != TdiStatus::Reserved => {
             *out.get_mut(TDISP_HEADER_LEN).ok_or(SPDM_UNSPECIFIED)? = tdi_status as u8;

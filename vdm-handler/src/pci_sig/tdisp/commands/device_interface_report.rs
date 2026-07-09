@@ -12,7 +12,7 @@ use spdm_codec::vendor_defined::pci_sig::tdisp::{
     TDISP_ERROR_INVALID_REQUEST, TDISP_ERROR_UNSPECIFIED, TDISP_HEADER_LEN,
 };
 
-pub(crate) async fn handle<D, Alloc>(
+pub(crate) fn handle<D, Alloc>(
     tdisp: &TdispResponder<D>,
     req_hdr: TdispMessageHeader,
     req_payload: &[u8],
@@ -32,7 +32,7 @@ where
     match tdisp
         .driver
         .get_device_interface_report_len(req_hdr.interface_id.function_id, scratch, &mut report_len)
-        .await
+        
     {
         Ok(0) if req.offset as usize >= report_len as usize => {
             return Ok(TdispHandlerResult::Error(TDISP_ERROR_INVALID_REQUEST, 0));
@@ -71,7 +71,7 @@ where
             report_portion,
             &mut copied,
         )
-        .await
+        
     {
         Ok(0) if copied == portion => Ok(TdispHandlerResult::Response(
             DEVICE_INTERFACE_REPORT_RSP_HDR_LEN + copied,

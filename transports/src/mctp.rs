@@ -164,12 +164,12 @@ impl SpdmPalTransport for SpdmMctpTransport {
     /// Receives the next MCTP-framed SPDM request. After this call
     /// `buf[0]` is the MCTP transport header byte and
     /// `buf[1..len]` is the SPDM payload — no shifting performed.
-    async fn recv_request(&mut self, buf: &mut [u8]) -> PalResult<(SpdmPalIoKind, usize)> {
+    fn recv_request(&mut self, buf: &mut [u8]) -> PalResult<(SpdmPalIoKind, usize)> {
         if buf.len() < MCTP_MSG_HEADER_SIZE {
             return Err(error_code::BUFFER_TOO_SMALL);
         }
 
-        let (req_len, msg_info) = self.mctp.receive_request(buf).await?;
+        let (req_len, msg_info) = self.mctp.receive_request(buf)?;
 
         let req_len = req_len as usize;
         if req_len < MCTP_MSG_HEADER_SIZE || req_len > buf.len() {
@@ -188,7 +188,7 @@ impl SpdmPalTransport for SpdmMctpTransport {
     /// the SPDM payload into `msg[1..]`; the transport fills `msg[0]`
     /// with the MCTP message-type byte in place and forwards the full
     /// slice to the syscall — no extra allocation.
-    async fn send_response(&mut self, kind: SpdmPalIoKind, msg: &mut [u8]) -> PalResult<()> {
+    fn send_response(&mut self, kind: SpdmPalIoKind, msg: &mut [u8]) -> PalResult<()> {
         // The bound `msg_type` dictates what we send on the wire; the
         // caller must agree.
         if kind != self.kind() {
@@ -207,7 +207,7 @@ impl SpdmPalTransport for SpdmMctpTransport {
             *first = self.msg_type & MCTP_MSG_TYPE_MASK;
         }
 
-        self.mctp.send_response(msg, msg_info).await?;
+        self.mctp.send_response(msg, msg_info)?;
         Ok(())
     }
 }

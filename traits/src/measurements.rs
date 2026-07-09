@@ -37,7 +37,6 @@ pub struct MeasurementInfo {
 /// measurement data. The implementation is expected to be
 /// zero-allocation — measurement values are written directly into
 /// caller-provided buffers.
-#[allow(async_fn_in_trait)]
 pub trait SpdmPalMeasurements: crate::SpdmPalIoTransport {
     /// Returns the list of available measurement entries.
     /// The returned slice lifetime is tied to `&self`.
@@ -50,7 +49,7 @@ pub trait SpdmPalMeasurements: crate::SpdmPalIoTransport {
     ///
     /// Returns the number of bytes written.
     /// If `index` is not found, returns an error.
-    async fn get_measurement_value(
+    fn get_measurement_value(
         &self,
         io: &Self::Io<'_>,
         index: u8,
