@@ -6,7 +6,7 @@
 //! The allocator is a single-task, `Box`-like, bitmap-managed pool over a
 //! caller-supplied buffer. It hands out two kinds of RAII owners:
 //!
-//! * [`McuSpdmBox<T>`] — owns a `T` in a contiguous run of slots; drops the
+//! * [`SpdmBox<T>`] — owns a `T` in a contiguous run of slots; drops the
 //!   value in place and releases the slots on `Drop`.
 //! * [`BitmapBytes`] — owns a `[u8]` view over one or more slots; can be
 //!   shrunk in place via [`BitmapBytes::shrink`] to release trailing slots
@@ -26,9 +26,9 @@ use super::measurements::MeasurementProvider;
 use super::*;
 use core::cell::Cell;
 
-impl<M: MeasurementProvider> SpdmPalAlloc for McuSpdmPal<M> {
+impl<M: MeasurementProvider> SpdmPalAlloc for PlatformSpdmPal<M> {
     type Box<'a, T>
-        = McuSpdmBox<'a, T>
+        = SpdmBox<'a, T>
     where
         Self: 'a,
         T: 'a;
@@ -49,13 +49,13 @@ impl<M: MeasurementProvider> SpdmPalAlloc for McuSpdmPal<M> {
     ///
     /// # Returns
     ///
-    /// * `Ok(McuSpdmBox<T>)` — RAII handle that derefs to `T` and
+    /// * `Ok(SpdmBox<T>)` — RAII handle that derefs to `T` and
     ///   releases the slots on drop.
     /// * `Err(BAD_ALIGNMENT)` — `align_of::<T>()` exceeds
     ///   [`BITMAP_SLOT_SIZE`].
     /// * `Err(OUT_OF_MEMORY)` — no contiguous run of free slots of
     ///   the required size exists.
-    fn alloc<T: Sized>(&self, _io: &impl SpdmPalIo, value: T) -> McuResult<Self::Box<'_, T>> {
+    fn alloc<T: Sized>(&self, _io: &impl SpdmPalIo, value: T) -> PalResult<Self::Box<'_, T>> {
         self.allocator.alloc(value)
     }
 
@@ -73,7 +73,7 @@ impl<M: MeasurementProvider> SpdmPalAlloc for McuSpdmPal<M> {
     ///   exactly `len` bytes (capacity may be larger).
     /// * `Err(OUT_OF_MEMORY)` — `len == 0`, `len > BitmapBytes::MAX_LEN`,
     ///   or no contiguous free run exists.
-    fn alloc_bytes(&self, _io: &impl SpdmPalIo, len: usize) -> McuResult<Self::Bytes<'_>> {
+    fn alloc_bytes(&self, _io: &impl SpdmPalIo, len: usize) -> PalResult<Self::Bytes<'_>> {
         self.allocator.alloc_bytes(len)
     }
 
@@ -83,13 +83,13 @@ impl<M: MeasurementProvider> SpdmPalAlloc for McuSpdmPal<M> {
 
     type LargeBuf = BitmapBytes<'static>;
 
-    fn alloc_large_buf(&self, len: usize) -> McuResult<Self::LargeBuf> {
+    fn alloc_large_buf(&self, len: usize) -> PalResult<Self::LargeBuf> {
         self.allocator.alloc_bytes(len)
     }
 
-    type PersistentBox<T: Sized + 'static> = McuSpdmBox<'static, T>;
+    type PersistentBox<T: Sized + 'static> = SpdmBox<'static, T>;
 
-    fn alloc_persistent<T: Sized + 'static>(&self, value: T) -> McuResult<Self::PersistentBox<T>> {
+    fn alloc_persistent<T: Sized + 'static>(&self, value: T) -> PalResult<Self::PersistentBox<T>> {
         self.allocator.alloc(value)
     }
 }
@@ -109,7 +109,7 @@ impl<M: MeasurementProvider> SpdmPalAlloc for McuSpdmPal<M> {
 //     +---------------------------------------------------+--------------+
 //
 // `alloc::<T>(v)` finds a contiguous run of `ceil(size_of::<T>() / SLOT_SIZE)`
-// free slots, marks them used, moves `v` in, and returns a `McuSpdmBox<T>`
+// free slots, marks them used, moves `v` in, and returns a `SpdmBox<T>`
 // that derefs to the value and releases the slots back to the bitmap on drop
 // — the same lifecycle as `alloc::boxed::Box`, but on a fixed pool.
 
@@ -185,7 +185,7 @@ impl BitmapAllocator {
     /// * `ptr` must be non-null, aligned to [`BITMAP_SLOT_SIZE`], and point
     ///   to `capacity` bytes of writable memory that is exclusively owned
     ///   by the returned allocator for its entire lifetime.
-    /// * The memory must outlive every [`McuSpdmBox`] / [`BitmapBytes`]
+    /// * The memory must outlive every [`SpdmBox`] / [`BitmapBytes`]
     ///   handed out by this allocator.
     /// * The allocator must not be moved across threads (it is `!Send`).
     pub unsafe fn new(ptr: NonNull<u8>, capacity: usize) -> Self {
@@ -239,7 +239,7 @@ impl BitmapAllocator {
     /// A correctly-functioning steady-state responder returns to a known
     /// baseline (zero, or the count of slots held by persistent allocations
     /// owned by `ConnectionState`) between SPDM requests. A drift above the
-    /// baseline points at a leaked [`BitmapBytes`] / [`McuSpdmBox`] handle.
+    /// baseline points at a leaked [`BitmapBytes`] / [`SpdmBox`] handle.
     pub fn live_slots(&self) -> usize {
         self.live_count.get() as usize
     }
@@ -280,13 +280,13 @@ impl BitmapAllocator {
 
     /// Resets the allocator by clearing every bit in the occupancy bitmap.
     ///
-    /// Used by [`McuSpdmPal::recv_request`] to scope all allocations to a
+    /// Used by [`PlatformSpdmPal::recv_request`] to scope all allocations to a
     /// single SPDM exchange. After reset, the slot region's bytes are
     /// *not* zeroed — they remain whatever the previous owner left there.
     ///
     /// # Safety
     ///
-    /// All outstanding [`McuSpdmBox`] / [`BitmapBytes`] handles created
+    /// All outstanding [`SpdmBox`] / [`BitmapBytes`] handles created
     /// from this allocator must have been dropped before calling this.
     /// Resetting while a handle is live would mean the next allocation
     /// could alias an existing borrow — undefined behavior.
@@ -319,7 +319,7 @@ impl BitmapAllocator {
     ///   [`BitmapBytes::MAX_LEN`], the required slot count exceeds
     ///   [`BitmapBytes::MAX_SLOTS`], or no contiguous run of free slots
     ///   of the required size exists.
-    pub fn alloc_bytes(&self, len: usize) -> McuResult<BitmapBytes<'_>> {
+    pub fn alloc_bytes(&self, len: usize) -> PalResult<BitmapBytes<'_>> {
         if len == 0 || len > BitmapBytes::MAX_LEN {
             return Err(ERR_OUT_OF_MEMORY);
         }
@@ -337,7 +337,7 @@ impl BitmapAllocator {
     }
 
     /// Allocates space for a `T`, moves `value` in, and returns an
-    /// owning [`McuSpdmBox`].
+    /// owning [`SpdmBox`].
     ///
     /// # Parameters
     ///
@@ -345,7 +345,7 @@ impl BitmapAllocator {
     ///
     /// # Returns
     ///
-    /// * `Ok(McuSpdmBox<T>)` — RAII owner; drops the value in place and
+    /// * `Ok(SpdmBox<T>)` — RAII owner; drops the value in place and
     ///   releases the slots on `Drop`.
     ///
     /// # Errors
@@ -353,7 +353,7 @@ impl BitmapAllocator {
     /// * `BAD_ALIGNMENT` — `align_of::<T>()` exceeds [`BITMAP_SLOT_SIZE`].
     /// * `OUT_OF_MEMORY` — required slot count exceeds `u16::MAX`, or
     ///   no contiguous run of free slots of the required size exists.
-    pub fn alloc<T>(&self, value: T) -> McuResult<McuSpdmBox<'_, T>> {
+    pub fn alloc<T>(&self, value: T) -> PalResult<SpdmBox<'_, T>> {
         if align_of::<T>() > BITMAP_SLOT_SIZE {
             return Err(ERR_BAD_ALIGNMENT);
         }
@@ -368,7 +368,7 @@ impl BitmapAllocator {
         unsafe {
             let p = self.data.as_ptr().add(start * BITMAP_SLOT_SIZE) as *mut T;
             core::ptr::write(p, value);
-            Ok(McuSpdmBox {
+            Ok(SpdmBox {
                 alloc: self,
                 start_slot: start as u16,
                 num_slots: n as u16,
@@ -506,8 +506,8 @@ impl BitmapAllocator {
 /// Sized to be cheap to embed in async state machines: `&BitmapAllocator` +
 /// `(u16 start, u16 count)` = 8 bytes on a 32-bit target (12 bytes on
 /// 64-bit). The data pointer is recomputed from the allocator base.
-#[must_use = "dropping a McuSpdmBox without holding it would immediately free the underlying slots"]
-pub struct McuSpdmBox<'a, T> {
+#[must_use = "dropping a SpdmBox without holding it would immediately free the underlying slots"]
+pub struct SpdmBox<'a, T> {
     /// Borrow of the backing allocator; used to free slots on drop.
     alloc: &'a BitmapAllocator,
     /// First slot of the reserved run.
@@ -518,7 +518,7 @@ pub struct McuSpdmBox<'a, T> {
     _marker: PhantomData<&'a mut T>,
 }
 
-impl<T> McuSpdmBox<'_, T> {
+impl<T> SpdmBox<'_, T> {
     /// Returns a non-null typed pointer to the owned value.
     #[inline]
     fn ptr(&self) -> NonNull<T> {
@@ -526,7 +526,7 @@ impl<T> McuSpdmBox<'_, T> {
     }
 }
 
-impl<T> Drop for McuSpdmBox<'_, T> {
+impl<T> Drop for SpdmBox<'_, T> {
     /// Drops the owned value in place, securely zero-wipes the memory slot, then releases the underlying
     /// slots back to the allocator's bitmap.
     fn drop(&mut self) {
@@ -544,7 +544,7 @@ impl<T> Drop for McuSpdmBox<'_, T> {
     }
 }
 
-impl<T> core::ops::Deref for McuSpdmBox<'_, T> {
+impl<T> core::ops::Deref for SpdmBox<'_, T> {
     type Target = T;
 
     /// Shared access to the owned `T`.
@@ -555,7 +555,7 @@ impl<T> core::ops::Deref for McuSpdmBox<'_, T> {
     }
 }
 
-impl<T> core::ops::DerefMut for McuSpdmBox<'_, T> {
+impl<T> core::ops::DerefMut for SpdmBox<'_, T> {
     /// Exclusive access to the owned `T`.
     fn deref_mut(&mut self) -> &mut T {
         // SAFETY: see `Deref`.
@@ -565,7 +565,7 @@ impl<T> core::ops::DerefMut for McuSpdmBox<'_, T> {
 
 /// RAII byte buffer allocated from a [`BitmapAllocator`].
 ///
-/// Like [`McuSpdmBox<[u8; _]>`] but lets the holder shrink the logical
+/// Like [`SpdmBox<[u8; _]>`] but lets the holder shrink the logical
 /// length and release the trailing slots back to the pool — designed
 /// for receive paths that allocate `transport.mtu()` bytes and trim
 /// down to the actual message size.
@@ -744,7 +744,7 @@ impl BitmapBytes<'_> {
     ///
     /// * `OUT_OF_MEMORY` — `new_len > len()` (the operation cannot
     ///   grow the buffer).
-    pub fn shrink(&mut self, new_len: usize) -> McuResult<()> {
+    pub fn shrink(&mut self, new_len: usize) -> PalResult<()> {
         if new_len > self.len() {
             return Err(ERR_OUT_OF_MEMORY);
         }

@@ -3,7 +3,7 @@
 //! GET_TDISP_CAPABILITIES command handler.
 
 use spdm_codec::errors::SPDM_UNSPECIFIED;
-use spdm_traits::{McuResult, SpdmPalAlloc};
+use spdm_traits::{PalResult, SpdmPalAlloc};
 
 use crate::pci_sig::tdisp::{TdispDriver, TdispHandlerResult, TdispResponder};
 use spdm_codec::vendor_defined::pci_sig::tdisp::{
@@ -17,7 +17,7 @@ pub(crate) async fn handle<D, Alloc>(
     req_payload: &[u8],
     scratch: &Alloc,
     out: &mut [u8],
-) -> McuResult<TdispHandlerResult>
+) -> PalResult<TdispHandlerResult>
 where
     D: TdispDriver,
     Alloc: SpdmPalAlloc,

@@ -149,7 +149,7 @@ pub(crate) async fn cert_chain_hash<Pal: SpdmPal>(
     asym_algo: SpdmPalAsymAlgo,
     algo: SpdmPalHashAlgo,
     out: &mut [u8],
-) -> spdm_error::McuResult<()> {
+) -> spdm_error::PalResult<()> {
     if (pal.provisioned_slots() & (1 << slot)) == 0 {
         return Err(spdm_error::codes::INVARIANT);
     }

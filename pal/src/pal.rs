@@ -2,17 +2,17 @@
 
 //! Concrete MCU implementation of the SPDM-Lite Platform Abstraction Layer.
 //!
-//! This module defines [`McuSpdmPal`], the MCU-side type that satisfies
+//! This module defines [`PlatformSpdmPal`], the MCU-side type that satisfies
 //! the [`SpdmPal`](spdm_traits::SpdmPal) super-trait by
 //! wrapping a boxed
 //! [`SpdmPalTransport`](spdm_traits::SpdmPalTransport)
 //! implementation (e.g.,
-//! [`McuMctpTransport`](../../../transports/src/mctp.rs)) and re-exposing
+//! [`SpdmMctpTransport`](../../../transports/src/mctp.rs)) and re-exposing
 //! it as a framed
 //! [`SpdmIoTransport`](spdm_traits::SpdmIoTransport) via the
 //! companion [`io`](super::io) module.
 //!
-//! The MCU SPDM-Lite stack consumes `McuSpdmPal` as its single entry
+//! The MCU SPDM-Lite stack consumes `PlatformSpdmPal` as its single entry
 //! point for platform-specific I/O.
 
 use super::*;
@@ -37,7 +37,7 @@ use super::measurements::MeasurementProvider;
 /// a caller-supplied scratch region. The allocator serves both
 /// per-request scratch allocations and any large-message buffer
 /// retained on connection state across exchanges.
-pub struct McuSpdmPal<M: MeasurementProvider> {
+pub struct PlatformSpdmPal<M: MeasurementProvider> {
     /// The wrapped byte-oriented PAL transport.
     pub(crate) transport: UnsafeCell<Box<dyn SpdmPalTransport>>,
 
@@ -55,16 +55,16 @@ pub struct McuSpdmPal<M: MeasurementProvider> {
     pub(crate) meas_provider: M,
 }
 
-impl<M: MeasurementProvider> McuSpdmPal<M> {
-    /// Creates a new `McuSpdmPal` with a measurement provider.
+impl<M: MeasurementProvider> PlatformSpdmPal<M> {
+    /// Creates a new `PlatformSpdmPal` with a measurement provider.
     ///
     /// # Safety
     ///
     /// * `allocator` — A `&'static BitmapAllocator` obtained from
     ///   [`StaticBitmapAllocatorCell::init_once`]. Must be exclusively used
-    ///   by the task owning this `McuSpdmPal` (the underlying allocator is
+    ///   by the task owning this `PlatformSpdmPal` (the underlying allocator is
     ///   `!Sync`; using it from multiple tasks is undefined behavior).
-    /// * The constructed `McuSpdmPal` must only be driven from a single
+    /// * The constructed `PlatformSpdmPal` must only be driven from a single
     ///   task; calling `recv_request` / `send_response` concurrently is
     ///   undefined behavior (interior mutability is not synchronized).
     pub unsafe fn new(
@@ -113,4 +113,4 @@ impl<M: MeasurementProvider> McuSpdmPal<M> {
     }
 }
 
-impl<M: MeasurementProvider> SpdmPal for McuSpdmPal<M> {}
+impl<M: MeasurementProvider> SpdmPal for PlatformSpdmPal<M> {}

@@ -15,7 +15,7 @@ use spdm_errors::as_spdm_wire;
 use spdm_traits::{
     PalBytes, SpdmPal, SpdmPalAlloc, SpdmPalIo, SpdmPalIoTransport, MAX_SLOTS,
 };
-use spdm_error::McuErrorCode;
+use spdm_error::PalErrorCode;
 use zerocopy::FromBytes;
 
 use crate::build::build_response;
@@ -263,7 +263,7 @@ fn der_sequence_len(input: &[u8]) -> Option<usize> {
     (total_len <= input.len()).then_some(total_len)
 }
 
-fn map_set_cert_validation_error(err: McuErrorCode) -> SpdmError {
+fn map_set_cert_validation_error(err: PalErrorCode) -> SpdmError {
     as_spdm_wire(err)
         .map(SpdmError::new)
         .unwrap_or(SPDM_INVALID_REQUEST)

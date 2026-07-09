@@ -49,14 +49,14 @@ pub trait SpdmPalAlloc: spdm_crypto::ApiAlloc {
 
     /// Allocates space for a `T` from the platform pool (e.g., the
     /// NonDma / DTCM scratch region) and moves `value` into it.
-    fn alloc<T: Sized>(&self, io: &impl SpdmPalIo, value: T) -> McuResult<Self::Box<'_, T>>;
+    fn alloc<T: Sized>(&self, io: &impl SpdmPalIo, value: T) -> PalResult<Self::Box<'_, T>>;
 
     /// Allocates a byte buffer of `len` bytes from the platform pool.
     ///
     /// The contents are uninitialized; callers must write before
     /// reading. Useful for response-building paths that need a
     /// variable-size buffer without using stack arrays.
-    fn alloc_bytes(&self, io: &impl SpdmPalIo, len: usize) -> McuResult<Self::Bytes<'_>>;
+    fn alloc_bytes(&self, io: &impl SpdmPalIo, len: usize) -> PalResult<Self::Bytes<'_>>;
 
     // ---- Persistent large-message buffer ------------------------------------
     //
@@ -76,7 +76,7 @@ pub trait SpdmPalAlloc: spdm_crypto::ApiAlloc {
     /// Allocates a persistent large-message buffer of exactly `len` bytes.
     /// Callers move the returned guard onto `ConnectionState::large_buf` when the
     /// message must survive across later exchanges.
-    fn alloc_large_buf(&self, len: usize) -> McuResult<Self::LargeBuf>;
+    fn alloc_large_buf(&self, len: usize) -> PalResult<Self::LargeBuf>;
 
     // ---- Persistent typed allocations ----------------------------------------
     //
@@ -88,5 +88,5 @@ pub trait SpdmPalAlloc: spdm_crypto::ApiAlloc {
     type PersistentBox<T: Sized + 'static>: DerefMut<Target = T>;
 
     /// Allocate a persistent typed object from the per-task pool.
-    fn alloc_persistent<T: Sized + 'static>(&self, value: T) -> McuResult<Self::PersistentBox<T>>;
+    fn alloc_persistent<T: Sized + 'static>(&self, value: T) -> PalResult<Self::PersistentBox<T>>;
 }

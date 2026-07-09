@@ -31,7 +31,7 @@ pub trait SpdmPalSessionCrypto {
         io: &impl SpdmPalIo,
         context: &mut [u8],
         exchange_data: &mut [u8],
-    ) -> McuResult<()>;
+    ) -> PalResult<()>;
 
     /// Complete the ECDH key exchange, producing a key handle to the
     /// shared secret (DHE_Secret).
@@ -40,7 +40,7 @@ pub trait SpdmPalSessionCrypto {
         io: &impl SpdmPalIo,
         context: &[u8],
         peer_exchange_data: &[u8],
-    ) -> McuResult<Self::Key>;
+    ) -> PalResult<Self::Key>;
 
     /// HKDF-Extract with raw-byte salt.
     ///
@@ -50,7 +50,7 @@ pub trait SpdmPalSessionCrypto {
         io: &impl SpdmPalIo,
         salt: &[u8],
         ikm: &Self::Key,
-    ) -> McuResult<Self::Key>;
+    ) -> PalResult<Self::Key>;
 
     /// HKDF-Extract with a key-handle salt.
     async fn hkdf_extract_key(
@@ -58,7 +58,7 @@ pub trait SpdmPalSessionCrypto {
         io: &impl SpdmPalIo,
         salt: &Self::Key,
         ikm: &Self::Key,
-    ) -> McuResult<Self::Key>;
+    ) -> PalResult<Self::Key>;
 
     /// HKDF-Expand producing a new key handle.
     async fn hkdf_expand(
@@ -67,7 +67,7 @@ pub trait SpdmPalSessionCrypto {
         prk: &Self::Key,
         key_size: u32,
         info: &[u8],
-    ) -> McuResult<Self::Key>;
+    ) -> PalResult<Self::Key>;
 
     /// HMAC-SHA384. Returns bytes written to `out`.
     async fn hmac(
@@ -76,10 +76,10 @@ pub trait SpdmPalSessionCrypto {
         key: &Self::Key,
         data: &[u8],
         out: &mut [u8],
-    ) -> McuResult<usize>;
+    ) -> PalResult<usize>;
 
     /// Import raw key material. Returns a key handle.
-    async fn import_key(&self, io: &impl SpdmPalIo, data: &[u8]) -> McuResult<Self::Key>;
+    async fn import_key(&self, io: &impl SpdmPalIo, data: &[u8]) -> PalResult<Self::Key>;
 
     /// SPDM AES-256-GCM encrypt for one secured-message fragment.
     ///
@@ -101,7 +101,7 @@ pub trait SpdmPalSessionCrypto {
         aad: &[u8],
         plaintext: &[u8],
         ciphertext: &mut [u8],
-    ) -> McuResult<(usize, [u8; 16])>;
+    ) -> PalResult<(usize, [u8; 16])>;
 
     /// SPDM AES-256-GCM decrypt one secured-message fragment with tag verification.
     ///
@@ -120,5 +120,5 @@ pub trait SpdmPalSessionCrypto {
         ciphertext: &[u8],
         tag: &[u8; 16],
         plaintext: &mut [u8],
-    ) -> McuResult<usize>;
+    ) -> PalResult<usize>;
 }

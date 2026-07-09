@@ -12,7 +12,7 @@ use spdm_transport_sys::{flash::SpiFlash, DefaultSyscalls};
 #[cfg(feature = "set-certificate")]
 use spdm_platform::ErrorCode;
 use spdm_traits::SpdmPalAsymAlgo;
-use spdm_error::McuResult;
+use spdm_error::PalResult;
 
 use core::sync::atomic::{AtomicBool, Ordering};
 
@@ -114,7 +114,7 @@ pub enum SlotEndorsement {
 }
 
 impl SlotEndorsement {
-    pub fn root_cert_hash(&self, algo: SpdmPalAsymAlgo, out: &mut [u8]) -> McuResult<()> {
+    pub fn root_cert_hash(&self, algo: SpdmPalAsymAlgo, out: &mut [u8]) -> PalResult<()> {
         match self {
             Self::ReadOnly(e) => e.root_cert_hash(algo, out),
             #[cfg(feature = "set-certificate")]
@@ -123,7 +123,7 @@ impl SlotEndorsement {
         }
     }
 
-    pub fn size(&self, algo: SpdmPalAsymAlgo) -> McuResult<usize> {
+    pub fn size(&self, algo: SpdmPalAsymAlgo) -> PalResult<usize> {
         match self {
             Self::ReadOnly(e) => e.size(algo),
             #[cfg(feature = "set-certificate")]
@@ -132,7 +132,7 @@ impl SlotEndorsement {
         }
     }
 
-    pub fn capacity(&self, algo: SpdmPalAsymAlgo) -> McuResult<usize> {
+    pub fn capacity(&self, algo: SpdmPalAsymAlgo) -> PalResult<usize> {
         match self {
             Self::ReadOnly(e) => e.size(algo),
             #[cfg(feature = "set-certificate")]
@@ -146,7 +146,7 @@ impl SlotEndorsement {
         algo: SpdmPalAsymAlgo,
         offset: usize,
         buf: &mut [u8],
-    ) -> McuResult<usize> {
+    ) -> PalResult<usize> {
         match self {
             Self::ReadOnly(e) => e.read(algo, offset, buf),
             #[cfg(feature = "set-certificate")]
@@ -197,7 +197,7 @@ impl ReadOnlyEndorsement {
         }
     }
 
-    fn root_cert_hash(&self, _algo: SpdmPalAsymAlgo, out: &mut [u8]) -> McuResult<()> {
+    fn root_cert_hash(&self, _algo: SpdmPalAsymAlgo, out: &mut [u8]) -> PalResult<()> {
         // Copies `min(out.len(), root_cert_hash.len())` bytes with no
         // length-equality check, so no `copy_from_slice` panic path.
         for (d, s) in out.iter_mut().zip(&self.root_cert_hash) {
@@ -206,11 +206,11 @@ impl ReadOnlyEndorsement {
         Ok(())
     }
 
-    fn size(&self, _algo: SpdmPalAsymAlgo) -> McuResult<usize> {
+    fn size(&self, _algo: SpdmPalAsymAlgo) -> PalResult<usize> {
         Ok(self.chain_len)
     }
 
-    fn read(&self, _algo: SpdmPalAsymAlgo, offset: usize, buf: &mut [u8]) -> McuResult<usize> {
+    fn read(&self, _algo: SpdmPalAsymAlgo, offset: usize, buf: &mut [u8]) -> PalResult<usize> {
         let mut cert_offset = offset;
         let mut pos = 0;
         for cert in self.chain.iter() {
@@ -295,7 +295,7 @@ impl ManagedEndorsement {
         }
     }
 
-    pub async fn load(&mut self) -> McuResult<()> {
+    pub async fn load(&mut self) -> PalResult<()> {
         self.initialized = false;
         self.len = 0;
         let mut header = [0u8; MANAGED_HEADER_SIZE];
@@ -354,7 +354,7 @@ impl ManagedEndorsement {
         self.initialized.then_some(self.key_usage_mask)
     }
 
-    fn root_cert_hash(&self, _algo: SpdmPalAsymAlgo, out: &mut [u8]) -> McuResult<()> {
+    fn root_cert_hash(&self, _algo: SpdmPalAsymAlgo, out: &mut [u8]) -> PalResult<()> {
         if !self.initialized {
             return Err(spdm_error::codes::INVARIANT);
         }
@@ -363,7 +363,7 @@ impl ManagedEndorsement {
         Ok(())
     }
 
-    fn size(&self, _algo: SpdmPalAsymAlgo) -> McuResult<usize> {
+    fn size(&self, _algo: SpdmPalAsymAlgo) -> PalResult<usize> {
         if self.initialized {
             Ok(self.len)
         } else {
@@ -371,7 +371,7 @@ impl ManagedEndorsement {
         }
     }
 
-    fn capacity(&self, _algo: SpdmPalAsymAlgo) -> McuResult<usize> {
+    fn capacity(&self, _algo: SpdmPalAsymAlgo) -> PalResult<usize> {
         Ok(self.der_capacity())
     }
 
@@ -380,7 +380,7 @@ impl ManagedEndorsement {
         _algo: SpdmPalAsymAlgo,
         offset: usize,
         buf: &mut [u8],
-    ) -> McuResult<usize> {
+    ) -> PalResult<usize> {
         if !self.initialized {
             return Err(spdm_error::codes::INVARIANT);
         }
@@ -402,7 +402,7 @@ impl ManagedEndorsement {
         cert_info: u8,
         root_hash: &[u8; 48],
         data: &[u8],
-    ) -> McuResult<Self> {
+    ) -> PalResult<Self> {
         if algo != SpdmPalAsymAlgo::EccP384 || data.len() > self.der_capacity() {
             return Err(spdm_error::codes::INVARIANT);
         }
@@ -449,7 +449,7 @@ impl ManagedEndorsement {
         Ok(self)
     }
 
-    pub async fn erase_updated(mut self, _algo: SpdmPalAsymAlgo) -> McuResult<Self> {
+    pub async fn erase_updated(mut self, _algo: SpdmPalAsymAlgo) -> PalResult<Self> {
         self.flash()
             .erase(self.base, self.capacity)
             .await
@@ -467,7 +467,7 @@ impl ManagedEndorsement {
         CertStoreFlash::new(self.driver_num)
     }
 
-    async fn stored_checksum(&self, len: usize) -> McuResult<u32> {
+    async fn stored_checksum(&self, len: usize) -> PalResult<u32> {
         let mut remaining = len;
         let mut offset = 0usize;
         let mut sum = 0u32;
@@ -589,7 +589,7 @@ fn checksum(data: &[u8]) -> u32 {
 }
 
 #[cfg(feature = "set-certificate")]
-fn map_flash_error(err: ErrorCode) -> spdm_error::McuErrorCode {
+fn map_flash_error(err: ErrorCode) -> spdm_error::PalErrorCode {
     use spdm_codec::errors::*;
 
     match err {

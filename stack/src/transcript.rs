@@ -18,7 +18,7 @@
 //! first time M1 / L1 start contributing. This lets heap-backed hash
 //! states report allocation failure instead of panicking.
 
-use spdm_traits::{McuResult, SpdmPalHash, SpdmPalHashAlgo, SpdmPalIo};
+use spdm_traits::{PalResult, SpdmPalHash, SpdmPalHashAlgo, SpdmPalIo};
 
 /// One of the running transcripts the responder maintains.
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
@@ -77,7 +77,7 @@ impl<S> Transcript<S> {
         hash: &H,
         io: &impl SpdmPalIo,
         bytes: &[u8],
-    ) -> McuResult<()>
+    ) -> PalResult<()>
     where
         H: SpdmPalHash<State = S>,
     {
@@ -89,7 +89,7 @@ impl<S> Transcript<S> {
         hash: &H,
         io: &impl SpdmPalIo,
         bytes: &[u8],
-    ) -> McuResult<()>
+    ) -> PalResult<()>
     where
         H: SpdmPalHash<State = S>,
     {
@@ -101,7 +101,7 @@ impl<S> Transcript<S> {
         hash: &H,
         io: &impl SpdmPalIo,
         bytes: &[u8],
-    ) -> McuResult<()>
+    ) -> PalResult<()>
     where
         H: SpdmPalHash<State = S>,
     {
@@ -113,7 +113,7 @@ impl<S> Transcript<S> {
         hash: &H,
         io: &impl SpdmPalIo,
         out: &mut [u8],
-    ) -> McuResult<()>
+    ) -> PalResult<()>
     where
         H: SpdmPalHash<State = S>,
     {
@@ -125,7 +125,7 @@ impl<S> Transcript<S> {
         hash: &H,
         io: &impl SpdmPalIo,
         out: &mut [u8],
-    ) -> McuResult<()>
+    ) -> PalResult<()>
     where
         H: SpdmPalHash<State = S>,
     {
@@ -141,7 +141,7 @@ impl<S> Transcript<S> {
         hash: &H,
         io: &impl SpdmPalIo,
         bytes: &[u8],
-    ) -> McuResult<()>
+    ) -> PalResult<()>
     where
         H: SpdmPalHash<State = S>,
     {
@@ -172,7 +172,7 @@ impl<S> Transcript<S> {
         hash: &H,
         io: &impl SpdmPalIo,
         out: &mut [u8],
-    ) -> McuResult<()>
+    ) -> PalResult<()>
     where
         H: SpdmPalHash<State = S>,
     {
@@ -211,7 +211,7 @@ impl<S> Transcript<S> {
         hash: &H,
         io: &impl SpdmPalIo,
         out: &mut [u8],
-    ) -> McuResult<()>
+    ) -> PalResult<()>
     where
         H: SpdmPalHash<State = S>,
     {

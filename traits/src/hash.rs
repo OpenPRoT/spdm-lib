@@ -85,7 +85,7 @@ pub trait SpdmPalHash {
     ///
     /// # Errors
     ///
-    /// * `Err(McuErrorCode)` — Backend-specific failure (mailbox
+    /// * `Err(PalErrorCode)` — Backend-specific failure (mailbox
     ///   busy / hardware error / allocator exhausted / unsupported
     ///   `algo`). The exact code is backend-defined.
     async fn hash_init(
@@ -93,7 +93,7 @@ pub trait SpdmPalHash {
         io: &impl SpdmPalIo,
         algo: SpdmPalHashAlgo,
         seed: &[u8],
-    ) -> McuResult<Self::State>;
+    ) -> PalResult<Self::State>;
 
     /// Appends `data` to a running hash.
     ///
@@ -115,7 +115,7 @@ pub trait SpdmPalHash {
     ///
     /// # Errors
     ///
-    /// * `Err(McuErrorCode)` — Backend-specific failure during the
+    /// * `Err(PalErrorCode)` — Backend-specific failure during the
     ///   update; `state` should be considered invalid on error and
     ///   not reused.
     async fn hash_update(
@@ -123,7 +123,7 @@ pub trait SpdmPalHash {
         io: &impl SpdmPalIo,
         state: &mut Self::State,
         data: &[u8],
-    ) -> McuResult<()>;
+    ) -> PalResult<()>;
 
     /// Fallibly clones a running hash state.
     ///
@@ -131,7 +131,7 @@ pub trait SpdmPalHash {
     /// must not affect the other. Backends that allocate per-state
     /// storage should return `OUT_OF_MEMORY` instead of panicking when
     /// cloning cannot allocate.
-    fn hash_clone(&self, io: &impl SpdmPalIo, state: &Self::State) -> McuResult<Self::State>;
+    fn hash_clone(&self, io: &impl SpdmPalIo, state: &Self::State) -> PalResult<Self::State>;
 
     /// Finalises the running hash and writes the digest into the
     /// leading prefix of `out`.
@@ -156,12 +156,12 @@ pub trait SpdmPalHash {
     ///
     /// # Errors
     ///
-    /// * `Err(McuErrorCode)` — Backend-specific failure (mailbox
+    /// * `Err(PalErrorCode)` — Backend-specific failure (mailbox
     ///   error, `out` too short, etc.).
     async fn hash_finish(
         &self,
         io: &impl SpdmPalIo,
         state: &mut Self::State,
         out: &mut [u8],
-    ) -> McuResult<()>;
+    ) -> PalResult<()>;
 }

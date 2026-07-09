@@ -2,7 +2,7 @@
 
 //! Shared TDISP wire protocol types.
 
-use spdm_traits::McuResult;
+use spdm_traits::PalResult;
 
 use crate::errors::{SPDM_INVALID_REQUEST, SPDM_UNSPECIFIED};
 
@@ -248,7 +248,7 @@ impl TdispMessageHeader {
         }
     }
 
-    pub fn decode(input: &[u8]) -> McuResult<(Self, &[u8])> {
+    pub fn decode(input: &[u8]) -> PalResult<(Self, &[u8])> {
         let hdr = input.get(..TDISP_HEADER_LEN).ok_or(SPDM_INVALID_REQUEST)?;
         Ok((
             Self {
@@ -264,7 +264,7 @@ impl TdispMessageHeader {
         ))
     }
 
-    pub fn encode(self, out: &mut [u8]) -> McuResult<()> {
+    pub fn encode(self, out: &mut [u8]) -> PalResult<()> {
         let out = out.get_mut(..TDISP_HEADER_LEN).ok_or(SPDM_UNSPECIFIED)?;
         out[0] = self.version;
         out[1] = self.message_type;
@@ -283,7 +283,7 @@ pub struct TdispReqCapabilities {
 }
 
 impl TdispReqCapabilities {
-    pub fn decode(input: &[u8]) -> McuResult<Self> {
+    pub fn decode(input: &[u8]) -> PalResult<Self> {
         if input.len() != TDISP_CAPS_REQ_LEN {
             return Err(SPDM_INVALID_REQUEST);
         }
@@ -330,7 +330,7 @@ impl TdispRespCapabilities {
         }
     }
 
-    pub fn encode(self, out: &mut [u8]) -> McuResult<()> {
+    pub fn encode(self, out: &mut [u8]) -> PalResult<()> {
         let out = out.get_mut(..TDISP_CAPS_RSP_LEN).ok_or(SPDM_UNSPECIFIED)?;
         out[0..4].copy_from_slice(&self.dsm_capabilities.to_le_bytes());
         out[4..20].copy_from_slice(&self.req_msgs_supported);
@@ -363,7 +363,7 @@ pub struct TdispLockInterfaceParam {
 }
 
 impl TdispLockInterfaceParam {
-    pub fn decode(input: &[u8]) -> McuResult<Self> {
+    pub fn decode(input: &[u8]) -> PalResult<Self> {
         if input.len() != LOCK_INTERFACE_PARAM_LEN {
             return Err(SPDM_INVALID_REQUEST);
         }
@@ -389,7 +389,7 @@ pub struct DeviceInterfaceReportReq {
 }
 
 impl DeviceInterfaceReportReq {
-    pub fn decode(input: &[u8]) -> McuResult<Self> {
+    pub fn decode(input: &[u8]) -> PalResult<Self> {
         if input.len() != DEVICE_INTERFACE_REPORT_REQ_LEN {
             return Err(SPDM_INVALID_REQUEST);
         }
