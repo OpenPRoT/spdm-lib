@@ -48,7 +48,7 @@ const KEY_EXCHANGE_SIGNING_PREFIX_V13: &[u8; KEY_EXCHANGE_SIGNING_PREFIX_CHUNK_L
     b"dmtf-spdm-v1.3.*";
 const KEY_EXCHANGE_SIGNING_OP: &[u8; 34] = b"responder-key_exchange_rsp signing";
 
-pub(crate) async fn handle_key_exchange<'a, Pal: SpdmPal, const N: usize>(
+pub(crate) fn handle_key_exchange<'a, Pal: SpdmPal, const N: usize>(
     state: &mut ConnState<'_, Pal>,
     sessions: &mut Sessions<Pal, N>,
     pal: &'a Pal,
@@ -107,13 +107,13 @@ pub(crate) async fn handle_key_exchange<'a, Pal: SpdmPal, const N: usize>(
     let mut ecdh_context = pal.alloc_bytes(io, ECDH_P384_ENCRYPTED_CONTEXT_SIZE)?;
     let mut our_exchange_data = pal.alloc_bytes(io, ECDH_P384_EXCHANGE_DATA_SIZE)?;
     pal.ecdh_generate(io, &mut ecdh_context, &mut our_exchange_data)
-        .await
+        
         .map_err(|_| SPDM_UNSPECIFIED)?;
 
     // Complete ECDH with peer's exchange data → DHE shared secret.
     let dhe_secret = pal
         .ecdh_finish(io, &ecdh_context, &ke_req.exchange_data)
-        .await
+        
         .map_err(|_| SPDM_UNSPECIFIED)?;
 
     // ── Create session ──────────────────────────────────────────────
@@ -145,7 +145,7 @@ pub(crate) async fn handle_key_exchange<'a, Pal: SpdmPal, const N: usize>(
         &our_exchange_data,
         &selected_version,
     )
-    .await;
+    ;
 
     if result.is_err() {
         sessions.remove_and_destroy(session_id);
@@ -157,7 +157,7 @@ pub(crate) async fn handle_key_exchange<'a, Pal: SpdmPal, const N: usize>(
 /// Inner implementation that can fail; caller handles session cleanup.
 #[allow(clippy::too_many_arguments)]
 #[inline(never)]
-async fn key_exchange_inner<'a, Pal: SpdmPal, const N: usize>(
+fn key_exchange_inner<'a, Pal: SpdmPal, const N: usize>(
     state: &mut ConnState<'_, Pal>,
     sessions: &mut Sessions<Pal, N>,
     pal: &'a Pal,
@@ -230,13 +230,13 @@ async fn key_exchange_inner<'a, Pal: SpdmPal, const N: usize>(
             SpdmPalHashAlgo::Sha384,
             cert_chain_hash,
         )
-        .await
+        
         .map_err(|_| SPDM_UNSPECIFIED)?;
         pal.cache_chain_digest(slot_id, SpdmPalHashAlgo::Sha384, cert_chain_hash);
     }
 
     // ── Feed TH: cert_chain_hash ────────────────────────────────────
-    session.transcript.append(pal, io, cert_chain_hash).await?;
+    session.transcript.append(pal, io, cert_chain_hash)?;
 
     // ── Feed TH: full KEY_EXCHANGE request ──────────────────────────
     // Use only the actual SPDM bytes (not transport padding).
@@ -250,16 +250,16 @@ async fn key_exchange_inner<'a, Pal: SpdmPal, const N: usize>(
         + 2 // opaque_len field
         + u16::from_le_bytes(*opaque_len_bytes) as usize;
     let spdm_req = req.get(..spdm_req_len).ok_or(SPDM_INVALID_REQUEST)?;
-    session.transcript.append(pal, io, spdm_req).await?;
+    session.transcript.append(pal, io, spdm_req)?;
 
     // ── Generate random + summary hash ──────────────────────────────
     pal.generate_nonce(io, nonce)
-        .await
+        
         .map_err(|_| SPDM_UNSPECIFIED)?;
 
     let meas_hash_ref: Option<&[u8; SHA384_HASH_SIZE]> = if meas_hash_type != 0 {
         crate::measurements::measurement_summary_hash(pal, io, meas_hash_type, meas_summary_hash)
-            .await?;
+            ?;
         Some(&*meas_summary_hash)
     } else {
         None
@@ -288,43 +288,43 @@ async fn key_exchange_inner<'a, Pal: SpdmPal, const N: usize>(
     let partial_spdm = partial_resp
         .get(head..head + spdm_rsp_len)
         .ok_or(SPDM_UNSPECIFIED)?;
-    session.transcript.append(pal, io, partial_spdm).await?;
+    session.transcript.append(pal, io, partial_spdm)?;
     drop(partial_resp);
 
     // ── TH1 = clone-and-finalize (for signing) ─────────────────────
     let th1 = &mut *hash_scratch;
-    session.transcript.clone_and_finalize(pal, io, th1).await?;
+    session.transcript.clone_and_finalize(pal, io, th1)?;
 
     // ── Sign TH1 ────────────────────────────────────────────────────
     build_signing_context(state.version, signing_ctx);
     compute_tbs_hash(pal, io, signing_ctx, th1)
-        .await
+        
         .map_err(|_| SPDM_UNSPECIFIED)?;
     let tbs_hash = &signing_ctx[..SHA384_HASH_SIZE];
 
     let sig_len = pal
         .sign_hash(io, slot_id, asym_algo, tbs_hash, signature)
-        .await
+        
         .map_err(|_| SPDM_UNSPECIFIED)?;
     if sig_len != ECC_P384_SIGNATURE_SIZE {
         return Err(SPDM_UNSPECIFIED);
     }
 
     // ── Feed signature to TH ────────────────────────────────────────
-    session.transcript.append(pal, io, signature).await?;
+    session.transcript.append(pal, io, signature)?;
 
     // ── TH1' = clone-and-finalize (for HMAC + key derivation) ──────
     let th1_prime = &mut *hash_scratch;
     session
         .transcript
         .clone_and_finalize(pal, io, th1_prime)
-        .await?;
+        ?;
 
     // ── Derive handshake keys ───────────────────────────────────────
     session
         .key_schedule
         .generate_handshake_keys(pal, io, th1_prime)
-        .await?;
+        ?;
 
     // ── Compute responder verify_data ───────────────────────────────
     let vd_len = session
@@ -336,13 +336,13 @@ async fn key_exchange_inner<'a, Pal: SpdmPal, const N: usize>(
             th1_prime,
             verify_data,
         )
-        .await?;
+        ?;
     if vd_len != SHA384_HASH_SIZE {
         return Err(SPDM_UNSPECIFIED);
     }
 
     // Feed verify_data to TH (state persists for FINISH phase).
-    session.transcript.append(pal, io, verify_data).await?;
+    session.transcript.append(pal, io, verify_data)?;
 
     // ── Build full response ─────────────────────────────────────────
     let full_body = KeyExchangeRsp {
@@ -380,7 +380,7 @@ fn build_signing_context(version: SpdmVersion, ctx: &mut [u8; SPDM_SIGNING_CONTE
     write_fixed(ctx, SPDM_PREFIX_LEN + 2, KEY_EXCHANGE_SIGNING_OP);
 }
 
-async fn compute_tbs_hash<Pal: SpdmPal>(
+fn compute_tbs_hash<Pal: SpdmPal>(
     pal: &Pal,
     io: &<Pal as SpdmPalIoTransport>::Io<'_>,
     signing_ctx: &mut [u8; SPDM_SIGNING_CONTEXT_LEN],
@@ -388,9 +388,9 @@ async fn compute_tbs_hash<Pal: SpdmPal>(
 ) -> spdm_error::PalResult<()> {
     let mut state = pal
         .hash_init(io, SpdmPalHashAlgo::Sha384, &*signing_ctx)
-        .await?;
-    pal.hash_update(io, &mut state, th_hash).await?;
+        ?;
+    pal.hash_update(io, &mut state, th_hash)?;
     pal.hash_finish(io, &mut state, &mut signing_ctx[..SHA384_HASH_SIZE])
-        .await?;
+        ?;
     Ok(())
 }

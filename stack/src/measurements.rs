@@ -35,7 +35,7 @@ struct MeasurementsResponseCtx<'a> {
     large_resp_len: usize,
 }
 
-pub(crate) async fn handle_get_measurements_req<'a, Pal: SpdmPal>(
+pub(crate) fn handle_get_measurements_req<'a, Pal: SpdmPal>(
     state: &mut ConnectionState<Pal::State, <Pal as SpdmPalAlloc>::LargeBuf>,
     pal: &'a Pal,
     io: &<Pal as SpdmPalIoTransport>::Io<'_>,
@@ -124,7 +124,7 @@ pub(crate) async fn handle_get_measurements_req<'a, Pal: SpdmPal>(
         state
             .transcript
             .append_l1(pal, io, &req[..spdm_req_len])
-            .await?;
+            ?;
     }
 
     // Content changed: 2 = no change detected (when signature requested).
@@ -146,7 +146,7 @@ pub(crate) async fn handle_get_measurements_req<'a, Pal: SpdmPal>(
     let spdm_len = SpdmMsgHdrPdu::SIZE + body_len_without_sig + signature_len;
     let mut nonce = [0u8; SPDM_NONCE_LEN];
     pal.generate_nonce(io, &mut nonce)
-        .await
+        
         .map_err(|_| SPDM_UNSPECIFIED)?;
     if spdm_len > state.effective_data_transfer_size(pal) {
         let plan = MeasurementsResponseCtx {
@@ -163,7 +163,7 @@ pub(crate) async fn handle_get_measurements_req<'a, Pal: SpdmPal>(
             requester_context,
             large_resp_len: spdm_len,
         };
-        return handle_large_measurements_response(state, pal, io, &plan).await;
+        return handle_large_measurements_response(state, pal, io, &plan);
     }
 
     let head = pal.header_size();
@@ -186,7 +186,7 @@ pub(crate) async fn handle_get_measurements_req<'a, Pal: SpdmPal>(
 
         let record = w.reserve(measurement_record_len)?;
         let written_blocks =
-            write_measurement_record(pal, io, meas_info, meas_op, requester_nonce, record).await?;
+            write_measurement_record(pal, io, meas_info, meas_op, requester_nonce, record)?;
         if written_blocks != number_of_blocks {
             return Err(SPDM_UNSPECIFIED);
         }
@@ -212,27 +212,27 @@ pub(crate) async fn handle_get_measurements_req<'a, Pal: SpdmPal>(
     state
         .transcript
         .append_l1(pal, io, &resp[head..head + spdm_len_without_sig])
-        .await?;
+        ?;
 
     // Finalize L1 transcript hash.
     let mut hash = [0u8; SHA384_HASH_SIZE];
-    state.transcript.finalize_l1(pal, io, &mut hash).await?;
+    state.transcript.finalize_l1(pal, io, &mut hash)?;
 
     // Build signing context and compute TBS hash.
     let signing_ctx = signing_context(state.version);
     compute_tbs_hash(pal, io, signing_ctx, &mut hash)
-        .await
+        
         .map_err(|_| SPDM_UNSPECIFIED)?;
 
     // Sign the TBS hash directly into the response's signature slot, avoiding
-    // a 96-byte stack buffer that would otherwise live across the sign .await.
+    // a 96-byte stack buffer that would otherwise live across the sign .
     let asym_algo = state.asym_algo();
     let sig_slot = resp
         .get_mut(signature_offset..signature_offset + ECC_P384_SIGNATURE_SIZE)
         .ok_or(SPDM_UNSPECIFIED)?;
     let sig_len = pal
         .sign_hash(io, slot_id, asym_algo, &hash, sig_slot)
-        .await
+        
         .map_err(|_| SPDM_UNSPECIFIED)?;
     if sig_len != ECC_P384_SIGNATURE_SIZE {
         return Err(SPDM_UNSPECIFIED);
@@ -241,7 +241,7 @@ pub(crate) async fn handle_get_measurements_req<'a, Pal: SpdmPal>(
     Ok((resp, spdm_len))
 }
 
-async fn handle_large_measurements_response<'a, Pal: SpdmPal>(
+fn handle_large_measurements_response<'a, Pal: SpdmPal>(
     state: &mut ConnectionState<Pal::State, <Pal as SpdmPalAlloc>::LargeBuf>,
     pal: &'a Pal,
     io: &<Pal as SpdmPalIoTransport>::Io<'_>,
@@ -275,7 +275,7 @@ async fn handle_large_measurements_response<'a, Pal: SpdmPal>(
         buf,
         offset,
     )
-    .await?;
+    ?;
     if written_blocks != plan.number_of_blocks {
         return Err(SPDM_UNSPECIFIED);
     }
@@ -292,21 +292,21 @@ async fn handle_large_measurements_response<'a, Pal: SpdmPal>(
         state
             .transcript
             .append_l1(pal, io, &buf[..signature_offset])
-            .await?;
+            ?;
 
         let mut hash = [0u8; SHA384_HASH_SIZE];
-        state.transcript.finalize_l1(pal, io, &mut hash).await?;
+        state.transcript.finalize_l1(pal, io, &mut hash)?;
 
         let signing_ctx = signing_context(state.version);
         compute_tbs_hash(pal, io, signing_ctx, &mut hash)
-            .await
+            
             .map_err(|_| SPDM_UNSPECIFIED)?;
 
         let asym_algo = state.asym_algo();
         let mut signature = [0u8; ECC_P384_SIGNATURE_SIZE];
         let sig_len = pal
             .sign_hash(io, plan.slot_id, asym_algo, &hash, &mut signature)
-            .await
+            
             .map_err(|_| SPDM_UNSPECIFIED)?;
         if sig_len != ECC_P384_SIGNATURE_SIZE {
             return Err(SPDM_UNSPECIFIED);
@@ -372,7 +372,7 @@ fn total_measurement_count(info: &[MeasurementInfo]) -> SpdmResult<u8> {
     Ok(count)
 }
 
-pub(crate) async fn measurement_summary_hash<Pal: SpdmPal>(
+pub(crate) fn measurement_summary_hash<Pal: SpdmPal>(
     pal: &Pal,
     io: &<Pal as SpdmPalIoTransport>::Io<'_>,
     measurement_summary_hash_type: u8,
@@ -394,25 +394,25 @@ pub(crate) async fn measurement_summary_hash<Pal: SpdmPal>(
         let mut block = pal
             .alloc_bytes(io, block_len)
             .map_err(|_| SPDM_UNSPECIFIED)?;
-        let written = write_measurement_block(pal, io, entry, None, &mut block).await?;
+        let written = write_measurement_block(pal, io, entry, None, &mut block)?;
         if written != block_len {
             return Err(SPDM_UNSPECIFIED);
         }
 
         match hash_state.as_mut() {
-            Some(state) => pal.hash_update(io, state, &block).await?,
+            Some(state) => pal.hash_update(io, state, &block)?,
             None => {
-                hash_state = Some(pal.hash_init(io, SpdmPalHashAlgo::Sha384, &block).await?);
+                hash_state = Some(pal.hash_init(io, SpdmPalHashAlgo::Sha384, &block)?);
             }
         }
     }
 
     let mut state = hash_state.ok_or(SPDM_UNSPECIFIED)?;
-    pal.hash_finish(io, &mut state, out).await?;
+    pal.hash_finish(io, &mut state, out)?;
     Ok(())
 }
 
-async fn write_measurement_record<Pal: SpdmPal>(
+fn write_measurement_record<Pal: SpdmPal>(
     pal: &Pal,
     io: &<Pal as SpdmPalIoTransport>::Io<'_>,
     info: &[MeasurementInfo],
@@ -427,7 +427,7 @@ async fn write_measurement_record<Pal: SpdmPal>(
         0xFF => {
             for entry in info {
                 let written =
-                    write_measurement_block(pal, io, entry, nonce, &mut out[offset..]).await?;
+                    write_measurement_block(pal, io, entry, nonce, &mut out[offset..])?;
                 offset += written;
                 blocks = blocks.checked_add(1).ok_or(SPDM_UNSPECIFIED)?;
             }
@@ -437,7 +437,7 @@ async fn write_measurement_record<Pal: SpdmPal>(
                 .iter()
                 .find(|m| m.index == idx)
                 .ok_or(SPDM_INVALID_REQUEST)?;
-            offset += write_measurement_block(pal, io, entry, nonce, &mut out[offset..]).await?;
+            offset += write_measurement_block(pal, io, entry, nonce, &mut out[offset..])?;
             blocks = 1;
         }
     }
@@ -447,7 +447,7 @@ async fn write_measurement_record<Pal: SpdmPal>(
     Ok(blocks)
 }
 
-async fn write_measurement_record_into_slice<Pal: SpdmPal>(
+fn write_measurement_record_into_slice<Pal: SpdmPal>(
     pal: &Pal,
     io: &<Pal as SpdmPalIoTransport>::Io<'_>,
     info: &[MeasurementInfo],
@@ -463,7 +463,7 @@ async fn write_measurement_record_into_slice<Pal: SpdmPal>(
             for entry in info {
                 offset =
                     write_measurement_record_block_into_slice(pal, io, entry, nonce, out, offset)
-                        .await?;
+                        ?;
                 blocks = blocks.checked_add(1).ok_or(SPDM_UNSPECIFIED)?;
             }
         }
@@ -473,14 +473,14 @@ async fn write_measurement_record_into_slice<Pal: SpdmPal>(
                 .find(|m| m.index == idx)
                 .ok_or(SPDM_INVALID_REQUEST)?;
             offset = write_measurement_record_block_into_slice(pal, io, entry, nonce, out, offset)
-                .await?;
+                ?;
             blocks = 1;
         }
     }
     Ok((offset, blocks))
 }
 
-async fn write_measurement_record_block_into_slice<Pal: SpdmPal>(
+fn write_measurement_record_block_into_slice<Pal: SpdmPal>(
     pal: &Pal,
     io: &<Pal as SpdmPalIoTransport>::Io<'_>,
     info: &MeasurementInfo,
@@ -500,7 +500,7 @@ async fn write_measurement_record_block_into_slice<Pal: SpdmPal>(
     let mut value = pal.alloc_bytes(io, value_size)?;
     let value_len = pal
         .get_measurement_value(io, info.index, nonce, &mut value)
-        .await
+        
         .map_err(|_| SPDM_UNSPECIFIED)?;
     if value_len != value_size {
         return Err(SPDM_UNSPECIFIED);
@@ -511,7 +511,7 @@ async fn write_measurement_record_block_into_slice<Pal: SpdmPal>(
 
 /// Write a single DMTF measurement block (header + value) into `out`.
 /// Returns total bytes written.
-async fn write_measurement_block<Pal: SpdmPal>(
+fn write_measurement_block<Pal: SpdmPal>(
     pal: &Pal,
     io: &<Pal as SpdmPalIoTransport>::Io<'_>,
     info: &MeasurementInfo,
@@ -527,7 +527,7 @@ async fn write_measurement_block<Pal: SpdmPal>(
     let value_buf = &mut out[MEAS_BLOCK_METADATA_SIZE..MEAS_BLOCK_METADATA_SIZE + value_size];
     let value_len = pal
         .get_measurement_value(io, info.index, nonce, value_buf)
-        .await
+        
         .map_err(|_| SPDM_UNSPECIFIED)?;
     if value_len != value_size {
         return Err(SPDM_UNSPECIFIED);
@@ -616,7 +616,7 @@ fn signing_context(version: SpdmVersion) -> &'static [u8; SPDM_SIGNING_CONTEXT_L
 }
 
 /// Hash(signing_context || L1_hash) → TBS digest for signing.
-async fn compute_tbs_hash<Pal: SpdmPal>(
+fn compute_tbs_hash<Pal: SpdmPal>(
     pal: &Pal,
     io: &<Pal as SpdmPalIoTransport>::Io<'_>,
     signing_ctx: &[u8; SPDM_SIGNING_CONTEXT_LEN],
@@ -624,7 +624,7 @@ async fn compute_tbs_hash<Pal: SpdmPal>(
 ) -> spdm_error::PalResult<()> {
     let mut state = pal
         .hash_init(io, SpdmPalHashAlgo::Sha384, signing_ctx)
-        .await?;
-    pal.hash_update(io, &mut state, hash).await?;
-    pal.hash_finish(io, &mut state, hash).await
+        ?;
+    pal.hash_update(io, &mut state, hash)?;
+    pal.hash_finish(io, &mut state, hash)
 }

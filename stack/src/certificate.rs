@@ -69,7 +69,7 @@ impl CertificateLargeResponse {
         CERTIFICATE_RESPONSE_HEADER_SIZE + self.portion_len as usize
     }
 
-    pub(crate) async fn fill_chunk<Pal: SpdmPal>(
+    pub(crate) fn fill_chunk<Pal: SpdmPal>(
         &self,
         pal: &Pal,
         io: &<Pal as SpdmPalIoTransport>::Io<'_>,
@@ -122,22 +122,22 @@ impl CertificateLargeResponse {
                 cert_offset,
                 &mut dst[written..],
             )
-            .await?;
+            ?;
         }
         Ok(())
     }
 }
 
-pub(crate) async fn handle_get_certificate<'a, Pal: SpdmPal>(
+pub(crate) fn handle_get_certificate<'a, Pal: SpdmPal>(
     state: &mut ConnectionState<Pal::State, <Pal as SpdmPalAlloc>::LargeBuf>,
     pal: &'a Pal,
     io: &<Pal as SpdmPalIoTransport>::Io<'_>,
 ) -> SpdmResult<PalBytes<'a, Pal>> {
-    let (resp, _) = handle_get_certificate_req(state, pal, io, io.request()).await?;
+    let (resp, _) = handle_get_certificate_req(state, pal, io, io.request())?;
     Ok(resp)
 }
 
-pub(crate) async fn handle_get_certificate_req<'a, Pal: SpdmPal>(
+pub(crate) fn handle_get_certificate_req<'a, Pal: SpdmPal>(
     state: &mut ConnectionState<Pal::State, <Pal as SpdmPalAlloc>::LargeBuf>,
     pal: &'a Pal,
     io: &<Pal as SpdmPalIoTransport>::Io<'_>,
@@ -174,9 +174,9 @@ pub(crate) async fn handle_get_certificate_req<'a, Pal: SpdmPal>(
     // Total SPDM cert chain length = 52-byte header + raw DER chain.
     let asym_algo = state.asym_algo();
     let der_len = if slot_size_only {
-        pal.cert_chain_slot_size(io, slot_id, asym_algo).await
+        pal.cert_chain_slot_size(io, slot_id, asym_algo)
     } else {
-        pal.cert_chain_len(io, slot_id, asym_algo).await
+        pal.cert_chain_len(io, slot_id, asym_algo)
     }
     .map_err(|_| SPDM_INVALID_REQUEST)?;
     let total_len_usize = SPDM_CERT_CHAIN_HDR_LEN
@@ -238,7 +238,7 @@ pub(crate) async fn handle_get_certificate_req<'a, Pal: SpdmPal>(
             &[handle],
         )?;
 
-        state.transcript.append_m1(pal, io, spdm_msg).await?;
+        state.transcript.append_m1(pal, io, spdm_msg)?;
         state.large_msg_ctx.start_response(
             LargeResponse::Certificate(cert_rsp),
             cert_rsp.response_size(),
@@ -271,11 +271,11 @@ pub(crate) async fn handle_get_certificate_req<'a, Pal: SpdmPal>(
         }
         .encoded_size();
         let head = pal.header_size();
-        state.transcript.append_m1(pal, io, spdm_msg).await?;
+        state.transcript.append_m1(pal, io, spdm_msg)?;
         state
             .transcript
             .append_m1(pal, io, &resp[head..head + spdm_len])
-            .await?;
+            ?;
 
         state.phase = Phase::AfterCertificate;
         return Ok((resp, spdm_len));
@@ -285,7 +285,7 @@ pub(crate) async fn handle_get_certificate_req<'a, Pal: SpdmPal>(
     // are spliced in below: [0, 52) from the SPDM cert-chain
     // header, [52, total_len) from the raw DER chain.
     let mut portion = pal.alloc_bytes(io, portion_len as usize)?;
-    fill_cert_chain_portion(pal, io, slot_id, asym_algo, offset as usize, &mut portion).await?;
+    fill_cert_chain_portion(pal, io, slot_id, asym_algo, offset as usize, &mut portion)?;
 
     let cert_body = CertificateRsp {
         slot_id,
@@ -299,11 +299,11 @@ pub(crate) async fn handle_get_certificate_req<'a, Pal: SpdmPal>(
     let resp = build_response(pal, io, state.version, &cert_body)?;
 
     let head = pal.header_size();
-    state.transcript.append_m1(pal, io, spdm_msg).await?;
+    state.transcript.append_m1(pal, io, spdm_msg)?;
     state
         .transcript
         .append_m1(pal, io, &resp[head..head + spdm_len])
-        .await?;
+        ?;
 
     state.phase = Phase::AfterCertificate;
     Ok((resp, spdm_len))
@@ -314,7 +314,7 @@ pub(crate) async fn handle_get_certificate_req<'a, Pal: SpdmPal>(
 ///
 /// The destination covers `[offset, offset + dst.len())` in the
 /// full SPDM cert-chain wire layout (header + DER).
-pub(crate) async fn fill_cert_chain_portion<Pal: SpdmPal>(
+pub(crate) fn fill_cert_chain_portion<Pal: SpdmPal>(
     pal: &Pal,
     io: &<Pal as SpdmPalIoTransport>::Io<'_>,
     slot: u8,
@@ -325,7 +325,7 @@ pub(crate) async fn fill_cert_chain_portion<Pal: SpdmPal>(
     if dst.is_empty() {
         return Ok(());
     }
-    let der_len = pal.cert_chain_len(io, slot, asym_algo).await?;
+    let der_len = pal.cert_chain_len(io, slot, asym_algo)?;
     let total_len = SPDM_CERT_CHAIN_HDR_LEN + der_len;
     let end = offset
         .checked_add(dst.len())
@@ -353,7 +353,7 @@ pub(crate) async fn fill_cert_chain_portion<Pal: SpdmPal>(
             spdm_traits::SpdmPalHashAlgo::Sha384,
             root_hash,
         )
-        .await?;
+        ?;
         let hdr_end = SPDM_CERT_CHAIN_HDR_LEN.min(end);
         let copy_len = hdr_end - offset;
         let src = hdr
@@ -371,7 +371,7 @@ pub(crate) async fn fill_cert_chain_portion<Pal: SpdmPal>(
         let der_offset = (offset + written) - SPDM_CERT_CHAIN_HDR_LEN;
         let n = pal
             .read_cert_chain(io, slot, asym_algo, der_offset, &mut dst[written..])
-            .await?;
+            ?;
         if n != dst.len() - written {
             return Err(spdm_error::codes::INVARIANT);
         }

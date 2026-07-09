@@ -64,7 +64,7 @@ struct PeerAlgs {
 /// * [`SPDM_INVALID_REQUEST`] — header undecodable or body violates
 ///   the corresponding table (see [`locate_alg_structs`] / [`parse_peer_algs`]
 ///   for the exact rules).
-pub(crate) async fn handle_negotiate_algorithms<'a, Pal: SpdmPal>(
+pub(crate) fn handle_negotiate_algorithms<'a, Pal: SpdmPal>(
     state: &mut ConnectionState<Pal::State, <Pal as SpdmPalAlloc>::LargeBuf>,
     pal: &'a Pal,
     io: &<Pal as SpdmPalIoTransport>::Io<'_>,
@@ -96,11 +96,11 @@ pub(crate) async fn handle_negotiate_algorithms<'a, Pal: SpdmPal>(
 
     // SPDM: NEGOTIATE_ALGORITHMS + ALGORITHMS contribute to VCA.
     let head = pal.header_size();
-    state.transcript.append_vca(pal, io, io.request()).await?;
+    state.transcript.append_vca(pal, io, io.request())?;
     state
         .transcript
         .append_vca(pal, io, &resp[head..head + spdm_len])
-        .await?;
+        ?;
 
     state.phase = Phase::AfterAlgorithms;
     Ok(resp)

@@ -190,11 +190,11 @@ impl SpdmPalIoTransport for TestPal {
         self.mtu
     }
 
-    async fn recv_request(&self) -> PalResult<Self::Io<'_>> {
+    fn recv_request(&self) -> PalResult<Self::Io<'_>> {
         Err(spdm_error::codes::NOT_IMPLEMENTED)
     }
 
-    async fn send_response(
+    fn send_response(
         &self,
         _io: &Self::Io<'_>,
         _kind: SpdmPalIoKind,
@@ -207,7 +207,7 @@ impl SpdmPalIoTransport for TestPal {
 impl SpdmPalHash for TestPal {
     type State = TestHashState;
 
-    async fn hash_init(
+    fn hash_init(
         &self,
         _io: &impl SpdmPalIo,
         _algo: SpdmPalHashAlgo,
@@ -218,7 +218,7 @@ impl SpdmPalHash for TestPal {
         })
     }
 
-    async fn hash_update(
+    fn hash_update(
         &self,
         _io: &impl SpdmPalIo,
         state: &mut Self::State,
@@ -232,7 +232,7 @@ impl SpdmPalHash for TestPal {
         Ok(state.clone())
     }
 
-    async fn hash_finish(
+    fn hash_finish(
         &self,
         _io: &impl SpdmPalIo,
         state: &mut Self::State,
@@ -265,7 +265,7 @@ impl SpdmPalCertStore for TestPal {
     }
 
     #[cfg(feature = "set-certificate")]
-    async fn validate_set_certificate_chain(
+    fn validate_set_certificate_chain(
         &self,
         _io: &Self::Io<'_>,
         _slot: u8,
@@ -281,7 +281,7 @@ impl SpdmPalCertStore for TestPal {
         }
     }
 
-    async fn cert_chain_len(
+    fn cert_chain_len(
         &self,
         _io: &Self::Io<'_>,
         _slot: u8,
@@ -290,7 +290,7 @@ impl SpdmPalCertStore for TestPal {
         Ok(self.cert_chain.len())
     }
 
-    async fn cert_chain_slot_size(
+    fn cert_chain_slot_size(
         &self,
         _io: &Self::Io<'_>,
         _slot: u8,
@@ -299,7 +299,7 @@ impl SpdmPalCertStore for TestPal {
         Ok(self.cert_chain.len())
     }
 
-    async fn root_cert_hash(
+    fn root_cert_hash(
         &self,
         _io: &Self::Io<'_>,
         _slot: u8,
@@ -311,7 +311,7 @@ impl SpdmPalCertStore for TestPal {
         Ok(())
     }
 
-    async fn read_cert_chain(
+    fn read_cert_chain(
         &self,
         _io: &Self::Io<'_>,
         _slot: u8,
@@ -325,7 +325,7 @@ impl SpdmPalCertStore for TestPal {
         Ok(src.len())
     }
 
-    async fn sign_hash(
+    fn sign_hash(
         &self,
         _io: &Self::Io<'_>,
         _slot: u8,
@@ -338,7 +338,7 @@ impl SpdmPalCertStore for TestPal {
     }
 
     #[cfg(feature = "set-certificate")]
-    async fn write_cert_chain(
+    fn write_cert_chain(
         &self,
         _io: &Self::Io<'_>,
         slot: u8,
@@ -362,7 +362,7 @@ impl SpdmPalCertStore for TestPal {
     }
 
     #[cfg(feature = "set-certificate")]
-    async fn erase_cert_chain(
+    fn erase_cert_chain(
         &self,
         _io: &Self::Io<'_>,
         slot: u8,
@@ -387,7 +387,7 @@ impl SpdmPalCertStore for TestPal {
         None
     }
 
-    async fn generate_nonce(&self, _io: &Self::Io<'_>, out: &mut [u8]) -> PalResult<()> {
+    fn generate_nonce(&self, _io: &Self::Io<'_>, out: &mut [u8]) -> PalResult<()> {
         out.fill(0xA5);
         Ok(())
     }
@@ -398,7 +398,7 @@ impl SpdmPalMeasurements for TestPal {
         &[]
     }
 
-    async fn get_measurement_value(
+    fn get_measurement_value(
         &self,
         _io: &Self::Io<'_>,
         _index: u8,
@@ -412,7 +412,7 @@ impl SpdmPalMeasurements for TestPal {
 impl SpdmPalSessionCrypto for TestPal {
     type Key = u8;
 
-    async fn ecdh_generate(
+    fn ecdh_generate(
         &self,
         _io: &impl SpdmPalIo,
         _context: &mut [u8],
@@ -421,7 +421,7 @@ impl SpdmPalSessionCrypto for TestPal {
         Ok(())
     }
 
-    async fn ecdh_finish(
+    fn ecdh_finish(
         &self,
         _io: &impl SpdmPalIo,
         _context: &[u8],
@@ -430,7 +430,7 @@ impl SpdmPalSessionCrypto for TestPal {
         Ok(1)
     }
 
-    async fn hkdf_extract_bytes(
+    fn hkdf_extract_bytes(
         &self,
         _io: &impl SpdmPalIo,
         _salt: &[u8],
@@ -439,7 +439,7 @@ impl SpdmPalSessionCrypto for TestPal {
         Ok(1)
     }
 
-    async fn hkdf_extract_key(
+    fn hkdf_extract_key(
         &self,
         _io: &impl SpdmPalIo,
         _salt: &Self::Key,
@@ -448,7 +448,7 @@ impl SpdmPalSessionCrypto for TestPal {
         Ok(1)
     }
 
-    async fn hkdf_expand(
+    fn hkdf_expand(
         &self,
         _io: &impl SpdmPalIo,
         _prk: &Self::Key,
@@ -458,7 +458,7 @@ impl SpdmPalSessionCrypto for TestPal {
         Ok(1)
     }
 
-    async fn hmac(
+    fn hmac(
         &self,
         _io: &impl SpdmPalIo,
         _key: &Self::Key,
@@ -470,11 +470,11 @@ impl SpdmPalSessionCrypto for TestPal {
         Ok(n)
     }
 
-    async fn import_key(&self, _io: &impl SpdmPalIo, _data: &[u8]) -> PalResult<Self::Key> {
+    fn import_key(&self, _io: &impl SpdmPalIo, _data: &[u8]) -> PalResult<Self::Key> {
         Ok(1)
     }
 
-    async fn aead_encrypt(
+    fn aead_encrypt(
         &self,
         _io: &impl SpdmPalIo,
         _key: &Self::Key,
@@ -488,7 +488,7 @@ impl SpdmPalSessionCrypto for TestPal {
         Ok((plaintext.len(), [0u8; 16]))
     }
 
-    async fn aead_decrypt(
+    fn aead_decrypt(
         &self,
         _io: &impl SpdmPalIo,
         _key: &Self::Key,

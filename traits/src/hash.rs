@@ -88,7 +88,7 @@ pub trait SpdmPalHash {
     /// * `Err(PalErrorCode)` — Backend-specific failure (mailbox
     ///   busy / hardware error / allocator exhausted / unsupported
     ///   `algo`). The exact code is backend-defined.
-    async fn hash_init(
+    fn hash_init(
         &self,
         io: &impl SpdmPalIo,
         algo: SpdmPalHashAlgo,
@@ -118,7 +118,7 @@ pub trait SpdmPalHash {
     /// * `Err(PalErrorCode)` — Backend-specific failure during the
     ///   update; `state` should be considered invalid on error and
     ///   not reused.
-    async fn hash_update(
+    fn hash_update(
         &self,
         io: &impl SpdmPalIo,
         state: &mut Self::State,
@@ -158,7 +158,7 @@ pub trait SpdmPalHash {
     ///
     /// * `Err(PalErrorCode)` — Backend-specific failure (mailbox
     ///   error, `out` too short, etc.).
-    async fn hash_finish(
+    fn hash_finish(
         &self,
         io: &impl SpdmPalIo,
         state: &mut Self::State,

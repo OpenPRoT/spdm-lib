@@ -17,7 +17,7 @@ use crate::stack::{ConnectionState, Phase};
 
 use super::LargeResponse;
 
-pub(crate) async fn handle_chunk_get<'a, Pal: SpdmPal>(
+pub(crate) fn handle_chunk_get<'a, Pal: SpdmPal>(
     state: &mut ConnectionState<Pal::State, <Pal as SpdmPalAlloc>::LargeBuf>,
     pal: &'a Pal,
     io: &<Pal as SpdmPalIoTransport>::Io<'_>,
@@ -94,8 +94,8 @@ pub(crate) async fn handle_chunk_get<'a, Pal: SpdmPal>(
             LargeResponse::Certificate(cert_rsp) => {
                 cert_rsp
                     .fill_chunk(pal, io, state.version, bytes_sent, chunk)
-                    .await?;
-                state.transcript.append_m1(pal, io, chunk).await?;
+                    ?;
+                state.transcript.append_m1(pal, io, chunk)?;
             }
             LargeResponse::Buffered => {
                 let large = state

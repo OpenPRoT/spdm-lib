@@ -49,7 +49,6 @@ impl<'a, Alloc: SpdmPalAlloc, Io: SpdmPalIo> VdmResponseBuffer<'a, Alloc, Io> {
 }
 
 /// Static-dispatch VDM backend used by the spdm-lib dispatcher.
-#[allow(async_fn_in_trait)]
 pub trait SpdmVdmBackend {
     /// True when this backend can emit a response that does not fit the inline
     /// transport frame and must use [`VdmResponseBuffer::large`]. Backends should
@@ -90,7 +89,7 @@ pub trait SpdmVdmBackend {
     ///
     /// Writes the payload into [`VdmResponseBuffer::inline`] when it fits, otherwise
     /// into [`VdmResponseBuffer::large`], and reports which via [`VdmResponse`].
-    async fn handle_request<Alloc, Io>(
+    fn handle_request<Alloc, Io>(
         &self,
         req: &[u8],
         rsp: VdmResponseBuffer<'_, Alloc, Io>,
@@ -113,7 +112,7 @@ impl SpdmVdmBackend for NoVdmBackend {
         false
     }
 
-    async fn handle_request<Alloc, Io>(
+    fn handle_request<Alloc, Io>(
         &self,
         _req: &[u8],
         _rsp: VdmResponseBuffer<'_, Alloc, Io>,

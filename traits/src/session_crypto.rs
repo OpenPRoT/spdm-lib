@@ -26,7 +26,7 @@ pub trait SpdmPalSessionCrypto {
     ///
     /// Writes the opaque 76-byte context needed by [`Self::ecdh_finish`]
     /// and the 96-byte P-384 public exchange data.
-    async fn ecdh_generate(
+    fn ecdh_generate(
         &self,
         io: &impl SpdmPalIo,
         context: &mut [u8],
@@ -35,7 +35,7 @@ pub trait SpdmPalSessionCrypto {
 
     /// Complete the ECDH key exchange, producing a key handle to the
     /// shared secret (DHE_Secret).
-    async fn ecdh_finish(
+    fn ecdh_finish(
         &self,
         io: &impl SpdmPalIo,
         context: &[u8],
@@ -45,7 +45,7 @@ pub trait SpdmPalSessionCrypto {
     /// HKDF-Extract with raw-byte salt.
     ///
     /// Salt is imported into the crypto backend internally if needed.
-    async fn hkdf_extract_bytes(
+    fn hkdf_extract_bytes(
         &self,
         io: &impl SpdmPalIo,
         salt: &[u8],
@@ -53,7 +53,7 @@ pub trait SpdmPalSessionCrypto {
     ) -> PalResult<Self::Key>;
 
     /// HKDF-Extract with a key-handle salt.
-    async fn hkdf_extract_key(
+    fn hkdf_extract_key(
         &self,
         io: &impl SpdmPalIo,
         salt: &Self::Key,
@@ -61,7 +61,7 @@ pub trait SpdmPalSessionCrypto {
     ) -> PalResult<Self::Key>;
 
     /// HKDF-Expand producing a new key handle.
-    async fn hkdf_expand(
+    fn hkdf_expand(
         &self,
         io: &impl SpdmPalIo,
         prk: &Self::Key,
@@ -70,7 +70,7 @@ pub trait SpdmPalSessionCrypto {
     ) -> PalResult<Self::Key>;
 
     /// HMAC-SHA384. Returns bytes written to `out`.
-    async fn hmac(
+    fn hmac(
         &self,
         io: &impl SpdmPalIo,
         key: &Self::Key,
@@ -79,7 +79,7 @@ pub trait SpdmPalSessionCrypto {
     ) -> PalResult<usize>;
 
     /// Import raw key material. Returns a key handle.
-    async fn import_key(&self, io: &impl SpdmPalIo, data: &[u8]) -> PalResult<Self::Key>;
+    fn import_key(&self, io: &impl SpdmPalIo, data: &[u8]) -> PalResult<Self::Key>;
 
     /// SPDM AES-256-GCM encrypt for one secured-message fragment.
     ///
@@ -92,7 +92,7 @@ pub trait SpdmPalSessionCrypto {
     ///
     /// Returns `(ciphertext_len, tag)`.
     #[allow(clippy::too_many_arguments)]
-    async fn aead_encrypt(
+    fn aead_encrypt(
         &self,
         io: &impl SpdmPalIo,
         key: &Self::Key,
@@ -110,7 +110,7 @@ pub trait SpdmPalSessionCrypto {
     ///
     /// Returns plaintext length.
     #[allow(clippy::too_many_arguments)]
-    async fn aead_decrypt(
+    fn aead_decrypt(
         &self,
         io: &impl SpdmPalIo,
         key: &Self::Key,

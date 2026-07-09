@@ -6,7 +6,7 @@ use spdm_traits::{PalResult, SpdmPalAlloc};
 
 use crate::pci_sig::ide_km::{map_ide_error, IdeDriver};
 
-pub(crate) async fn handle_key_prog<D, Alloc>(
+pub(crate) fn handle_key_prog<D, Alloc>(
     driver: &D,
     scratch: &Alloc,
     reader: &mut WireReader<'_>,
@@ -27,7 +27,7 @@ where
             &key_data.iv,
             scratch,
         )
-        .await
+        
         .map_err(map_ide_error)?;
 
     key_prog.status = status;

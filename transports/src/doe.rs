@@ -92,12 +92,12 @@ impl SpdmPalTransport for SpdmDoeTransport {
         4 // DOE data objects must be DWORD-aligned
     }
 
-    async fn recv_request(&mut self, buf: &mut [u8]) -> PalResult<(SpdmPalIoKind, usize)> {
+    fn recv_request(&mut self, buf: &mut [u8]) -> PalResult<(SpdmPalIoKind, usize)> {
         if buf.len() < DOE_HEADER_SIZE {
             return Err(error_code::BUFFER_TOO_SMALL);
         }
 
-        let recv_len = self.doe.receive_message(buf).await? as usize;
+        let recv_len = self.doe.receive_message(buf)? as usize;
 
         if recv_len < DOE_HEADER_SIZE || recv_len > buf.len() {
             return Err(error_code::INVALID_MESSAGE);
@@ -120,7 +120,7 @@ impl SpdmPalTransport for SpdmDoeTransport {
         Ok((kind, recv_len))
     }
 
-    async fn send_response(&mut self, kind: SpdmPalIoKind, msg: &mut [u8]) -> PalResult<()> {
+    fn send_response(&mut self, kind: SpdmPalIoKind, msg: &mut [u8]) -> PalResult<()> {
         if msg.len() < DOE_HEADER_SIZE {
             return Err(error_code::INVALID_MESSAGE);
         }
@@ -136,7 +136,7 @@ impl SpdmPalTransport for SpdmDoeTransport {
         // Write DOE header in-place
         buf_write_doe_header(msg, data_object_type, length_dw as u32);
 
-        self.doe.send_message(msg).await?;
+        self.doe.send_message(msg)?;
         Ok(())
     }
 }

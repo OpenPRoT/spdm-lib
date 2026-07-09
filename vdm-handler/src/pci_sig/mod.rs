@@ -46,7 +46,7 @@ where
         self.matches_envelope(registry)
     }
 
-    async fn handle_request<Alloc, Io>(
+    fn handle_request<Alloc, Io>(
         &self,
         req: &[u8],
         rsp: VdmResponseBuffer<'_, Alloc, Io>,
@@ -62,7 +62,7 @@ where
         if protocol_id != TDISP_PROTOCOL_ID {
             return Err(SPDM_UNSUPPORTED_REQUEST);
         }
-        handle_tdisp_protocol_payload(&self.tdisp, protocol_id, payload, inline, alloc).await
+        handle_tdisp_protocol_payload(&self.tdisp, protocol_id, payload, inline, alloc)
     }
 }
 
@@ -73,7 +73,7 @@ fn pci_sig_envelope_matches(registry: &VdmRegistry<'_>, vendor_id: u16) -> bool 
         && registry.secure_session
 }
 
-async fn handle_tdisp_protocol_payload<D, Alloc>(
+fn handle_tdisp_protocol_payload<D, Alloc>(
     tdisp: &tdisp::TdispResponder<D>,
     protocol_id: u8,
     payload: &[u8],
@@ -89,7 +89,7 @@ where
     };
     let response = tdisp
         .handle_tdisp_payload(payload, alloc, tdisp_inline)
-        .await?;
+        ?;
     match response {
         VdmResponse::Inline(len) => {
             inline[0] = protocol_id;
@@ -261,7 +261,7 @@ mod tests {
     }
 
     impl TdispDriver for TestTdispDriver {
-        async fn generate_start_interface_nonce<Alloc>(
+        fn generate_start_interface_nonce<Alloc>(
             &self,
             _scratch: &Alloc,
             out: &mut [u8; START_INTERFACE_NONCE_SIZE],
@@ -277,7 +277,7 @@ mod tests {
             Ok(())
         }
 
-        async fn get_capabilities<Alloc>(
+        fn get_capabilities<Alloc>(
             &self,
             _req_caps: TdispReqCapabilities,
             _scratch: &Alloc,
@@ -290,7 +290,7 @@ mod tests {
             Ok(0)
         }
 
-        async fn lock_interface<Alloc>(
+        fn lock_interface<Alloc>(
             &self,
             _function_id: FunctionId,
             _param: TdispLockInterfaceParam,
@@ -306,7 +306,7 @@ mod tests {
             Ok(0)
         }
 
-        async fn get_device_interface_report_len<Alloc>(
+        fn get_device_interface_report_len<Alloc>(
             &self,
             _function_id: FunctionId,
             _scratch: &Alloc,
@@ -323,7 +323,7 @@ mod tests {
             Ok(0)
         }
 
-        async fn get_device_interface_report<Alloc>(
+        fn get_device_interface_report<Alloc>(
             &self,
             _function_id: FunctionId,
             offset: u16,
@@ -347,7 +347,7 @@ mod tests {
             Ok(0)
         }
 
-        async fn get_device_interface_state<Alloc>(
+        fn get_device_interface_state<Alloc>(
             &self,
             _function_id: FunctionId,
             _scratch: &Alloc,
@@ -360,7 +360,7 @@ mod tests {
             Ok(0)
         }
 
-        async fn start_interface<Alloc>(
+        fn start_interface<Alloc>(
             &self,
             _function_id: FunctionId,
             _scratch: &Alloc,
@@ -375,7 +375,7 @@ mod tests {
             Ok(0)
         }
 
-        async fn stop_interface<Alloc>(
+        fn stop_interface<Alloc>(
             &self,
             _function_id: FunctionId,
             _scratch: &Alloc,
