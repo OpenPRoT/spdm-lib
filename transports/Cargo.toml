@@ -7,7 +7,6 @@ authors.workspace = true
 edition.workspace = true
 
 [dependencies]
-async-trait.workspace = true
 spdm-transport-sys.workspace = true
 spdm-traits.workspace = true
 spdm-errors.workspace = true
