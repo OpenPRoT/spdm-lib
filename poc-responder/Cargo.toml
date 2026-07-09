@@ -1,0 +1,21 @@
+# Licensed under the Apache-2.0 license
+
+[package]
+name = "poc-responder"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+
+[[bin]]
+name = "poc-responder"
+path = "src/main.rs"
+
+[dependencies]
+spdm-stack = { workspace = true }
+spdm-traits = { workspace = true }
+spdm-codec = { workspace = true }
+spdm-crypto = { workspace = true }
+spdm-error = { workspace = true }
+sha2 = "0.10"
+p384 = { version = "0.13", features = ["ecdsa"] }
+rand = "0.8"

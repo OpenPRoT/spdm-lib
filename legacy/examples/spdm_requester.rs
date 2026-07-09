@@ -245,7 +245,7 @@ fn full_flow(stream: TcpStream, config: &RequesterConfig) -> IoResult<()> {
     generate_get_version(
         &mut spdm_context,
         &mut message_buffer,
-        VersionReqPayload::new(1, 1),
+        VersionReqPayload::new(0, 0),
     )
     .map_err(|(_send_response, cmd_err)| SpdmError::Command(cmd_err))
     .unwrap();
@@ -297,32 +297,24 @@ fn full_flow(stream: TcpStream, config: &RequesterConfig) -> IoResult<()> {
         );
     }
 
-    let ext_asym = [ExtendedAlgo::new(RegistryId::DMTF, 1)];
-    let ext_hash = [ExtendedAlgo::new(RegistryId::DMTF, 1)];
-    let alg_external = [ExtendedAlgo::new(RegistryId::DMTF, 1)];
-    // TODO: since we re-generate them there is the potential issue of TOCTOU.
+    // The new responder does not support extended/vendor algorithms, so send a
+    // spec-minimal NEGOTIATE_ALGORITHMS: no extended asym/hash, and a single
+    // AlgStruct with ExtAlgCount = 0. The DHE group must match the new
+    // responder's fixed policy (SECP384R1), not the requester default (FFDHE2048).
     let mut local_algorithms = create_local_algorithms();
-    local_algorithms
-        .device_algorithms
-        .base_asym_algo
-        .set_tpm_alg_rsapss_2048(1);
-    local_algorithms
-        .device_algorithms
-        .base_hash_algo
-        .set_tpm_alg_sha_256(1);
-
+    local_algorithms.device_algorithms.dhe_group = DheNamedGroup(0x0020); // SECP_384_R1
     let mut alg_structure = AlgStructure::new(&AlgType::Dhe, &local_algorithms);
-    alg_structure.set_ext_alg_count(1);
+    alg_structure.set_ext_alg_count(0);
 
     // 3.1 Send GET_ALGORITHMS
     message_buffer.reset();
     generate_negotiate_algorithms_request(
         &mut spdm_context,
         &mut message_buffer,
-        Some(&ext_asym),
-        Some(&ext_hash),
+        None,
+        None,
         Some(alg_structure),
-        Some(&alg_external),
+        None,
     )
     .unwrap();
 

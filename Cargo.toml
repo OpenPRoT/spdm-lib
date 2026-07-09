@@ -14,6 +14,7 @@ members = [
     "placeholders/spdm-transport-sys",
     "placeholders/spdm-console",
     "placeholders/spdm-platform",
+    "poc-responder",
 ]
 
 # legacy/ is the preserved host-crypto reference monolith. It requires a newer
