@@ -8,7 +8,7 @@ edition.workspace = true
 
 [dependencies]
 async-trait.workspace = true
-caliptra-mcu-libsyscall-caliptra.workspace = true
+spdm-transport-sys.workspace = true
 spdm-traits.workspace = true
 spdm-errors.workspace = true
-mcu-error.workspace = true
+spdm-error.workspace = true

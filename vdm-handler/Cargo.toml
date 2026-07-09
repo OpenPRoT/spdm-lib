@@ -13,9 +13,9 @@ default = []
 spdm-traits = { workspace = true }
 spdm-codec = { workspace = true }
 spdm-errors = { workspace = true }
-mcu-error = { workspace = true }
+spdm-error = { workspace = true }
 zerocopy = { workspace = true }
 
 [dev-dependencies]
 futures = { workspace = true }
-mcu-caliptra-api-lite = { workspace = true }
+spdm-crypto = { workspace = true }

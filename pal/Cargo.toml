@@ -9,16 +9,16 @@ edition.workspace = true
 [dependencies]
 spdm-traits = { workspace = true }
 spdm-codec = { workspace = true }
-mcu-caliptra-api-lite = { workspace = true }
-mcu-error = { workspace = true }
-caliptra-mcu-libsyscall-caliptra = { workspace = true, optional = true }
-caliptra-mcu-libtock_platform = { workspace = true, optional = true }
+spdm-crypto = { workspace = true }
+spdm-error = { workspace = true }
+spdm-transport-sys = { workspace = true, optional = true }
+spdm-platform = { workspace = true, optional = true }
 zerocopy = { workspace = true }
 
 [features]
 default = []
 set-certificate = [
   "spdm-traits/set-certificate",
-  "caliptra-mcu-libsyscall-caliptra",
-  "caliptra-mcu-libtock_platform",
+  "spdm-transport-sys",
+  "spdm-platform",
 ]

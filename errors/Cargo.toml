@@ -7,4 +7,4 @@ authors.workspace = true
 edition.workspace = true
 
 [dependencies]
-mcu-error = { workspace = true }
+spdm-error = { workspace = true }
