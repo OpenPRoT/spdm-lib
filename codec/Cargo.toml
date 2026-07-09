@@ -10,4 +10,4 @@ edition.workspace = true
 zerocopy = { workspace = true }
 spdm-traits = { workspace = true }
 spdm-errors = { workspace = true }
-mcu-error = { workspace = true }
+spdm-error = { workspace = true }
