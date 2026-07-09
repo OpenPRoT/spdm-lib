@@ -238,7 +238,6 @@ mod tests {
         SelectiveIdeStreamStatusReg, IDE_KM_PROTOCOL_ID, IDE_STREAM_IV_SIZE_DW,
         IDE_STREAM_KEY_SIZE_DW, MAX_SELECTIVE_IDE_ADDR_ASSOC_BLOCK_COUNT,
     };
-    use futures::executor::block_on;
 
     use std::boxed::Box;
     use std::vec;
@@ -883,7 +882,7 @@ mod tests {
         let mut inline = [0u8; 256];
         let mut large = [0u8; 512];
         let response =
-            block_on(backend.handle_request(&payload, response_buffer(&mut inline, &mut large)))
+            backend.handle_request(&payload, response_buffer(&mut inline, &mut large))
                 .unwrap();
 
         let VdmResponse::Inline(len) = response else {
@@ -903,9 +902,9 @@ mod tests {
         let payload = [IDE_KM_PROTOCOL_ID, IdeKmCommand::Query as u8, 0, 0];
         let mut inline = [0u8; 1];
         let mut large = [0u8; 256];
-        let err = match block_on(
+        let err = match 
             backend.handle_request(&payload, response_buffer(&mut inline, &mut large)),
-        ) {
+         {
             Ok(_) => panic!("IDE-KM query should fail when inline storage is too small"),
             Err(err) => err,
         };
@@ -929,7 +928,7 @@ mod tests {
         let mut inline = [0u8; 16];
         let mut large = [0u8; 256];
         let response =
-            block_on(backend.handle_request(&payload, response_buffer(&mut inline, &mut large)))
+            backend.handle_request(&payload, response_buffer(&mut inline, &mut large))
                 .unwrap();
 
         let VdmResponse::Inline(len) = response else {
@@ -960,7 +959,7 @@ mod tests {
             0,
         ];
         let mut rsp = [0u8; 16];
-        let len = block_on(responder.handle_request(&req, &mut rsp, scratch())).unwrap();
+        let len = responder.handle_request(&req, &mut rsp, scratch()).unwrap();
 
         assert_eq!(
             len,
@@ -985,7 +984,7 @@ mod tests {
             0,
         ];
         let mut rsp = [0u8; 16];
-        let len = block_on(responder.handle_request(&req, &mut rsp, scratch())).unwrap();
+        let len = responder.handle_request(&req, &mut rsp, scratch()).unwrap();
 
         assert_eq!(
             len,
@@ -1035,7 +1034,7 @@ mod tests {
         }
 
         let mut rsp = [0u8; 16];
-        let len = block_on(responder.handle_request(&req, &mut rsp, scratch())).unwrap();
+        let len = responder.handle_request(&req, &mut rsp, scratch()).unwrap();
 
         assert_eq!(len, IdeKmHdr::SIZE + spdm_codec::KeyProg::SIZE);
         assert_eq!(rsp[0], IdeKmCommand::KeyProgAck as u8);
@@ -1052,7 +1051,7 @@ mod tests {
         let mut rsp = [0u8; 16];
 
         assert_eq!(
-            block_on(responder.handle_request(&req, &mut rsp, scratch())).unwrap_err(),
+            responder.handle_request(&req, &mut rsp, scratch()).unwrap_err(),
             VDM_NO_RESPONSE
         );
     }
@@ -1061,7 +1060,7 @@ mod tests {
     fn unsupported_pci_sig_protocol_is_rejected() {
         let backend = PciSigIdeKmVdm::new(0x1234, TestIdeDriver::default());
         let mut rsp = [0u8; 16];
-        let result = block_on(backend.handle_request(&[0x7f], response_buffer(&mut rsp, &mut [])));
+        let result = backend.handle_request(&[0x7f], response_buffer(&mut rsp, &mut []));
 
         let Err(err) = result else {
             panic!("unsupported PCI-SIG protocol should fail");
@@ -1075,15 +1074,15 @@ mod tests {
         let mut rsp = [0u8; 16];
 
         assert_eq!(
-            block_on(responder.handle_request(&[0xff], &mut rsp, scratch())).unwrap_err(),
+            responder.handle_request(&[0xff], &mut rsp, scratch()).unwrap_err(),
             SPDM_INVALID_REQUEST
         );
         assert_eq!(
-            block_on(responder.handle_request(
+            responder.handle_request(
                 &[IdeKmCommand::QueryResp as u8],
                 &mut rsp,
                 scratch()
-            ))
+            )
             .unwrap_err(),
             SPDM_INVALID_REQUEST
         );
@@ -1099,7 +1098,7 @@ mod tests {
             [IDE_KM_PROTOCOL_ID, IdeKmCommand::QueryResp as u8],
         ] {
             let result =
-                block_on(backend.handle_request(&payload, response_buffer(&mut rsp, &mut [])));
+                backend.handle_request(&payload, response_buffer(&mut rsp, &mut []));
             let Err(err) = result else {
                 panic!("invalid IDE-KM object should fail without response");
             };
@@ -1113,20 +1112,20 @@ mod tests {
         let mut rsp = [0u8; 16];
 
         assert_eq!(
-            block_on(responder.handle_request(
+            responder.handle_request(
                 &[IdeKmCommand::Query as u8, 0],
                 &mut rsp,
                 scratch()
-            ))
+            )
             .unwrap_err(),
             SPDM_INVALID_REQUEST
         );
         assert_eq!(
-            block_on(responder.handle_request(
+            responder.handle_request(
                 &[IdeKmCommand::Query as u8, 0, 0, 0],
                 &mut rsp,
                 scratch()
-            ))
+            )
             .unwrap_err(),
             SPDM_INVALID_REQUEST
         );
@@ -1139,7 +1138,7 @@ mod tests {
         let mut rsp = [0u8; 1];
 
         assert_eq!(
-            block_on(responder.handle_request(&req, &mut rsp, scratch())).unwrap_err(),
+            responder.handle_request(&req, &mut rsp, scratch()).unwrap_err(),
             SPDM_INVALID_REQUEST
         );
     }

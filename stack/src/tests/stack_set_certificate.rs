@@ -4,7 +4,6 @@ extern crate std;
 
 use super::*;
 use spdm_traits::NoVdmBackend;
-use futures::executor::block_on;
 use std::vec::Vec;
 
 #[path = "support.rs"]
@@ -19,13 +18,13 @@ fn send_secured_chunk(
     chunk_send: &[u8],
 ) -> Vec<u8> {
     let io = secured_io(session_id, chunk_send);
-    block_on(handle_secured_request(
+    handle_secured_request(
         state,
         sessions,
         pal,
         &io,
         &NoVdmBackend,
-    ))
+    )
     .unwrap()
     .unwrap()
 }
@@ -37,14 +36,14 @@ fn send_plaintext_chunk(
     chunk_send: &[u8],
 ) -> Vec<u8> {
     let io = TestIo::message(chunk_send.to_vec());
-    block_on(dispatch(
+    dispatch(
         state,
         sessions,
         pal,
         &io,
         ReqRespCode::CHUNK_SEND,
         &NoVdmBackend,
-    ))
+    )
     .unwrap()
 }
 

@@ -15,7 +15,6 @@ use spdm_traits::{
 };
 use core::marker::PhantomData;
 use core::ops::{Deref, DerefMut};
-use futures::executor::block_on;
 use spdm_error::{PalErrorCode, PalResult};
 use std::boxed::Box;
 use std::cell::RefCell;
@@ -631,11 +630,11 @@ pub fn handshake_session(
         .unwrap();
     let session = sessions.find_mut(session_id).unwrap();
     session.key_schedule.set_dhe_secret(1);
-    block_on(session.key_schedule.generate_handshake_keys(
+    session.key_schedule.generate_handshake_keys(
         pal,
         &empty_io,
         &[0u8; SHA384_DIGEST_SIZE],
-    ))
+    )
     .unwrap();
     (state, sessions, session_id)
 }
@@ -650,11 +649,11 @@ pub fn established_session(
     let empty_io = TestIo::message(Vec::new());
     let (state, mut sessions, session_id) = handshake_session(pal);
     let session = sessions.find_mut(session_id).unwrap();
-    block_on(
+    
         session
             .key_schedule
             .generate_data_keys(pal, &empty_io, &[0u8; SHA384_DIGEST_SIZE]),
-    )
+    
     .unwrap();
     session.key_schedule.destroy_handshake_secrets();
     session.state = crate::session::SessionState::Established;

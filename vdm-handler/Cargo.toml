@@ -17,5 +17,4 @@ spdm-error = { workspace = true }
 zerocopy = { workspace = true }
 
 [dev-dependencies]
-futures = { workspace = true }
 spdm-crypto = { workspace = true }
