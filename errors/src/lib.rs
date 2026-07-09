@@ -4,8 +4,8 @@
 //!
 //! Every SPDM-Lite crate that produces errors picks a [subdomain
 //! byte](#subdomains) from this central registry, then defines its
-//! own concrete [`McuErrorCode`] constants in its own `errors` module
-//! using `spdm_error::McuErrorCode::new(domain::SPDM, SUBDOMAIN_*, code)`.
+//! own concrete [`PalErrorCode`] constants in its own `errors` module
+//! using `spdm_error::PalErrorCode::new(domain::SPDM, SUBDOMAIN_*, code)`.
 //!
 //! Centralizing **just the subdomain bytes** here gives:
 //!
@@ -15,7 +15,7 @@
 //!   to the subdomain bytes (see [`spdm_wire`] / [`as_spdm_wire`]).
 //! * Cross-crate classifier helpers ([`is_spdm_wire`],
 //!   [`is_mctp_error`], …) so a logger or error-PDU encoder can
-//!   inspect any [`McuErrorCode`] without depending on every owning
+//!   inspect any [`PalErrorCode`] without depending on every owning
 //!   crate.
 //!
 //! Specific error constants (e.g. `SPDM_INVALID_REQUEST`,
@@ -24,7 +24,7 @@
 #![no_std]
 #![forbid(unsafe_code)]
 
-use spdm_error::{domain, McuErrorCode};
+use spdm_error::{domain, PalErrorCode};
 
 // ----- Subdomain registry under [`spdm_error::domain::SPDM`] ------------------
 
@@ -37,7 +37,7 @@ pub const SUBDOMAIN_LOCAL: u8 = 0x00;
 
 /// SPDM wire errors per DSP0274 §10.10.2.
 ///
-/// The low byte of the resulting [`McuErrorCode::code`] carries the
+/// The low byte of the resulting [`PalErrorCode::code`] carries the
 /// spec-defined SPDM error byte; responders extract it with
 /// [`as_spdm_wire`] and inject it into the wire `ERROR` PDU.
 pub const SUBDOMAIN_WIRE: u8 = 0x01;
@@ -59,29 +59,29 @@ pub const SUBDOMAIN_VDM: u8 = 0x20;
 ///
 /// Use this when a backend owns the VDM request but cannot form a valid
 /// vendor-defined response payload.
-pub const VDM_NO_RESPONSE: McuErrorCode = McuErrorCode::new(domain::SPDM, SUBDOMAIN_VDM, 0x0001);
+pub const VDM_NO_RESPONSE: PalErrorCode = PalErrorCode::new(domain::SPDM, SUBDOMAIN_VDM, 0x0001);
 
 /// Returns true when `e` requests silent VDM failure handling.
 #[inline]
-pub const fn is_vdm_no_response(e: McuErrorCode) -> bool {
+pub const fn is_vdm_no_response(e: PalErrorCode) -> bool {
     e.domain() == domain::SPDM && e.subdomain() == SUBDOMAIN_VDM && e.code() == 0x0001
 }
 
 // ----- Wire-byte convention --------------------------------------------------
 
-/// Builds an [`McuErrorCode`] from a DSP0274 §10.10.2 SPDM error byte.
+/// Builds an [`PalErrorCode`] from a DSP0274 §10.10.2 SPDM error byte.
 ///
 /// The byte is preserved in the low 8 bits of the resulting `code`,
 /// so SPDM responders can recover it via [`as_spdm_wire`] and write
 /// it directly into the wire `ERROR` PDU.
 #[inline]
-pub const fn spdm_wire(spec_byte: u8) -> McuErrorCode {
-    McuErrorCode::new(domain::SPDM, SUBDOMAIN_WIRE, spec_byte as u16)
+pub const fn spdm_wire(spec_byte: u8) -> PalErrorCode {
+    PalErrorCode::new(domain::SPDM, SUBDOMAIN_WIRE, spec_byte as u16)
 }
 
 /// If `e` is a [`spdm_wire`] error, returns its DSP0274 byte.
 #[inline]
-pub const fn as_spdm_wire(e: McuErrorCode) -> Option<u8> {
+pub const fn as_spdm_wire(e: PalErrorCode) -> Option<u8> {
     if e.domain() == domain::SPDM && e.subdomain() == SUBDOMAIN_WIRE {
         Some(e.code() as u8)
     } else {
@@ -93,18 +93,18 @@ pub const fn as_spdm_wire(e: McuErrorCode) -> Option<u8> {
 
 /// `true` if `e` is an spdm-lib local error (never on the wire).
 #[inline]
-pub const fn is_spdm_local(e: McuErrorCode) -> bool {
+pub const fn is_spdm_local(e: PalErrorCode) -> bool {
     e.domain() == domain::SPDM && e.subdomain() == SUBDOMAIN_LOCAL
 }
 
 /// `true` if `e` is an SPDM wire error (DSP0274 §10.10.2).
 #[inline]
-pub const fn is_spdm_wire(e: McuErrorCode) -> bool {
+pub const fn is_spdm_wire(e: PalErrorCode) -> bool {
     e.domain() == domain::SPDM && e.subdomain() == SUBDOMAIN_WIRE
 }
 
 /// `true` if `e` is an MCTP-transport error.
 #[inline]
-pub const fn is_mctp_error(e: McuErrorCode) -> bool {
+pub const fn is_mctp_error(e: PalErrorCode) -> bool {
     e.domain() == domain::SPDM && e.subdomain() == SUBDOMAIN_MCTP
 }

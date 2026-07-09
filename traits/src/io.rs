@@ -85,7 +85,7 @@ pub trait SpdmPalIoTransport {
     ///
     /// * `Ok(Io)` — An I/O handle containing the received request. The handle
     ///   borrows from `self` and provides access to the request payload and kind.
-    /// * `Err(McuErrorCode)` — A transport-level error if the receive failed.
+    /// * `Err(PalErrorCode)` — A transport-level error if the receive failed.
     ///   Blocks until the next SPDM request is received from the remote endpoint.
     ///
     /// Takes `&self` rather than `&mut self` so subsequent
@@ -99,9 +99,9 @@ pub trait SpdmPalIoTransport {
     /// * `Ok(Io)` — An I/O handle containing the received request. The
     ///   handle borrows from `self` and provides access to the request
     ///   payload and kind.
-    /// * `Err(McuErrorCode)` — A transport-level error if the receive
+    /// * `Err(PalErrorCode)` — A transport-level error if the receive
     ///   failed.
-    async fn recv_request(&self) -> McuResult<Self::Io<'_>>;
+    async fn recv_request(&self) -> PalResult<Self::Io<'_>>;
 
     /// Sends an SPDM response back to the remote endpoint.
     ///
@@ -115,5 +115,5 @@ pub trait SpdmPalIoTransport {
         io: &Self::Io<'_>,
         kind: SpdmPalIoKind,
         msg: &mut [u8],
-    ) -> McuResult<()>;
+    ) -> PalResult<()>;
 }

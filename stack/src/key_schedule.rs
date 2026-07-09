@@ -20,7 +20,7 @@
 //! opaque 128-byte `Cmk` blobs.
 
 use spdm_codec::SpdmVersion;
-use spdm_traits::{McuResult, SpdmPalAlloc, SpdmPalIo, SpdmPalSessionCrypto};
+use spdm_traits::{PalResult, SpdmPalAlloc, SpdmPalIo, SpdmPalSessionCrypto};
 
 /// SHA-384 digest size in bytes.
 pub const SHA384_HASH_SIZE: usize = 48;
@@ -133,7 +133,7 @@ impl<K: Clone> KeySchedule<K> {
         pal: &P,
         io: &impl SpdmPalIo,
         th1_hash: &[u8],
-    ) -> McuResult<()> {
+    ) -> PalResult<()> {
         // handshake_secret = HKDF-Extract(Salt_0 = zeros, DHE_Secret)
         let dhe = self
             .master_ctx
@@ -224,7 +224,7 @@ impl<K: Clone> KeySchedule<K> {
         pal: &P,
         io: &impl SpdmPalIo,
         th2_hash: &[u8],
-    ) -> McuResult<()> {
+    ) -> PalResult<()> {
         let hs_ref = self
             .master_ctx
             .handshake_secret
@@ -286,7 +286,7 @@ impl<K: Clone> KeySchedule<K> {
         key_type: SessionKeyType,
         data: &[u8],
         out: &mut [u8],
-    ) -> McuResult<usize> {
+    ) -> PalResult<usize> {
         let key = self.finished_key(key_type)?;
         pal.hmac(io, key, data, out).await
     }
@@ -302,7 +302,7 @@ impl<K: Clone> KeySchedule<K> {
         aad: &[u8],
         plaintext: &[u8],
         ciphertext: &mut [u8],
-    ) -> McuResult<(usize, [u8; 16])> {
+    ) -> PalResult<(usize, [u8; 16])> {
         let (key, seq) = self.aead_key_and_seq(key_type)?;
         let result = pal
             .aead_encrypt(io, key, spdm_version, seq, aad, plaintext, ciphertext)
@@ -323,7 +323,7 @@ impl<K: Clone> KeySchedule<K> {
         ciphertext: &[u8],
         tag: &[u8; 16],
         plaintext: &mut [u8],
-    ) -> McuResult<usize> {
+    ) -> PalResult<usize> {
         let (key, seq) = self.aead_key_and_seq(key_type)?;
         let result = pal
             .aead_decrypt(io, key, spdm_version, seq, aad, ciphertext, tag, plaintext)
@@ -355,7 +355,7 @@ impl<K: Clone> KeySchedule<K> {
         self.data_ctx.response_data_secret = None;
     }
 
-    fn finished_key(&self, key_type: SessionKeyType) -> McuResult<&K> {
+    fn finished_key(&self, key_type: SessionKeyType) -> PalResult<&K> {
         match key_type {
             SessionKeyType::RequestFinishedKey => self
                 .handshake_ctx
@@ -371,7 +371,7 @@ impl<K: Clone> KeySchedule<K> {
         }
     }
 
-    fn aead_key_and_seq(&self, key_type: SessionKeyType) -> McuResult<(&K, u64)> {
+    fn aead_key_and_seq(&self, key_type: SessionKeyType) -> PalResult<(&K, u64)> {
         match key_type {
             SessionKeyType::RequestHandshakeKey => Ok((
                 self.handshake_ctx
@@ -456,7 +456,7 @@ async fn hkdf_expand_bin_str<P: SpdmPalAlloc + SpdmPalSessionCrypto>(
     prk: &P::Key,
     bin_str: BinStr,
     context: Option<&[u8]>,
-) -> McuResult<P::Key> {
+) -> PalResult<P::Key> {
     let mut info = pal.alloc_bytes(io, MAX_BIN_STR_LEN)?;
     let len = bin_concat(
         version_str,
@@ -482,7 +482,7 @@ fn bin_concat(
     length: u16,
     context: Option<&[u8]>,
     buf: &mut [u8],
-) -> McuResult<usize> {
+) -> PalResult<usize> {
     let mut pos = 0;
     let needed = 2 + version_str.len() + bin_str.label().len() + context.map_or(0, |ctx| ctx.len());
     if needed > buf.len() {
@@ -503,7 +503,7 @@ fn bin_concat(
     Ok(pos)
 }
 
-fn write_bin_str_bytes(buf: &mut [u8], pos: &mut usize, src: &[u8]) -> McuResult<()> {
+fn write_bin_str_bytes(buf: &mut [u8], pos: &mut usize, src: &[u8]) -> PalResult<()> {
     let end = pos
         .checked_add(src.len())
         .ok_or(spdm_error::codes::INVARIANT)?;

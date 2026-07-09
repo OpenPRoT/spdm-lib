@@ -49,17 +49,17 @@ const CERT_MODEL_ALIAS_CERT: u8 = 2;
 /// Counts bytes, discards them. Used to probe DPE chain length.
 struct CountSink;
 impl DpeChainSink for CountSink {
-    async fn on_chunk(&mut self, _: &[u8]) -> McuResult<()> {
+    async fn on_chunk(&mut self, _: &[u8]) -> PalResult<()> {
         Ok(())
     }
 }
 
 #[cfg(feature = "set-certificate")]
 async fn validate_root_hash<M: MeasurementProvider>(
-    pal: &McuSpdmPal<M>,
+    pal: &PlatformSpdmPal<M>,
     root_hash: &[u8; 48],
     cert_chain: &[u8],
-) -> McuResult<()> {
+) -> PalResult<()> {
     let root_cert_len = der_first_seq_len(cert_chain).ok_or(INVARIANT)?;
     let sha_buf = pal.allocator.alloc_bytes(SHA_CONTEXT_SIZE)?;
     let mut state = sha_init(pal.allocator, sha_buf, HashAlgo::Sha384, &[]).await?;
@@ -76,7 +76,7 @@ async fn validate_root_hash<M: MeasurementProvider>(
 // Trait impl
 // ---------------------------------------------------------------------------
 
-impl<M: MeasurementProvider> SpdmPalCertStore for McuSpdmPal<M> {
+impl<M: MeasurementProvider> SpdmPalCertStore for PlatformSpdmPal<M> {
     fn supported_slots(&self) -> u8 {
         let mut mask = 0u8;
         for (i, slot) in self.cert_store.cert_slots().iter().enumerate() {
@@ -102,7 +102,7 @@ impl<M: MeasurementProvider> SpdmPalCertStore for McuSpdmPal<M> {
         _io: &Self::Io<'_>,
         slot: u8,
         _algo: SpdmPalAsymAlgo,
-    ) -> McuResult<usize> {
+    ) -> PalResult<usize> {
         let idx = slot_index(slot).ok_or(INVARIANT)?;
 
         // 1. PRE-CHECK: Ensure Slot is provisioned and not undergoing updates before starting
@@ -155,7 +155,7 @@ impl<M: MeasurementProvider> SpdmPalCertStore for McuSpdmPal<M> {
         cert_model: u8,
         root_hash: &[u8; 48],
         cert_chain: &[u8],
-    ) -> McuResult<()> {
+    ) -> PalResult<()> {
         if cert_model != CERT_MODEL_ALIAS_CERT {
             return Err(INVARIANT);
         }
@@ -168,7 +168,7 @@ impl<M: MeasurementProvider> SpdmPalCertStore for McuSpdmPal<M> {
         _io: &Self::Io<'_>,
         slot: u8,
         _algo: SpdmPalAsymAlgo,
-    ) -> McuResult<usize> {
+    ) -> PalResult<usize> {
         let idx = slot_index(slot).ok_or(INVARIANT)?;
 
         // 1. PRE-CHECK: Ensure Slot is provisioned and not undergoing updates before starting
@@ -218,7 +218,7 @@ impl<M: MeasurementProvider> SpdmPalCertStore for McuSpdmPal<M> {
         _algo: SpdmPalAsymAlgo,
         _hash_algo: SpdmPalHashAlgo,
         out: &mut [u8],
-    ) -> McuResult<()> {
+    ) -> PalResult<()> {
         let idx = slot_index(slot).ok_or(INVARIANT)?;
         self.cert_store.cert_slots()[idx]
             .endorsement
@@ -232,7 +232,7 @@ impl<M: MeasurementProvider> SpdmPalCertStore for McuSpdmPal<M> {
         _algo: SpdmPalAsymAlgo,
         offset: usize,
         dst: &mut [u8],
-    ) -> McuResult<usize> {
+    ) -> PalResult<usize> {
         let idx = slot_index(slot).ok_or(INVARIANT)?;
         if dst.is_empty() {
             return Ok(0);
@@ -327,7 +327,7 @@ impl<M: MeasurementProvider> SpdmPalCertStore for McuSpdmPal<M> {
         _algo: SpdmPalAsymAlgo,
         digest: &[u8],
         signature: &mut [u8],
-    ) -> McuResult<usize> {
+    ) -> PalResult<usize> {
         let _idx = slot_index(slot).ok_or(INVARIANT)?;
         dpe_sign_ecc_p384(self, &DPE_LEAF_LABEL, digest, signature).await
     }
@@ -342,7 +342,7 @@ impl<M: MeasurementProvider> SpdmPalCertStore for McuSpdmPal<M> {
         cert_info: u8,
         root_hash: &[u8; 48],
         data: &[u8],
-    ) -> McuResult<()> {
+    ) -> PalResult<()> {
         let idx = slot_index(slot).ok_or(INVARIANT)?;
         // Set write_in_progress to block transient readers during flash updates
         self.cert_store.cert_slots()[idx]
@@ -380,7 +380,7 @@ impl<M: MeasurementProvider> SpdmPalCertStore for McuSpdmPal<M> {
         _io: &Self::Io<'_>,
         slot: u8,
         algo: SpdmPalAsymAlgo,
-    ) -> McuResult<()> {
+    ) -> PalResult<()> {
         let idx = slot_index(slot).ok_or(INVARIANT)?;
         self.cert_store.cert_slots()[idx]
             .write_in_progress
@@ -450,7 +450,7 @@ impl<M: MeasurementProvider> SpdmPalCertStore for McuSpdmPal<M> {
         self.cert_store.cache_chain_digest(slot, digest);
     }
 
-    async fn generate_nonce(&self, _io: &Self::Io<'_>, out: &mut [u8]) -> McuResult<()> {
+    async fn generate_nonce(&self, _io: &Self::Io<'_>, out: &mut [u8]) -> PalResult<()> {
         spdm_crypto::rng_generate(self, out).await
     }
 }
@@ -462,7 +462,7 @@ impl<M: MeasurementProvider> SpdmPalCertStore for McuSpdmPal<M> {
 /// Probe the DPE leaf-cert size by calling `CertifyKey` and
 /// reading only its fixed response header. Deterministic, so
 /// subsequent calls produce identical sizes.
-async fn probe_leaf_len<M: MeasurementProvider>(pal: &McuSpdmPal<M>) -> McuResult<usize> {
+async fn probe_leaf_len<M: MeasurementProvider>(pal: &PlatformSpdmPal<M>) -> PalResult<usize> {
     dpe_certify_key_cert_size(pal, &DPE_LEAF_LABEL).await
 }
 

@@ -14,7 +14,7 @@ use spdm_codec::errors::{
 };
 use spdm_codec::StandardsBodyId;
 use spdm_traits::{
-    McuResult, SpdmPalAlloc, SpdmPalIo, SpdmVdmBackend, VdmRegistry, VdmResponse, VdmResponseBuffer,
+    PalResult, SpdmPalAlloc, SpdmPalIo, SpdmVdmBackend, VdmRegistry, VdmResponse, VdmResponseBuffer,
 };
 
 /// PCI-SIG protocol identifier for TDISP.
@@ -50,7 +50,7 @@ where
         &self,
         req: &[u8],
         rsp: VdmResponseBuffer<'_, Alloc, Io>,
-    ) -> McuResult<VdmResponse>
+    ) -> PalResult<VdmResponse>
     where
         Alloc: SpdmPalAlloc,
         Io: SpdmPalIo,
@@ -79,7 +79,7 @@ async fn handle_tdisp_protocol_payload<D, Alloc>(
     payload: &[u8],
     inline: &mut [u8],
     alloc: &Alloc,
-) -> McuResult<VdmResponse>
+) -> PalResult<VdmResponse>
 where
     D: tdisp::TdispDriver,
     Alloc: SpdmPalAlloc,
@@ -168,7 +168,7 @@ mod tests {
         where
             Self: 'a;
 
-        fn alloc(&self, len: usize) -> McuResult<Self::Buf<'_>> {
+        fn alloc(&self, len: usize) -> PalResult<Self::Buf<'_>> {
             Ok(vec![0; len])
         }
     }
@@ -186,14 +186,14 @@ mod tests {
         type LargeBuf = Vec<u8>;
         type PersistentBox<T: Sized + 'static> = Box<T>;
 
-        fn alloc<T: Sized>(&self, _io: &impl SpdmPalIo, value: T) -> McuResult<Self::Box<'_, T>> {
+        fn alloc<T: Sized>(&self, _io: &impl SpdmPalIo, value: T) -> PalResult<Self::Box<'_, T>> {
             Ok(TestBox {
                 value: Box::new(value),
                 _lifetime: PhantomData,
             })
         }
 
-        fn alloc_bytes(&self, _io: &impl SpdmPalIo, len: usize) -> McuResult<Self::Bytes<'_>> {
+        fn alloc_bytes(&self, _io: &impl SpdmPalIo, len: usize) -> PalResult<Self::Bytes<'_>> {
             Ok(vec![0; len])
         }
 
@@ -201,14 +201,14 @@ mod tests {
             0
         }
 
-        fn alloc_large_buf(&self, len: usize) -> McuResult<Self::LargeBuf> {
+        fn alloc_large_buf(&self, len: usize) -> PalResult<Self::LargeBuf> {
             Ok(vec![0; len])
         }
 
         fn alloc_persistent<T: Sized + 'static>(
             &self,
             value: T,
-        ) -> McuResult<Self::PersistentBox<T>> {
+        ) -> PalResult<Self::PersistentBox<T>> {
             Ok(Box::new(value))
         }
     }
@@ -424,7 +424,7 @@ mod tests {
         backend: &PciSigTdispVdm<TestTdispDriver>,
         req: &[u8],
         inline_len: usize,
-    ) -> McuResult<(VdmResponse, Vec<u8>)> {
+    ) -> PalResult<(VdmResponse, Vec<u8>)> {
         let alloc = TestAlloc;
         let io = TestIo;
         let mut inline = vec![0; inline_len];

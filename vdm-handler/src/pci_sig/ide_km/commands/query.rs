@@ -5,7 +5,7 @@ use spdm_codec::{
     IdeKmHdr, IdeRegBlock, LinkIdeStreamRegBlock, PortConfig, Query, SelectiveIdeStreamRegBlock,
     WireReader, WireWriter,
 };
-use spdm_traits::{McuResult, SpdmPalAlloc};
+use spdm_traits::{PalResult, SpdmPalAlloc};
 use zerocopy::{Immutable, IntoBytes};
 
 use crate::pci_sig::ide_km::{map_ide_error, IdeDriver};
@@ -34,7 +34,7 @@ pub(crate) fn handle_query<D, W, Alloc>(
     scratch: &Alloc,
     reader: &mut WireReader<'_>,
     writer: &mut W,
-) -> McuResult<usize>
+) -> PalResult<usize>
 where
     D: IdeDriver,
     W: QueryResponseWriter,
@@ -49,7 +49,7 @@ fn generate_query_resp<D, W, Alloc>(
     driver: &D,
     scratch: &Alloc,
     writer: &mut W,
-) -> McuResult<usize>
+) -> PalResult<usize>
 where
     D: IdeDriver,
     W: QueryResponseWriter,
@@ -107,7 +107,7 @@ where
 fn write_selective_ide_stream_reg_block<W>(
     block: &SelectiveIdeStreamRegBlock,
     writer: &mut W,
-) -> McuResult<()>
+) -> PalResult<()>
 where
     W: QueryResponseWriter,
 {

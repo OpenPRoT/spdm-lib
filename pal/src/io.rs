@@ -7,7 +7,7 @@
 //! ([`SpdmPalIoTransport`](spdm_traits::SpdmPalIoTransport))
 //! onto the byte-oriented platform transport
 //! ([`SpdmPalTransport`](spdm_traits::SpdmPalTransport))
-//! held inside [`McuSpdmPal`].
+//! held inside [`PlatformSpdmPal`].
 //!
 //! # Buffer flow
 //!
@@ -18,7 +18,7 @@
 //!    (no shift / copy is performed afterwards).
 //! 2. The buffer is shrunk to the actual frame length, releasing the
 //!    trailing slots back to the pool.
-//! 3. The resulting [`McuSpdmIo`] is returned to the stack and keeps
+//! 3. The resulting [`SpdmIo`] is returned to the stack and keeps
 //!    the frame alive until it is dropped.
 //!
 //! On `send_response`, the caller-provided `msg` already has the
@@ -27,15 +27,15 @@
 //!
 //! # Soundness
 //!
-//! `McuSpdmPal::transport_mut` is the only `&mut` borrow of the
+//! `PlatformSpdmPal::transport_mut` is the only `&mut` borrow of the
 //! inner transport, and the SPDM responder is strictly single-task,
 //! so the `UnsafeCell`-based interior mutability is never observed
-//! concurrently. See [`McuSpdmPal::transport_mut`] for the contract.
+//! concurrently. See [`PlatformSpdmPal::transport_mut`] for the contract.
 
 use super::measurements::MeasurementProvider;
 use super::*;
 
-/// Per-IO handle returned by [`McuSpdmPal::recv_request`].
+/// Per-IO handle returned by [`PlatformSpdmPal::recv_request`].
 ///
 /// Holds the received SPDM frame (transport header + SPDM payload)
 /// and its [`SpdmPalIoKind`] (plain vs. secured) as classified by
@@ -45,10 +45,10 @@ use super::*;
 ///
 /// Sized to be small (`BitmapBytes` + `u8` + `SpdmPalIoKind`) so it
 /// can live cheaply across `.await` points in the stack's run loop.
-pub struct McuSpdmIo<'a> {
+pub struct SpdmIo<'a> {
     /// RAII handle to the received frame. Borrows from the
-    /// allocator on [`McuSpdmPal`]; the underlying slots are
-    /// released when this `McuSpdmIo` is dropped.
+    /// allocator on [`PlatformSpdmPal`]; the underlying slots are
+    /// released when this `SpdmIo` is dropped.
     frame: BitmapBytes<'a>,
     /// Number of transport-framing bytes at the start of `frame`.
     /// Stored as `u8` because no real transport uses > 255 bytes of
@@ -59,7 +59,7 @@ pub struct McuSpdmIo<'a> {
     kind: SpdmPalIoKind,
 }
 
-impl SpdmPalIo for McuSpdmIo<'_> {
+impl SpdmPalIo for SpdmIo<'_> {
     /// Returns the message kind classified by the transport.
     ///
     /// # Returns
@@ -81,9 +81,9 @@ impl SpdmPalIo for McuSpdmIo<'_> {
     }
 }
 
-impl<M: MeasurementProvider> SpdmPalIoTransport for McuSpdmPal<M> {
+impl<M: MeasurementProvider> SpdmPalIoTransport for PlatformSpdmPal<M> {
     type Io<'a>
-        = McuSpdmIo<'a>
+        = SpdmIo<'a>
     where
         Self: 'a;
 
@@ -130,21 +130,21 @@ impl<M: MeasurementProvider> SpdmPalIoTransport for McuSpdmPal<M> {
     /// Resets the per-IO allocator, reserves a single
     /// `header_size + mtu` scratch buffer, lets the transport fill
     /// it in place, and shrinks the buffer to the actual frame
-    /// length. The returned [`McuSpdmIo`] owns the slots backing
+    /// length. The returned [`SpdmIo`] owns the slots backing
     /// the frame for the duration of the exchange.
     ///
     /// # Returns
     ///
-    /// * `Ok(McuSpdmIo)` — RAII handle to the received frame.
+    /// * `Ok(SpdmIo)` — RAII handle to the received frame.
     ///
     /// # Errors
     ///
     /// * `OUT_OF_MEMORY` — the scratch region is too small for
     ///   `header_size + mtu` bytes (configuration error at
     ///   construction time).
-    /// * Any [`McuErrorCode`] surfaced by the underlying
+    /// * Any [`PalErrorCode`] surfaced by the underlying
     ///   [`SpdmPalTransport::recv_request`].
-    async fn recv_request(&self) -> McuResult<Self::Io<'_>> {
+    async fn recv_request(&self) -> PalResult<Self::Io<'_>> {
         // Transient allocations are released by RAII. The persistent large-message
         // buffer (if any) lives on ConnectionState and survives across cycles.
 
@@ -159,7 +159,7 @@ impl<M: MeasurementProvider> SpdmPalIoTransport for McuSpdmPal<M> {
         let (kind, len) = transport.recv_request(buf.as_mut_slice()).await?;
         buf.shrink(len)?;
 
-        Ok(McuSpdmIo {
+        Ok(SpdmIo {
             frame: buf,
             header_size: header as u8,
             kind,
@@ -191,14 +191,14 @@ impl<M: MeasurementProvider> SpdmPalIoTransport for McuSpdmPal<M> {
     ///
     /// # Errors
     ///
-    /// * Any [`McuErrorCode`] surfaced by the underlying
+    /// * Any [`PalErrorCode`] surfaced by the underlying
     ///   [`SpdmPalTransport::send_response`].
     async fn send_response(
         &self,
         _io: &Self::Io<'_>,
         kind: SpdmPalIoKind,
         msg: &mut [u8],
-    ) -> McuResult<()> {
+    ) -> PalResult<()> {
         // SAFETY: single-task responder; `recv_request` has returned
         // and no overlapping send is in flight.
         let transport = unsafe { self.transport_mut() };
