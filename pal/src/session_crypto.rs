@@ -1,20 +1,20 @@
 // Licensed under the Apache-2.0 license
 
-//! [`SpdmPalSessionCrypto`] implementation for [`McuSpdmPal`].
+//! [`SpdmPalSessionCrypto`] implementation for [`PlatformSpdmPal`].
 //!
 //! Thin wrappers over `caliptra-api-lite` ECDH, HKDF, HMAC,
 //! AES-GCM, import, and delete functions.
 
 use super::measurements::MeasurementProvider;
 use super::*;
-use spdm_traits::{McuResult, SpdmPalIo, SpdmPalSessionCrypto};
+use spdm_traits::{PalResult, SpdmPalIo, SpdmPalSessionCrypto};
 use spdm_crypto::{
     cm_hmac, cm_import, ecdh_finish as api_ecdh_finish, ecdh_generate as api_ecdh_generate,
     hkdf_expand, hkdf_extract, spdm_aes_gcm_decrypt, spdm_aes_gcm_encrypt, CmKeyUsage, Cmk,
     HkdfSalt,
 };
 
-impl<M: MeasurementProvider> SpdmPalSessionCrypto for McuSpdmPal<M> {
+impl<M: MeasurementProvider> SpdmPalSessionCrypto for PlatformSpdmPal<M> {
     type Key = Cmk;
 
     async fn ecdh_generate(
@@ -22,7 +22,7 @@ impl<M: MeasurementProvider> SpdmPalSessionCrypto for McuSpdmPal<M> {
         _io: &impl SpdmPalIo,
         context: &mut [u8],
         exchange_data: &mut [u8],
-    ) -> McuResult<()> {
+    ) -> PalResult<()> {
         api_ecdh_generate(self, context, exchange_data).await
     }
 
@@ -31,7 +31,7 @@ impl<M: MeasurementProvider> SpdmPalSessionCrypto for McuSpdmPal<M> {
         _io: &impl SpdmPalIo,
         context: &[u8],
         peer_exchange_data: &[u8],
-    ) -> McuResult<Cmk> {
+    ) -> PalResult<Cmk> {
         api_ecdh_finish(self, context, CmKeyUsage::Hmac, peer_exchange_data).await
     }
 
@@ -40,7 +40,7 @@ impl<M: MeasurementProvider> SpdmPalSessionCrypto for McuSpdmPal<M> {
         _io: &impl SpdmPalIo,
         salt: &[u8],
         ikm: &Cmk,
-    ) -> McuResult<Cmk> {
+    ) -> PalResult<Cmk> {
         hkdf_extract(self, HkdfSalt::Data(salt), ikm).await
     }
 
@@ -49,7 +49,7 @@ impl<M: MeasurementProvider> SpdmPalSessionCrypto for McuSpdmPal<M> {
         _io: &impl SpdmPalIo,
         salt: &Cmk,
         ikm: &Cmk,
-    ) -> McuResult<Cmk> {
+    ) -> PalResult<Cmk> {
         hkdf_extract(self, HkdfSalt::Cmk(salt), ikm).await
     }
 
@@ -59,7 +59,7 @@ impl<M: MeasurementProvider> SpdmPalSessionCrypto for McuSpdmPal<M> {
         prk: &Cmk,
         key_size: u32,
         info: &[u8],
-    ) -> McuResult<Cmk> {
+    ) -> PalResult<Cmk> {
         hkdf_expand(self, prk, CmKeyUsage::Hmac, key_size, info).await
     }
 
@@ -69,11 +69,11 @@ impl<M: MeasurementProvider> SpdmPalSessionCrypto for McuSpdmPal<M> {
         key: &Cmk,
         data: &[u8],
         out: &mut [u8],
-    ) -> McuResult<usize> {
+    ) -> PalResult<usize> {
         cm_hmac(self, key, data, out).await
     }
 
-    async fn import_key(&self, _io: &impl SpdmPalIo, data: &[u8]) -> McuResult<Cmk> {
+    async fn import_key(&self, _io: &impl SpdmPalIo, data: &[u8]) -> PalResult<Cmk> {
         cm_import(self, CmKeyUsage::Hmac, data).await
     }
 
@@ -86,7 +86,7 @@ impl<M: MeasurementProvider> SpdmPalSessionCrypto for McuSpdmPal<M> {
         aad: &[u8],
         plaintext: &[u8],
         ciphertext: &mut [u8],
-    ) -> McuResult<(usize, [u8; 16])> {
+    ) -> PalResult<(usize, [u8; 16])> {
         let seq_bytes = seq.to_le_bytes();
         spdm_aes_gcm_encrypt(
             self,
@@ -110,7 +110,7 @@ impl<M: MeasurementProvider> SpdmPalSessionCrypto for McuSpdmPal<M> {
         ciphertext: &[u8],
         tag: &[u8; 16],
         plaintext: &mut [u8],
-    ) -> McuResult<usize> {
+    ) -> PalResult<usize> {
         let seq_bytes = seq.to_le_bytes();
         spdm_aes_gcm_decrypt(
             self,

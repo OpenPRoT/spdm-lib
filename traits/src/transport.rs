@@ -73,7 +73,7 @@ pub trait SpdmPalTransport {
     /// * `Ok((kind, len))` — `kind` indicates whether the frame was
     ///   plain SPDM or an SPDM Secured Message; `len` is the total
     ///   frame size including the transport header.
-    async fn recv_request(&mut self, buf: &mut [u8]) -> McuResult<(SpdmPalIoKind, usize)>;
+    async fn recv_request(&mut self, buf: &mut [u8]) -> PalResult<(SpdmPalIoKind, usize)>;
 
     /// Sends an SPDM message held in `msg`.
     ///
@@ -81,5 +81,5 @@ pub trait SpdmPalTransport {
     /// `msg[header_size()..]`. The transport fills
     /// `msg[0..header_size()]` in place and forwards the full `&[u8]`
     /// to the underlying driver — no intermediate buffer, no copy.
-    async fn send_response(&mut self, kind: SpdmPalIoKind, msg: &mut [u8]) -> McuResult<()>;
+    async fn send_response(&mut self, kind: SpdmPalIoKind, msg: &mut [u8]) -> PalResult<()>;
 }

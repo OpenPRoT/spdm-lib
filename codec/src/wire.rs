@@ -13,7 +13,7 @@
 //!   nonce, …).
 //!
 //! Errors are a single ZST so `Result<T, WireError>` shares the same
-//! niche as `McuResult<T>` after enum-niche optimisation.
+//! niche as `PalResult<T>` after enum-niche optimisation.
 
 use core::mem::size_of;
 use zerocopy::{FromBytes, Immutable, IntoBytes, KnownLayout, Unaligned};

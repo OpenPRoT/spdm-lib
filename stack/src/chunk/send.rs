@@ -490,7 +490,7 @@ mod tests {
         SpdmPalAlloc, SpdmPalIo, SpdmVdmBackend, VdmRegistry, VdmResponse, VdmResponseBuffer,
     };
     use futures::executor::block_on;
-    use spdm_error::McuResult;
+    use spdm_error::PalResult;
     use std::vec;
     use std::vec::Vec;
 
@@ -521,7 +521,7 @@ mod tests {
             &self,
             req: &[u8],
             rsp: VdmResponseBuffer<'_, Alloc, Io>,
-        ) -> McuResult<VdmResponse>
+        ) -> PalResult<VdmResponse>
         where
             Alloc: SpdmPalAlloc,
             Io: SpdmPalIo,

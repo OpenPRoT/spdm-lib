@@ -1,15 +1,15 @@
 // Licensed under the Apache-2.0 license
 
-//! [`SpdmPalMeasurements`] implementation for [`McuSpdmPal`].
+//! [`SpdmPalMeasurements`] implementation for [`PlatformSpdmPal`].
 //!
 //! Measurement data is supplied by the platform via a generic
-//! [`MeasurementProvider`] type parameter on [`McuSpdmPal`].
+//! [`MeasurementProvider`] type parameter on [`PlatformSpdmPal`].
 
 use crate::alloc::BitmapAllocator;
 use spdm_traits::{MeasurementInfo, SpdmPalMeasurements, SPDM_NONCE_LEN};
-use spdm_error::McuResult;
+use spdm_error::PalResult;
 
-use crate::pal::McuSpdmPal;
+use crate::pal::PlatformSpdmPal;
 
 /// Platform-specific measurement data provider.
 ///
@@ -45,10 +45,10 @@ pub trait MeasurementProvider: Sync + 'static {
         out: &mut [u8],
         scratch: &mut [u8],
         alloc: &BitmapAllocator,
-    ) -> McuResult<usize>;
+    ) -> PalResult<usize>;
 }
 
-impl<M: MeasurementProvider> SpdmPalMeasurements for McuSpdmPal<M> {
+impl<M: MeasurementProvider> SpdmPalMeasurements for PlatformSpdmPal<M> {
     fn measurement_info(&self) -> &[MeasurementInfo] {
         self.meas_provider.measurement_info()
     }
@@ -59,7 +59,7 @@ impl<M: MeasurementProvider> SpdmPalMeasurements for McuSpdmPal<M> {
         index: u8,
         nonce: Option<&[u8; SPDM_NONCE_LEN]>,
         out: &mut [u8],
-    ) -> McuResult<usize> {
+    ) -> PalResult<usize> {
         if M::SCRATCH_SIZE > 0 {
             let mut scratch = self
                 .allocator

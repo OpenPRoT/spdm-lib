@@ -4,7 +4,7 @@
 //!
 //! Platform-independent placeholder for `mcu-error`. Same 32-bit
 //! `(domain, subdomain, code)` layout so every crate keeps returning
-//! `McuResult<T>`; the only platform touchpoint (the kernel `ErrorCode`
+//! `PalResult<T>`; the only platform touchpoint (the kernel `ErrorCode`
 //! boundary translation) is routed through the `spdm-platform` placeholder.
 
 #![no_std]
@@ -13,12 +13,12 @@
 /// Unified error code. See module docs for the bit layout.
 #[derive(Copy, Clone, PartialEq, Eq, Hash, Debug)]
 #[repr(transparent)]
-pub struct McuErrorCode(pub u32);
+pub struct PalErrorCode(pub u32);
 
-/// Convenience alias for `core::result::Result<T, McuErrorCode>`.
-pub type McuResult<T> = core::result::Result<T, McuErrorCode>;
+/// Convenience alias for `core::result::Result<T, PalErrorCode>`.
+pub type PalResult<T> = core::result::Result<T, PalErrorCode>;
 
-impl McuErrorCode {
+impl PalErrorCode {
     /// Constructs an error code from `(domain, subdomain, code)`.
     #[inline]
     pub const fn new(domain: u8, subdomain: u8, code: u16) -> Self {
@@ -72,9 +72,9 @@ impl McuErrorCode {
     }
 }
 
-/// Top-level domain registry (the high byte of every [`McuErrorCode`]).
+/// Top-level domain registry (the high byte of every [`PalErrorCode`]).
 pub mod domain {
-    /// Reserved — `0x00` never appears in `Err` (`McuErrorCode(0)` is the niche).
+    /// Reserved — `0x00` never appears in `Err` (`PalErrorCode(0)` is the niche).
     pub const RESERVED: u8 = 0x00;
 
     /// Kernel/syscall passthrough.
@@ -98,51 +98,51 @@ pub mod domain {
 
 /// Truly cross-cutting error codes — meaning doesn't depend on caller.
 pub mod codes {
-    use super::{domain, McuErrorCode};
+    use super::{domain, PalErrorCode};
 
     /// The allocator pool was exhausted.
-    pub const OUT_OF_MEMORY: McuErrorCode = McuErrorCode::new(domain::MEMORY, 0, 0x0001);
+    pub const OUT_OF_MEMORY: PalErrorCode = PalErrorCode::new(domain::MEMORY, 0, 0x0001);
 
     /// An allocation request had an unsupported alignment requirement.
-    pub const BAD_ALIGNMENT: McuErrorCode = McuErrorCode::new(domain::MEMORY, 0, 0x0002);
+    pub const BAD_ALIGNMENT: PalErrorCode = PalErrorCode::new(domain::MEMORY, 0, 0x0002);
 
     /// A program invariant was violated — this indicates a bug.
-    pub const INTERNAL_BUG: McuErrorCode = McuErrorCode::new(domain::INTERNAL, 0, 0x0001);
+    pub const INTERNAL_BUG: PalErrorCode = PalErrorCode::new(domain::INTERNAL, 0, 0x0001);
 
     /// Code path is a stub / placeholder.
-    pub const NOT_IMPLEMENTED: McuErrorCode = McuErrorCode::new(domain::INTERNAL, 0, 0x0002);
+    pub const NOT_IMPLEMENTED: PalErrorCode = PalErrorCode::new(domain::INTERNAL, 0, 0x0002);
 
     /// A non-local invariant (e.g. unexpected state) was hit.
-    pub const INVARIANT: McuErrorCode = McuErrorCode::new(domain::INTERNAL, 0, 0x0003);
+    pub const INVARIANT: PalErrorCode = PalErrorCode::new(domain::INTERNAL, 0, 0x0003);
 
     /// Mailbox was busy (transient — caller should retry).
-    pub const MAILBOX_BUSY: McuErrorCode = McuErrorCode::new(domain::MAILBOX, 0, 0x0001);
+    pub const MAILBOX_BUSY: PalErrorCode = PalErrorCode::new(domain::MAILBOX, 0, 0x0001);
 }
 
 // ----- Boundary translations -------------------------------------------------
 
-impl From<spdm_platform::ErrorCode> for McuErrorCode {
+impl From<spdm_platform::ErrorCode> for PalErrorCode {
     #[inline]
     fn from(e: spdm_platform::ErrorCode) -> Self {
-        McuErrorCode::kernel(e as u16)
+        PalErrorCode::kernel(e as u16)
     }
 }
 
-impl From<McuErrorCode> for u32 {
+impl From<PalErrorCode> for u32 {
     #[inline]
-    fn from(e: McuErrorCode) -> u32 {
+    fn from(e: PalErrorCode) -> u32 {
         e.0
     }
 }
 
-impl core::fmt::LowerHex for McuErrorCode {
+impl core::fmt::LowerHex for PalErrorCode {
     #[inline]
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         core::fmt::LowerHex::fmt(&self.0, f)
     }
 }
 
-impl core::fmt::UpperHex for McuErrorCode {
+impl core::fmt::UpperHex for PalErrorCode {
     #[inline]
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         core::fmt::UpperHex::fmt(&self.0, f)

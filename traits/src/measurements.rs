@@ -6,7 +6,7 @@
 //! measurement data (firmware digests, configuration hashes, device mode, etc.)
 //! to the GET_MEASUREMENTS handler.
 
-use spdm_error::McuResult;
+use spdm_error::PalResult;
 
 /// SPDM nonce length in bytes.
 pub const SPDM_NONCE_LEN: usize = 32;
@@ -56,5 +56,5 @@ pub trait SpdmPalMeasurements: crate::SpdmPalIoTransport {
         index: u8,
         nonce: Option<&[u8; SPDM_NONCE_LEN]>,
         out: &mut [u8],
-    ) -> McuResult<usize>;
+    ) -> PalResult<usize>;
 }

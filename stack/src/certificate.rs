@@ -76,7 +76,7 @@ impl CertificateLargeResponse {
         version: SpdmVersion,
         offset: usize,
         dst: &mut [u8],
-    ) -> spdm_error::McuResult<()> {
+    ) -> spdm_error::PalResult<()> {
         let end = offset
             .checked_add(dst.len())
             .ok_or(spdm_error::codes::INVARIANT)?;
@@ -321,7 +321,7 @@ pub(crate) async fn fill_cert_chain_portion<Pal: SpdmPal>(
     asym_algo: SpdmPalAsymAlgo,
     offset: usize,
     dst: &mut [u8],
-) -> spdm_error::McuResult<()> {
+) -> spdm_error::PalResult<()> {
     if dst.is_empty() {
         return Ok(());
     }

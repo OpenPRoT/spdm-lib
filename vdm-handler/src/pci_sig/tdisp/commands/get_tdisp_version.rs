@@ -3,7 +3,7 @@
 //! GET_TDISP_VERSION command handler.
 
 use spdm_codec::errors::SPDM_UNSPECIFIED;
-use spdm_traits::McuResult;
+use spdm_traits::PalResult;
 
 use crate::pci_sig::tdisp::{TdispHandlerResult, TdispResponder};
 use spdm_codec::vendor_defined::pci_sig::tdisp::{
@@ -14,7 +14,7 @@ pub(crate) fn handle<D>(
     tdisp: &TdispResponder<D>,
     req_hdr: TdispMessageHeader,
     out: &mut [u8],
-) -> McuResult<TdispHandlerResult> {
+) -> PalResult<TdispHandlerResult> {
     if !tdisp.state.init_interface(req_hdr.interface_id) {
         return Ok(TdispHandlerResult::Error(TDISP_ERROR_INVALID_INTERFACE, 0));
     }

@@ -2,7 +2,7 @@
 
 use spdm_codec::errors::SPDM_INVALID_REQUEST;
 use spdm_codec::{IdeKmHdr, KeyData, KeyProg, WireReader, WireWriter};
-use spdm_traits::{McuResult, SpdmPalAlloc};
+use spdm_traits::{PalResult, SpdmPalAlloc};
 
 use crate::pci_sig::ide_km::{map_ide_error, IdeDriver};
 
@@ -11,7 +11,7 @@ pub(crate) async fn handle_key_prog<D, Alloc>(
     scratch: &Alloc,
     reader: &mut WireReader<'_>,
     writer: &mut WireWriter<'_>,
-) -> McuResult<usize>
+) -> PalResult<usize>
 where
     D: IdeDriver,
     Alloc: SpdmPalAlloc,

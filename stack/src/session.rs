@@ -12,7 +12,7 @@
 //! 4. GET_VERSION or error → [`SessionManager::remove_all_and_destroy`]
 
 use spdm_codec::{errors::SPDM_SESSION_LIMIT_EXCEEDED, SpdmVersion};
-use spdm_traits::{McuResult, SpdmPalHash, SpdmPalIo};
+use spdm_traits::{PalResult, SpdmPalHash, SpdmPalIo};
 use core::ops::{Deref, DerefMut};
 
 use crate::key_schedule::{spdm_version_str, KeySchedule};
@@ -86,7 +86,7 @@ impl<S> SessionTranscript<S> {
         hash: &H,
         io: &impl SpdmPalIo,
         running: &S,
-    ) -> McuResult<()> {
+    ) -> PalResult<()> {
         self.th = Some(hash.hash_clone(io, running)?);
         Ok(())
     }
@@ -97,7 +97,7 @@ impl<S> SessionTranscript<S> {
         hash: &H,
         io: &impl SpdmPalIo,
         data: &[u8],
-    ) -> McuResult<()> {
+    ) -> PalResult<()> {
         let state = self.th.as_mut().ok_or(spdm_error::codes::INVARIANT)?;
         hash.hash_update(io, state, data).await
     }
@@ -111,7 +111,7 @@ impl<S> SessionTranscript<S> {
         hash: &H,
         io: &impl SpdmPalIo,
         out: &mut [u8],
-    ) -> McuResult<()> {
+    ) -> PalResult<()> {
         let state = self.th.as_ref().ok_or(spdm_error::codes::INVARIANT)?;
         let mut clone = hash.hash_clone(io, state)?;
         hash.hash_finish(io, &mut clone, out).await
@@ -123,7 +123,7 @@ impl<S> SessionTranscript<S> {
         hash: &H,
         io: &impl SpdmPalIo,
         out: &mut [u8],
-    ) -> McuResult<()> {
+    ) -> PalResult<()> {
         let state = self.th.as_mut().ok_or(spdm_error::codes::INVARIANT)?;
         hash.hash_finish(io, state, out).await?;
         self.th = None;
@@ -151,7 +151,7 @@ impl<K: Clone, S> Drop for SessionInfo<K, S> {
     fn drop(&mut self) {
         self.key_schedule.destroy_all();
         // NOTE: The physical backing memory slot of this SessionInfo structure in the coordinator pool
-        // is guaranteed to be securely zeroized/wiped inside `McuSpdmBox::drop()` upon slot reclamation.
+        // is guaranteed to be securely zeroized/wiped inside `SpdmBox::drop()` upon slot reclamation.
     }
 }
 
@@ -202,7 +202,7 @@ impl<K: Clone, S, B: Deref<Target = SessionInfo<K, S>> + DerefMut, const N: usiz
     /// Allocate a new session slot.
     ///
     /// `alloc_fn` is called to wrap the constructed `SessionInfo` in the
-    /// platform box type (e.g., `McuSpdmBox` from bitmap, or `Box` in tests).
+    /// platform box type (e.g., `SpdmBox` from bitmap, or `Box` in tests).
     ///
     /// Returns the combined session ID on success. The session starts
     /// in [`SessionState::HandshakeInProgress`].
@@ -210,8 +210,8 @@ impl<K: Clone, S, B: Deref<Target = SessionInfo<K, S>> + DerefMut, const N: usiz
         &mut self,
         req_session_id: u16,
         version: SpdmVersion,
-        alloc_fn: impl FnOnce(SessionInfo<K, S>) -> McuResult<B>,
-    ) -> McuResult<u32> {
+        alloc_fn: impl FnOnce(SessionInfo<K, S>) -> PalResult<B>,
+    ) -> PalResult<u32> {
         let slot = self
             .sessions
             .iter()
@@ -279,7 +279,7 @@ impl<K: Clone, S, B: Deref<Target = SessionInfo<K, S>> + DerefMut, const N: usiz
 
     /// Allocate a responder session ID that doesn't collide with
     /// existing sessions. Skips ID 0.
-    fn alloc_rsp_session_id(&mut self, req_id: u16) -> McuResult<u16> {
+    fn alloc_rsp_session_id(&mut self, req_id: u16) -> PalResult<u16> {
         // Try up to N+1 IDs (to handle wrap-around)
         for _ in 0..=N {
             let rsp_id = self.next_rsp_session_id;

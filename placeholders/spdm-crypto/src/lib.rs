@@ -14,9 +14,9 @@
 #![forbid(unsafe_code)]
 
 use core::ops::{Deref, DerefMut};
-use spdm_error::McuResult;
+use spdm_error::PalResult;
 
-pub use spdm_error::{McuErrorCode, McuResult as CryptoResult};
+pub use spdm_error::{PalErrorCode, PalResult as CryptoResult};
 
 // ----- Allocator contract ----------------------------------------------------
 
@@ -28,7 +28,7 @@ pub trait ApiAlloc {
         Self: 'a;
 
     /// Allocate `len` bytes of scratch (uninitialised).
-    fn alloc(&self, len: usize) -> McuResult<Self::Buf<'_>>;
+    fn alloc(&self, len: usize) -> PalResult<Self::Buf<'_>>;
 }
 
 // ----- Key types -------------------------------------------------------------
@@ -102,7 +102,7 @@ pub async fn sha_init<A: ApiAlloc, B: Deref<Target = [u8]> + DerefMut>(
     _buf: B,
     _algo: HashAlgo,
     _seed: &[u8],
-) -> McuResult<HashState<B>> {
+) -> PalResult<HashState<B>> {
     unimplemented!("spdm-crypto placeholder: sha_init")
 }
 
@@ -110,7 +110,7 @@ pub async fn sha_update<A: ApiAlloc, B: Deref<Target = [u8]> + DerefMut>(
     _alloc: &A,
     _state: &mut HashState<B>,
     _data: &[u8],
-) -> McuResult<()> {
+) -> PalResult<()> {
     unimplemented!("spdm-crypto placeholder: sha_update")
 }
 
@@ -118,7 +118,7 @@ pub async fn sha_finish<A: ApiAlloc, B: Deref<Target = [u8]> + DerefMut>(
     _alloc: &A,
     _state: &mut HashState<B>,
     _out: &mut [u8],
-) -> McuResult<()> {
+) -> PalResult<()> {
     unimplemented!("spdm-crypto placeholder: sha_finish")
 }
 
@@ -138,7 +138,7 @@ pub async fn cm_hmac<A: ApiAlloc>(
     _cmk: &Cmk,
     _data: &[u8],
     _out: &mut [u8],
-) -> McuResult<usize> {
+) -> PalResult<usize> {
     unimplemented!("spdm-crypto placeholder: cm_hmac")
 }
 
@@ -146,7 +146,7 @@ pub async fn hkdf_extract<A: ApiAlloc>(
     _alloc: &A,
     _salt: HkdfSalt<'_>,
     _ikm: &Cmk,
-) -> McuResult<Cmk> {
+) -> PalResult<Cmk> {
     unimplemented!("spdm-crypto placeholder: hkdf_extract")
 }
 
@@ -156,7 +156,7 @@ pub async fn hkdf_expand<A: ApiAlloc>(
     _key_usage: CmKeyUsage,
     _key_size: u32,
     _info: &[u8],
-) -> McuResult<Cmk> {
+) -> PalResult<Cmk> {
     unimplemented!("spdm-crypto placeholder: hkdf_expand")
 }
 
@@ -166,7 +166,7 @@ pub async fn cm_import<A: ApiAlloc>(
     _alloc: &A,
     _usage: CmKeyUsage,
     _data: &[u8],
-) -> McuResult<Cmk> {
+) -> PalResult<Cmk> {
     unimplemented!("spdm-crypto placeholder: cm_import")
 }
 
@@ -181,7 +181,7 @@ pub async fn ecdh_generate<A: ApiAlloc>(
     _alloc: &A,
     _context: &mut [u8],
     _exchange_data: &mut [u8],
-) -> McuResult<()> {
+) -> PalResult<()> {
     unimplemented!("spdm-crypto placeholder: ecdh_generate")
 }
 
@@ -190,7 +190,7 @@ pub async fn ecdh_finish<A: ApiAlloc>(
     _context: &[u8],
     _key_usage: CmKeyUsage,
     _peer_exchange_data: &[u8],
-) -> McuResult<Cmk> {
+) -> PalResult<Cmk> {
     unimplemented!("spdm-crypto placeholder: ecdh_finish")
 }
 
@@ -210,7 +210,7 @@ pub async fn spdm_aes_gcm_encrypt<A: ApiAlloc>(
     _aad: &[u8],
     _plaintext: &[u8],
     _ciphertext: &mut [u8],
-) -> McuResult<(usize, Aes256GcmTag)> {
+) -> PalResult<(usize, Aes256GcmTag)> {
     unimplemented!("spdm-crypto placeholder: spdm_aes_gcm_encrypt")
 }
 
@@ -223,7 +223,7 @@ pub async fn spdm_aes_gcm_decrypt<A: ApiAlloc>(
     _ciphertext: &[u8],
     _tag: &Aes256GcmTag,
     _plaintext: &mut [u8],
-) -> McuResult<usize> {
+) -> PalResult<usize> {
     unimplemented!("spdm-crypto placeholder: spdm_aes_gcm_decrypt")
 }
 
@@ -240,21 +240,21 @@ pub const DPE_P384_SIGNATURE_SIZE: usize = 96;
 
 /// Sink fed successive DPE cert-chain chunks by [`walk_dpe_chain`].
 pub trait DpeChainSink {
-    async fn on_chunk(&mut self, chunk: &[u8]) -> McuResult<()>;
+    async fn on_chunk(&mut self, chunk: &[u8]) -> PalResult<()>;
 }
 
 pub async fn dpe_get_cert_chain_chunk<A: ApiAlloc>(
     _alloc: &A,
     _offset: u32,
     _dst: &mut [u8],
-) -> McuResult<usize> {
+) -> PalResult<usize> {
     unimplemented!("spdm-crypto placeholder: dpe_get_cert_chain_chunk")
 }
 
 pub async fn dpe_certify_key_cert_size<A: ApiAlloc>(
     _alloc: &A,
     _label: &[u8; DPE_LABEL_LEN],
-) -> McuResult<usize> {
+) -> PalResult<usize> {
     unimplemented!("spdm-crypto placeholder: dpe_certify_key_cert_size")
 }
 
@@ -263,7 +263,7 @@ pub async fn dpe_certify_key_cert_slice<A: ApiAlloc>(
     _label: &[u8; DPE_LABEL_LEN],
     _cert_offset: u32,
     _dst: &mut [u8],
-) -> McuResult<usize> {
+) -> PalResult<usize> {
     unimplemented!("spdm-crypto placeholder: dpe_certify_key_cert_slice")
 }
 
@@ -272,19 +272,19 @@ pub async fn dpe_sign_ecc_p384<A: ApiAlloc>(
     _label: &[u8; DPE_LABEL_LEN],
     _digest: &[u8],
     _signature: &mut [u8],
-) -> McuResult<usize> {
+) -> PalResult<usize> {
     unimplemented!("spdm-crypto placeholder: dpe_sign_ecc_p384")
 }
 
 pub async fn walk_dpe_chain<A: ApiAlloc, S: DpeChainSink>(
     _alloc: &A,
     _sink: &mut S,
-) -> McuResult<u32> {
+) -> PalResult<u32> {
     unimplemented!("spdm-crypto placeholder: walk_dpe_chain")
 }
 
 // ----- RNG -------------------------------------------------------------------
 
-pub async fn rng_generate<A: ApiAlloc>(_alloc: &A, _out: &mut [u8]) -> McuResult<()> {
+pub async fn rng_generate<A: ApiAlloc>(_alloc: &A, _out: &mut [u8]) -> PalResult<()> {
     unimplemented!("spdm-crypto placeholder: rng_generate")
 }

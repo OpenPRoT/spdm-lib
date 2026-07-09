@@ -94,7 +94,7 @@ pub trait SpdmVdmBackend {
         &self,
         req: &[u8],
         rsp: VdmResponseBuffer<'_, Alloc, Io>,
-    ) -> McuResult<VdmResponse>
+    ) -> PalResult<VdmResponse>
     where
         Alloc: SpdmPalAlloc,
         Io: SpdmPalIo;
@@ -117,7 +117,7 @@ impl SpdmVdmBackend for NoVdmBackend {
         &self,
         _req: &[u8],
         _rsp: VdmResponseBuffer<'_, Alloc, Io>,
-    ) -> McuResult<VdmResponse>
+    ) -> PalResult<VdmResponse>
     where
         Alloc: SpdmPalAlloc,
         Io: SpdmPalIo,

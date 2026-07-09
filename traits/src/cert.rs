@@ -8,7 +8,7 @@
 //! MLDSA-87 will be added later using the same interfaces.
 
 use crate::SpdmPalHashAlgo;
-use spdm_error::McuResult;
+use spdm_error::PalResult;
 
 /// Maximum number of cert-chain slots the responder advertises.
 /// DSP0274 §10.5 caps this at 8 (`SlotMask` is one byte).
@@ -38,11 +38,11 @@ pub enum SpdmPalAsymAlgo {
 #[allow(async_fn_in_trait)]
 pub trait EndorsementCertChain {
     /// Hash of the root certificate under the given algorithm.
-    async fn root_cert_hash(&self, algo: SpdmPalAsymAlgo, out: &mut [u8]) -> McuResult<()>;
+    async fn root_cert_hash(&self, algo: SpdmPalAsymAlgo, out: &mut [u8]) -> PalResult<()>;
 
     /// Total byte length of the endorsement cert chain for the
     /// given algorithm.
-    async fn size(&mut self, algo: SpdmPalAsymAlgo) -> McuResult<usize>;
+    async fn size(&mut self, algo: SpdmPalAsymAlgo) -> PalResult<usize>;
 
     /// Read endorsement chain bytes at `offset` into `buf`.
     /// Returns bytes written.
@@ -51,15 +51,15 @@ pub trait EndorsementCertChain {
         algo: SpdmPalAsymAlgo,
         offset: usize,
         buf: &mut [u8],
-    ) -> McuResult<usize>;
+    ) -> PalResult<usize>;
 
     /// Write endorsement cert chain data for the given algorithm.
     /// `ReadOnlyEndorsement` rejects this; `MutableEndorsement`
     /// persists to flash.
-    async fn write(&mut self, algo: SpdmPalAsymAlgo, data: &[u8]) -> McuResult<()>;
+    async fn write(&mut self, algo: SpdmPalAsymAlgo, data: &[u8]) -> PalResult<()>;
 
     /// Erase the endorsement cert chain for the given algorithm.
-    async fn erase(&mut self, algo: SpdmPalAsymAlgo) -> McuResult<()>;
+    async fn erase(&mut self, algo: SpdmPalAsymAlgo) -> PalResult<()>;
 }
 
 /// Slot-indexed cert-store backend.
@@ -79,7 +79,7 @@ pub trait SpdmPalCertStore: crate::SpdmPalIoTransport {
         io: &Self::Io<'_>,
         slot: u8,
         algo: SpdmPalAsymAlgo,
-    ) -> McuResult<usize>;
+    ) -> PalResult<usize>;
 
     /// Check whether a specific SET_CERTIFICATE request is authorized.
     #[cfg(feature = "set-certificate")]
@@ -108,7 +108,7 @@ pub trait SpdmPalCertStore: crate::SpdmPalIoTransport {
         cert_model: u8,
         root_hash: &[u8; 48],
         cert_chain: &[u8],
-    ) -> McuResult<()>;
+    ) -> PalResult<()>;
 
     /// Length in bytes of slot's raw DER cert chain for the given
     /// algorithm (excludes the 52-byte SPDM cert-chain header).
@@ -117,7 +117,7 @@ pub trait SpdmPalCertStore: crate::SpdmPalIoTransport {
         io: &Self::Io<'_>,
         slot: u8,
         algo: SpdmPalAsymAlgo,
-    ) -> McuResult<usize>;
+    ) -> PalResult<usize>;
 
     /// Write the digest of slot's **root certificate** into `out`.
     async fn root_cert_hash(
@@ -127,7 +127,7 @@ pub trait SpdmPalCertStore: crate::SpdmPalIoTransport {
         algo: SpdmPalAsymAlgo,
         hash_algo: SpdmPalHashAlgo,
         out: &mut [u8],
-    ) -> McuResult<()>;
+    ) -> PalResult<()>;
 
     /// Read at most `dst.len()` bytes from slot's raw cert chain
     /// for the given algorithm at `offset` into `dst`.
@@ -138,7 +138,7 @@ pub trait SpdmPalCertStore: crate::SpdmPalIoTransport {
         algo: SpdmPalAsymAlgo,
         offset: usize,
         dst: &mut [u8],
-    ) -> McuResult<usize>;
+    ) -> PalResult<usize>;
 
     /// Sign `digest` using the key in `slot` for the given algorithm.
     async fn sign_hash(
@@ -148,7 +148,7 @@ pub trait SpdmPalCertStore: crate::SpdmPalIoTransport {
         algo: SpdmPalAsymAlgo,
         digest: &[u8],
         signature: &mut [u8],
-    ) -> McuResult<usize>;
+    ) -> PalResult<usize>;
 
     /// Write a cert chain into `slot` for the given algorithm.
     /// Used by SET_CERTIFICATE.
@@ -163,7 +163,7 @@ pub trait SpdmPalCertStore: crate::SpdmPalIoTransport {
         cert_info: u8,
         root_hash: &[u8; 48],
         data: &[u8],
-    ) -> McuResult<()>;
+    ) -> PalResult<()>;
 
     /// Erase the cert chain in `slot` for the given algorithm.
     #[cfg(feature = "set-certificate")]
@@ -172,7 +172,7 @@ pub trait SpdmPalCertStore: crate::SpdmPalIoTransport {
         io: &Self::Io<'_>,
         slot: u8,
         algo: SpdmPalAsymAlgo,
-    ) -> McuResult<()>;
+    ) -> PalResult<()>;
 
     /// KeyPairID associated with the slot.
     /// Returns `None` for unprovisioned slots.
@@ -202,5 +202,5 @@ pub trait SpdmPalCertStore: crate::SpdmPalIoTransport {
     fn cache_chain_digest(&self, _slot: u8, _algo: SpdmPalHashAlgo, _digest: &[u8]) {}
 
     /// Fill `out` with random bytes from the platform RNG.
-    async fn generate_nonce(&self, io: &Self::Io<'_>, out: &mut [u8]) -> McuResult<()>;
+    async fn generate_nonce(&self, io: &Self::Io<'_>, out: &mut [u8]) -> PalResult<()>;
 }

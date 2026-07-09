@@ -12,7 +12,7 @@ use spdm_codec::errors::{
 };
 use spdm_errors::VDM_NO_RESPONSE;
 use spdm_traits::{
-    McuResult, SpdmPalAlloc, SpdmPalIo, SpdmVdmBackend, VdmRegistry, VdmResponse, VdmResponseBuffer,
+    PalResult, SpdmPalAlloc, SpdmPalIo, SpdmVdmBackend, VdmRegistry, VdmResponse, VdmResponseBuffer,
 };
 
 use super::{handle_tdisp_protocol_payload, pci_sig_envelope_matches, tdisp, TDISP_PROTOCOL_ID};
@@ -47,7 +47,7 @@ impl<D: IdeDriver> IdeKmResponder<D> {
         req: &[u8],
         rsp: &mut [u8],
         scratch: &Alloc,
-    ) -> McuResult<usize>
+    ) -> PalResult<usize>
     where
         Alloc: SpdmPalAlloc,
     {
@@ -115,7 +115,7 @@ impl<D: IdeDriver> PciSigIdeKmVdm<D> {
         req: &[u8],
         out: &mut [u8],
         scratch: &Alloc,
-    ) -> McuResult<usize>
+    ) -> PalResult<usize>
     where
         Alloc: SpdmPalAlloc,
     {
@@ -139,7 +139,7 @@ impl<D: IdeDriver> SpdmVdmBackend for PciSigIdeKmVdm<D> {
         &self,
         req: &[u8],
         rsp: VdmResponseBuffer<'_, Alloc, Io>,
-    ) -> McuResult<VdmResponse>
+    ) -> PalResult<VdmResponse>
     where
         Alloc: SpdmPalAlloc,
         Io: SpdmPalIo,
@@ -203,7 +203,7 @@ where
         &self,
         req: &[u8],
         rsp: VdmResponseBuffer<'_, Alloc, Io>,
-    ) -> McuResult<VdmResponse>
+    ) -> PalResult<VdmResponse>
     where
         Alloc: SpdmPalAlloc,
         Io: SpdmPalIo,
@@ -779,7 +779,7 @@ mod tests {
         where
             Self: 'a;
 
-        fn alloc(&self, len: usize) -> McuResult<Self::Buf<'_>> {
+        fn alloc(&self, len: usize) -> PalResult<Self::Buf<'_>> {
             Ok(vec![0; len])
         }
     }
@@ -797,14 +797,14 @@ mod tests {
         type LargeBuf = Vec<u8>;
         type PersistentBox<T: Sized + 'static> = Box<T>;
 
-        fn alloc<T: Sized>(&self, _io: &impl SpdmPalIo, value: T) -> McuResult<Self::Box<'_, T>> {
+        fn alloc<T: Sized>(&self, _io: &impl SpdmPalIo, value: T) -> PalResult<Self::Box<'_, T>> {
             Ok(TestBox {
                 value: Box::new(value),
                 _lifetime: PhantomData,
             })
         }
 
-        fn alloc_bytes(&self, _io: &impl SpdmPalIo, len: usize) -> McuResult<Self::Bytes<'_>> {
+        fn alloc_bytes(&self, _io: &impl SpdmPalIo, len: usize) -> PalResult<Self::Bytes<'_>> {
             Ok(vec![0; len])
         }
 
@@ -812,14 +812,14 @@ mod tests {
             0
         }
 
-        fn alloc_large_buf(&self, len: usize) -> McuResult<Self::LargeBuf> {
+        fn alloc_large_buf(&self, len: usize) -> PalResult<Self::LargeBuf> {
             Ok(vec![0; len])
         }
 
         fn alloc_persistent<T: Sized + 'static>(
             &self,
             value: T,
-        ) -> McuResult<Self::PersistentBox<T>> {
+        ) -> PalResult<Self::PersistentBox<T>> {
             Ok(Box::new(value))
         }
     }

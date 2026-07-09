@@ -2,12 +2,12 @@
 
 use spdm_codec::errors::SPDM_INVALID_REQUEST;
 use spdm_codec::{IdeKmHdr, KeySetGoStop, WireWriter};
-use spdm_traits::McuResult;
+use spdm_traits::PalResult;
 
 pub(crate) fn write_key_go_stop_ack(
     req: KeySetGoStop,
     writer: &mut WireWriter<'_>,
-) -> McuResult<usize> {
+) -> PalResult<usize> {
     writer
         .write(&IdeKmHdr {
             object_id: spdm_codec::IDE_KM_OBJECT_ID_KEY_GO_STOP_ACK,

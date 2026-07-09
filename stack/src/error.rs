@@ -9,13 +9,13 @@
 //! response.
 //!
 //! Below the handler/dispatcher boundary this stack uses
-//! the workspace-wide [`McuErrorCode`] / [`McuResult`] type for I/O,
+//! the workspace-wide [`PalErrorCode`] / [`PalResult`] type for I/O,
 //! allocation, codec, and transport errors. Conversion is implicit
-//! via [`From<McuErrorCode> for SpdmError`] — `?` does the lifting at
+//! via [`From<PalErrorCode> for SpdmError`] — `?` does the lifting at
 //! every layer boundary, no `.map_err(...)` ever needed.
 
 use spdm_errors::{as_spdm_wire, is_mctp_error, is_vdm_no_response};
-use spdm_error::{domain, McuErrorCode};
+use spdm_error::{domain, PalErrorCode};
 
 /// SPDM-level error suitable for emission as an `ERROR` PDU.
 ///
@@ -88,13 +88,13 @@ impl SpdmError {
     }
 }
 
-/// Implicit conversion from any [`McuErrorCode`] to the closest
+/// Implicit conversion from any [`PalErrorCode`] to the closest
 /// matching SPDM `ERROR` wire byte.
 ///
 /// This is the single classification point in the stack — handlers
 /// just use `?` and the conversion happens automatically.
-impl From<McuErrorCode> for SpdmError {
-    fn from(e: McuErrorCode) -> Self {
+impl From<PalErrorCode> for SpdmError {
+    fn from(e: PalErrorCode) -> Self {
         if is_vdm_no_response(e) {
             return Self::no_response();
         }

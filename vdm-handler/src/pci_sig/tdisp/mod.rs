@@ -14,7 +14,7 @@ use spdm_codec::errors::{SPDM_INVALID_REQUEST, SPDM_VERSION_MISMATCH};
 use spdm_codec::vendor_defined::pci_sig::tdisp::{
     TdispMessageHeader, TDISP_HEADER_LEN,
 };
-use spdm_traits::{McuResult, SpdmPalAlloc, VdmResponse};
+use spdm_traits::{PalResult, SpdmPalAlloc, VdmResponse};
 
 pub use spdm_codec::vendor_defined::pci_sig::tdisp::{
     FunctionId, InterfaceId, TdiStatus, TdispCommand, TdispErrorCode, TdispLockInterfaceFlags,
@@ -66,7 +66,7 @@ where
         payload: &[u8],
         alloc: &Alloc,
         out: &mut [u8],
-    ) -> McuResult<VdmResponse>
+    ) -> PalResult<VdmResponse>
     where
         Alloc: SpdmPalAlloc,
     {

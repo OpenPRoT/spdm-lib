@@ -7,7 +7,7 @@ use spdm_codec::{
     IDE_STREAM_IV_SIZE_DW, IDE_STREAM_KEY_SIZE_DW,
 };
 use spdm_errors::VDM_NO_RESPONSE;
-use spdm_traits::{McuErrorCode, SpdmPalAlloc};
+use spdm_traits::{PalErrorCode, SpdmPalAlloc};
 use zerocopy::little_endian::U32;
 
 /// IDE-KM driver-level failures.
@@ -194,6 +194,6 @@ impl<T: IdeDriver> IdeDriver for &T {
     }
 }
 
-pub(crate) fn map_ide_error(_err: IdeDriverError) -> McuErrorCode {
+pub(crate) fn map_ide_error(_err: IdeDriverError) -> PalErrorCode {
     VDM_NO_RESPONSE
 }

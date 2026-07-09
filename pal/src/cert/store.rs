@@ -11,7 +11,7 @@ use core::cell::UnsafeCell;
 use spdm_crypto::{
     sha_finish, sha_init, sha_update, ApiAlloc, HashAlgo, SHA_CONTEXT_SIZE,
 };
-use spdm_error::McuResult;
+use spdm_error::PalResult;
 
 #[cfg(feature = "set-certificate")]
 use super::endorsement::ManagedEndorsement;
@@ -24,7 +24,7 @@ const DEFAULT_CERT_INFO: u8 = 0x01;
 /// Static shared cert store.
 ///
 /// Holds per-slot endorsement data common to all transports. Created once at
-/// program start and referenced by every `McuSpdmPal` instance via
+/// program start and referenced by every `PlatformSpdmPal` instance via
 /// `&'static SharedCertStore`.
 pub struct SharedCertStore {
     cert_slots: UnsafeCell<[CertSlot; NUM_CERT_SLOTS]>,
@@ -75,7 +75,7 @@ impl SharedCertStore {
         idx: usize,
         chain: &'static [&'static [u8]],
         key_pair_id: u8,
-    ) -> McuResult<()> {
+    ) -> PalResult<()> {
         if idx >= NUM_CERT_SLOTS || chain.is_empty() {
             return Err(spdm_error::codes::INVARIANT);
         }
@@ -104,7 +104,7 @@ impl SharedCertStore {
         driver_num: u32,
         base: usize,
         capacity: usize,
-    ) -> McuResult<()> {
+    ) -> PalResult<()> {
         if idx >= NUM_CERT_SLOTS || capacity == 0 {
             return Err(spdm_error::codes::INVARIANT);
         }

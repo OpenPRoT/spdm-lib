@@ -12,14 +12,14 @@
 //! # Modules
 //!
 //! * [`alloc`] — Bitmap allocator and the [`SpdmPalAlloc`] impl
-//!   that hands out [`McuSpdmBox`] / [`BitmapBytes`] from a
+//!   that hands out [`SpdmBox`] / [`BitmapBytes`] from a
 //!   caller-supplied scratch region.
 //! * [`hash`] — [`SpdmPalHash`] impl and the running-hash bridge
 //!   into [`spdm_crypto`].
 //! * [`io`] — [`SpdmPalIo`] / [`SpdmPalIoTransport`] impls bridging
 //!   the higher-level framed-message API onto the byte-oriented
 //!   [`SpdmPalTransport`](spdm_traits::SpdmPalTransport).
-//! * [`pal`] — The [`McuSpdmPal`] aggregate that ties allocator,
+//! * [`pal`] — The [`PlatformSpdmPal`] aggregate that ties allocator,
 //!   hash, and transport together.
 //!
 //! # Re-exports

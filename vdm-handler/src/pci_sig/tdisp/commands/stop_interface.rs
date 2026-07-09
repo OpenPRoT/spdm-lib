@@ -2,7 +2,7 @@
 
 //! STOP_INTERFACE command handler.
 
-use spdm_traits::{McuResult, SpdmPalAlloc};
+use spdm_traits::{PalResult, SpdmPalAlloc};
 
 use crate::pci_sig::tdisp::{TdispDriver, TdispHandlerResult, TdispResponder};
 use spdm_codec::vendor_defined::pci_sig::tdisp::{
@@ -13,7 +13,7 @@ pub(crate) async fn handle<D, Alloc>(
     tdisp: &TdispResponder<D>,
     req_hdr: TdispMessageHeader,
     scratch: &Alloc,
-) -> McuResult<TdispHandlerResult>
+) -> PalResult<TdispHandlerResult>
 where
     D: TdispDriver,
     Alloc: SpdmPalAlloc,

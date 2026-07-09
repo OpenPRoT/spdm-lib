@@ -13,7 +13,7 @@ mod commands;
 
 use spdm_codec::StandardsBodyId;
 use spdm_traits::{
-    McuResult, SpdmPalAlloc, SpdmPalIo, SpdmVdmBackend, VdmRegistry, VdmResponse, VdmResponseBuffer,
+    PalResult, SpdmPalAlloc, SpdmPalIo, SpdmVdmBackend, VdmRegistry, VdmResponse, VdmResponseBuffer,
 };
 use spdm_error::codes::INVARIANT;
 
@@ -132,14 +132,14 @@ impl<H: CaliptraVdmCommands> SpdmVdmBackend for CaliptraVdm<'_, H> {
         &self,
         req: &[u8],
         rsp: VdmResponseBuffer<'_, Alloc, Io>,
-    ) -> McuResult<VdmResponse>
+    ) -> PalResult<VdmResponse>
     where
         Alloc: SpdmPalAlloc,
         Io: SpdmPalIo,
     {
         // Decode the Caliptra VDM header `[command_version, command_code]`. A
         // truncated header leaves no command code to echo, so no vendor-defined
-        // response can be formed; the handler returns a plain McuError and the
+        // response can be formed; the handler returns a plain PalErrorCode and the
         // stack classifies it into an SPDM ERROR PDU.
         if req.len() < VDM_HEADER_LEN {
             return Err(INVARIANT);
@@ -237,7 +237,7 @@ mod tests {
     use spdm_traits::{
         SpdmPalAlloc, SpdmPalIo, SpdmPalIoKind, SpdmVdmBackend, VdmResponse, VdmResponseBuffer,
     };
-    use spdm_error::McuResult;
+    use spdm_error::PalResult;
     use std::boxed::Box;
     use std::vec;
     use std::vec::Vec;
@@ -283,7 +283,7 @@ mod tests {
         where
             Self: 'a;
 
-        fn alloc(&self, len: usize) -> McuResult<Self::Buf<'_>> {
+        fn alloc(&self, len: usize) -> PalResult<Self::Buf<'_>> {
             Ok(vec![0u8; len])
         }
     }
@@ -300,14 +300,14 @@ mod tests {
             Self: 'a;
         type LargeBuf = Vec<u8>;
 
-        fn alloc<T: Sized>(&self, _io: &impl SpdmPalIo, value: T) -> McuResult<Self::Box<'_, T>> {
+        fn alloc<T: Sized>(&self, _io: &impl SpdmPalIo, value: T) -> PalResult<Self::Box<'_, T>> {
             Ok(TestBox {
                 value: Box::new(value),
                 _lifetime: PhantomData,
             })
         }
 
-        fn alloc_bytes(&self, _io: &impl SpdmPalIo, len: usize) -> McuResult<Self::Bytes<'_>> {
+        fn alloc_bytes(&self, _io: &impl SpdmPalIo, len: usize) -> PalResult<Self::Bytes<'_>> {
             Ok(vec![0; len])
         }
 
@@ -315,7 +315,7 @@ mod tests {
             4096
         }
 
-        fn alloc_large_buf(&self, len: usize) -> McuResult<Self::LargeBuf> {
+        fn alloc_large_buf(&self, len: usize) -> PalResult<Self::LargeBuf> {
             Ok(vec![0; len])
         }
 
@@ -324,7 +324,7 @@ mod tests {
         fn alloc_persistent<T: Sized + 'static>(
             &self,
             value: T,
-        ) -> McuResult<Self::PersistentBox<T>> {
+        ) -> PalResult<Self::PersistentBox<T>> {
             Ok(Box::new(value))
         }
     }

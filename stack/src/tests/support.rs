@@ -16,7 +16,7 @@ use spdm_traits::{
 use core::marker::PhantomData;
 use core::ops::{Deref, DerefMut};
 use futures::executor::block_on;
-use spdm_error::{McuErrorCode, McuResult};
+use spdm_error::{PalErrorCode, PalResult};
 use std::boxed::Box;
 use std::cell::RefCell;
 use std::vec;
@@ -101,9 +101,9 @@ pub struct TestPal {
     pub mtu: usize,
     pub supported_slots: u8,
     pub authorized: bool,
-    pub validate_error: Option<McuErrorCode>,
-    pub write_error: Option<McuErrorCode>,
-    pub erase_error: Option<McuErrorCode>,
+    pub validate_error: Option<PalErrorCode>,
+    pub write_error: Option<PalErrorCode>,
+    pub erase_error: Option<PalErrorCode>,
     pub cert_chain: &'static [u8],
     pub op: RefCell<Option<StoreOp>>,
 }
@@ -129,7 +129,7 @@ impl spdm_crypto::ApiAlloc for TestPal {
     where
         Self: 'a;
 
-    fn alloc(&self, len: usize) -> McuResult<Self::Buf<'_>> {
+    fn alloc(&self, len: usize) -> PalResult<Self::Buf<'_>> {
         Ok(vec![0u8; len])
     }
 }
@@ -146,14 +146,14 @@ impl SpdmPalAlloc for TestPal {
         Self: 'a;
     type LargeBuf = Vec<u8>;
 
-    fn alloc<T: Sized>(&self, _io: &impl SpdmPalIo, value: T) -> McuResult<Self::Box<'_, T>> {
+    fn alloc<T: Sized>(&self, _io: &impl SpdmPalIo, value: T) -> PalResult<Self::Box<'_, T>> {
         Ok(TestBox {
             value: Box::new(value),
             _lifetime: PhantomData,
         })
     }
 
-    fn alloc_bytes(&self, _io: &impl SpdmPalIo, len: usize) -> McuResult<Self::Bytes<'_>> {
+    fn alloc_bytes(&self, _io: &impl SpdmPalIo, len: usize) -> PalResult<Self::Bytes<'_>> {
         Ok(vec![0u8; len])
     }
 
@@ -161,13 +161,13 @@ impl SpdmPalAlloc for TestPal {
         self.mtu
     }
 
-    fn alloc_large_buf(&self, len: usize) -> McuResult<Self::LargeBuf> {
+    fn alloc_large_buf(&self, len: usize) -> PalResult<Self::LargeBuf> {
         Ok(vec![0u8; len])
     }
 
     type PersistentBox<T: Sized + 'static> = Box<T>;
 
-    fn alloc_persistent<T: Sized + 'static>(&self, value: T) -> McuResult<Self::PersistentBox<T>> {
+    fn alloc_persistent<T: Sized + 'static>(&self, value: T) -> PalResult<Self::PersistentBox<T>> {
         Ok(Box::new(value))
     }
 }
@@ -190,7 +190,7 @@ impl SpdmPalIoTransport for TestPal {
         self.mtu
     }
 
-    async fn recv_request(&self) -> McuResult<Self::Io<'_>> {
+    async fn recv_request(&self) -> PalResult<Self::Io<'_>> {
         Err(spdm_error::codes::NOT_IMPLEMENTED)
     }
 
@@ -199,7 +199,7 @@ impl SpdmPalIoTransport for TestPal {
         _io: &Self::Io<'_>,
         _kind: SpdmPalIoKind,
         _msg: &mut [u8],
-    ) -> McuResult<()> {
+    ) -> PalResult<()> {
         Err(spdm_error::codes::NOT_IMPLEMENTED)
     }
 }
@@ -212,7 +212,7 @@ impl SpdmPalHash for TestPal {
         _io: &impl SpdmPalIo,
         _algo: SpdmPalHashAlgo,
         seed: &[u8],
-    ) -> McuResult<Self::State> {
+    ) -> PalResult<Self::State> {
         Ok(TestHashState {
             digest: test_digest(seed),
         })
@@ -223,12 +223,12 @@ impl SpdmPalHash for TestPal {
         _io: &impl SpdmPalIo,
         state: &mut Self::State,
         data: &[u8],
-    ) -> McuResult<()> {
+    ) -> PalResult<()> {
         state.digest = test_digest(data);
         Ok(())
     }
 
-    fn hash_clone(&self, _io: &impl SpdmPalIo, state: &Self::State) -> McuResult<Self::State> {
+    fn hash_clone(&self, _io: &impl SpdmPalIo, state: &Self::State) -> PalResult<Self::State> {
         Ok(state.clone())
     }
 
@@ -237,7 +237,7 @@ impl SpdmPalHash for TestPal {
         _io: &impl SpdmPalIo,
         state: &mut Self::State,
         out: &mut [u8],
-    ) -> McuResult<()> {
+    ) -> PalResult<()> {
         out[..SHA384_DIGEST_SIZE].copy_from_slice(&state.digest);
         Ok(())
     }
@@ -273,7 +273,7 @@ impl SpdmPalCertStore for TestPal {
         _cert_model: u8,
         _root_hash: &[u8; SHA384_DIGEST_SIZE],
         _cert_chain: &[u8],
-    ) -> McuResult<()> {
+    ) -> PalResult<()> {
         if let Some(err) = self.validate_error {
             Err(err)
         } else {
@@ -286,7 +286,7 @@ impl SpdmPalCertStore for TestPal {
         _io: &Self::Io<'_>,
         _slot: u8,
         _algo: SpdmPalAsymAlgo,
-    ) -> McuResult<usize> {
+    ) -> PalResult<usize> {
         Ok(self.cert_chain.len())
     }
 
@@ -295,7 +295,7 @@ impl SpdmPalCertStore for TestPal {
         _io: &Self::Io<'_>,
         _slot: u8,
         _algo: SpdmPalAsymAlgo,
-    ) -> McuResult<usize> {
+    ) -> PalResult<usize> {
         Ok(self.cert_chain.len())
     }
 
@@ -306,7 +306,7 @@ impl SpdmPalCertStore for TestPal {
         _algo: SpdmPalAsymAlgo,
         _hash_algo: SpdmPalHashAlgo,
         out: &mut [u8],
-    ) -> McuResult<()> {
+    ) -> PalResult<()> {
         out.copy_from_slice(&test_digest(&self.cert_chain[..5]));
         Ok(())
     }
@@ -318,7 +318,7 @@ impl SpdmPalCertStore for TestPal {
         _algo: SpdmPalAsymAlgo,
         offset: usize,
         dst: &mut [u8],
-    ) -> McuResult<usize> {
+    ) -> PalResult<usize> {
         let end = (offset + dst.len()).min(self.cert_chain.len());
         let src = &self.cert_chain[offset..end];
         dst[..src.len()].copy_from_slice(src);
@@ -332,7 +332,7 @@ impl SpdmPalCertStore for TestPal {
         _algo: SpdmPalAsymAlgo,
         _digest: &[u8],
         signature: &mut [u8],
-    ) -> McuResult<usize> {
+    ) -> PalResult<usize> {
         signature.fill(0x77);
         Ok(signature.len())
     }
@@ -347,7 +347,7 @@ impl SpdmPalCertStore for TestPal {
         cert_model: u8,
         root_hash: &[u8; SHA384_DIGEST_SIZE],
         cert_chain: &[u8],
-    ) -> McuResult<()> {
+    ) -> PalResult<()> {
         if let Some(err) = self.write_error {
             return Err(err);
         }
@@ -367,7 +367,7 @@ impl SpdmPalCertStore for TestPal {
         _io: &Self::Io<'_>,
         slot: u8,
         _algo: SpdmPalAsymAlgo,
-    ) -> McuResult<()> {
+    ) -> PalResult<()> {
         if let Some(err) = self.erase_error {
             return Err(err);
         }
@@ -387,7 +387,7 @@ impl SpdmPalCertStore for TestPal {
         None
     }
 
-    async fn generate_nonce(&self, _io: &Self::Io<'_>, out: &mut [u8]) -> McuResult<()> {
+    async fn generate_nonce(&self, _io: &Self::Io<'_>, out: &mut [u8]) -> PalResult<()> {
         out.fill(0xA5);
         Ok(())
     }
@@ -404,7 +404,7 @@ impl SpdmPalMeasurements for TestPal {
         _index: u8,
         _nonce: Option<&[u8; SPDM_NONCE_LEN]>,
         _out: &mut [u8],
-    ) -> McuResult<usize> {
+    ) -> PalResult<usize> {
         Err(spdm_error::codes::NOT_IMPLEMENTED)
     }
 }
@@ -417,7 +417,7 @@ impl SpdmPalSessionCrypto for TestPal {
         _io: &impl SpdmPalIo,
         _context: &mut [u8],
         _exchange_data: &mut [u8],
-    ) -> McuResult<()> {
+    ) -> PalResult<()> {
         Ok(())
     }
 
@@ -426,7 +426,7 @@ impl SpdmPalSessionCrypto for TestPal {
         _io: &impl SpdmPalIo,
         _context: &[u8],
         _peer_exchange_data: &[u8],
-    ) -> McuResult<Self::Key> {
+    ) -> PalResult<Self::Key> {
         Ok(1)
     }
 
@@ -435,7 +435,7 @@ impl SpdmPalSessionCrypto for TestPal {
         _io: &impl SpdmPalIo,
         _salt: &[u8],
         _ikm: &Self::Key,
-    ) -> McuResult<Self::Key> {
+    ) -> PalResult<Self::Key> {
         Ok(1)
     }
 
@@ -444,7 +444,7 @@ impl SpdmPalSessionCrypto for TestPal {
         _io: &impl SpdmPalIo,
         _salt: &Self::Key,
         _ikm: &Self::Key,
-    ) -> McuResult<Self::Key> {
+    ) -> PalResult<Self::Key> {
         Ok(1)
     }
 
@@ -454,7 +454,7 @@ impl SpdmPalSessionCrypto for TestPal {
         _prk: &Self::Key,
         _key_size: u32,
         _info: &[u8],
-    ) -> McuResult<Self::Key> {
+    ) -> PalResult<Self::Key> {
         Ok(1)
     }
 
@@ -464,13 +464,13 @@ impl SpdmPalSessionCrypto for TestPal {
         _key: &Self::Key,
         data: &[u8],
         out: &mut [u8],
-    ) -> McuResult<usize> {
+    ) -> PalResult<usize> {
         let n = out.len().min(data.len());
         out[..n].copy_from_slice(&data[..n]);
         Ok(n)
     }
 
-    async fn import_key(&self, _io: &impl SpdmPalIo, _data: &[u8]) -> McuResult<Self::Key> {
+    async fn import_key(&self, _io: &impl SpdmPalIo, _data: &[u8]) -> PalResult<Self::Key> {
         Ok(1)
     }
 
@@ -483,7 +483,7 @@ impl SpdmPalSessionCrypto for TestPal {
         _aad: &[u8],
         plaintext: &[u8],
         ciphertext: &mut [u8],
-    ) -> McuResult<(usize, [u8; 16])> {
+    ) -> PalResult<(usize, [u8; 16])> {
         ciphertext[..plaintext.len()].copy_from_slice(plaintext);
         Ok((plaintext.len(), [0u8; 16]))
     }
@@ -498,7 +498,7 @@ impl SpdmPalSessionCrypto for TestPal {
         ciphertext: &[u8],
         _tag: &[u8; 16],
         plaintext: &mut [u8],
-    ) -> McuResult<usize> {
+    ) -> PalResult<usize> {
         plaintext[..ciphertext.len()].copy_from_slice(ciphertext);
         Ok(ciphertext.len())
     }

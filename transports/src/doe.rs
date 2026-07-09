@@ -29,7 +29,7 @@ use alloc::boxed::Box;
 
 use async_trait::async_trait;
 use spdm_transport_sys::doe::{driver_num, Doe};
-use spdm_traits::{McuResult, SpdmPalIoKind, SpdmPalTransport};
+use spdm_traits::{PalResult, SpdmPalIoKind, SpdmPalTransport};
 
 use crate::errors::doe as error_code;
 
@@ -50,11 +50,11 @@ const DOE_TYPE_SECURE_SPDM: u8 = 2;
 /// Wraps a single [`Doe`] syscall handle. Unlike MCTP, DOE supports
 /// both plain SPDM and Secured SPDM on the same transport — the
 /// `data_object_type` field in the header distinguishes them.
-pub struct McuSpdmDoeTransport {
+pub struct SpdmDoeTransport {
     doe: Doe,
 }
 
-impl McuSpdmDoeTransport {
+impl SpdmDoeTransport {
     /// Creates a DOE transport bound to the given driver number.
     ///
     /// Use [`driver_num::DOE_SPDM`] for the standard DOE SPDM driver.
@@ -70,14 +70,14 @@ impl McuSpdmDoeTransport {
     }
 }
 
-impl Default for McuSpdmDoeTransport {
+impl Default for SpdmDoeTransport {
     fn default() -> Self {
         Self::new(driver_num::DOE_SPDM)
     }
 }
 
 #[async_trait]
-impl SpdmPalTransport for McuSpdmDoeTransport {
+impl SpdmPalTransport for SpdmDoeTransport {
     fn secure_message_supported(&self) -> bool {
         true // DOE carries both plain and secured on same transport
     }
@@ -98,7 +98,7 @@ impl SpdmPalTransport for McuSpdmDoeTransport {
         4 // DOE data objects must be DWORD-aligned
     }
 
-    async fn recv_request(&mut self, buf: &mut [u8]) -> McuResult<(SpdmPalIoKind, usize)> {
+    async fn recv_request(&mut self, buf: &mut [u8]) -> PalResult<(SpdmPalIoKind, usize)> {
         if buf.len() < DOE_HEADER_SIZE {
             return Err(error_code::BUFFER_TOO_SMALL);
         }
@@ -126,7 +126,7 @@ impl SpdmPalTransport for McuSpdmDoeTransport {
         Ok((kind, recv_len))
     }
 
-    async fn send_response(&mut self, kind: SpdmPalIoKind, msg: &mut [u8]) -> McuResult<()> {
+    async fn send_response(&mut self, kind: SpdmPalIoKind, msg: &mut [u8]) -> PalResult<()> {
         if msg.len() < DOE_HEADER_SIZE {
             return Err(error_code::INVALID_MESSAGE);
         }

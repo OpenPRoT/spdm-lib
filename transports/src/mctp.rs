@@ -2,7 +2,7 @@
 
 //! MCTP-based SPDM transport for MCU userspace.
 //!
-//! This module provides [`McuMctpTransport`], an implementation of the
+//! This module provides [`SpdmMctpTransport`], an implementation of the
 //! [`SpdmPalTransport`] trait that carries SPDM traffic over the MCTP
 //! (Management Component Transport Protocol) syscall driver exposed by
 //! the MCU Tock kernel.
@@ -50,7 +50,7 @@
 //! [`error_code::OPERATION_NOT_SUPPORTED`].
 //!
 //! Higher layers that need both transports can instantiate two
-//! [`McuMctpTransport`] objects bound to the corresponding driver
+//! [`SpdmMctpTransport`] objects bound to the corresponding driver
 //! numbers and route between them.
 //!
 //! This implementation operates on raw byte buffers as required by the
@@ -62,7 +62,7 @@ use alloc::boxed::Box;
 
 use async_trait::async_trait;
 use spdm_transport_sys::mctp::{driver_num, Mctp, MessageInfo};
-use spdm_traits::{McuResult, SpdmPalIoKind, SpdmPalTransport};
+use spdm_traits::{PalResult, SpdmPalIoKind, SpdmPalTransport};
 
 /// MCTP transport message header size in bytes.
 const MCTP_MSG_HEADER_SIZE: usize = 1;
@@ -87,7 +87,7 @@ use crate::errors::mctp as error_code;
 /// Each `recv_request` / `send_response` pair is correlated by the
 /// [`MessageInfo`] captured on receive and stored in
 /// [`cur_resp_ctx`](Self::cur_resp_ctx).
-pub struct McuSpdmMctpTransport {
+pub struct SpdmMctpTransport {
     mctp: Mctp,
     cur_resp_ctx: Option<MessageInfo>,
     /// MCTP message-type byte this transport is bound to (`0x05`
@@ -97,7 +97,7 @@ pub struct McuSpdmMctpTransport {
     msg_type: u8,
 }
 
-impl McuSpdmMctpTransport {
+impl SpdmMctpTransport {
     /// Creates an MCTP transport bound to `driver_num` and configured
     /// to send/receive frames with MCTP message-type `msg_type`.
     ///
@@ -113,7 +113,7 @@ impl McuSpdmMctpTransport {
     /// is unknown, or if it does not match the message type the MCTP
     /// driver bound to `driver_num` will actually emit on the wire
     /// (e.g. `MCTP_SPDM` driver with `msg_type = 0x06`).
-    pub fn new(driver_num: u32, msg_type: u8) -> McuResult<Self> {
+    pub fn new(driver_num: u32, msg_type: u8) -> PalResult<Self> {
         // Reject anything other than the two SPDM-related message types.
         if msg_type != MCTP_MSG_TYPE_SPDM && msg_type != MCTP_MSG_TYPE_SECURED_SPDM {
             return Err(error_code::UNEXPECTED_MESSAGE_TYPE);
@@ -148,7 +148,7 @@ impl McuSpdmMctpTransport {
 }
 
 #[async_trait]
-impl SpdmPalTransport for McuSpdmMctpTransport {
+impl SpdmPalTransport for SpdmMctpTransport {
     fn secure_message_supported(&self) -> bool {
         // A single instance is bound to exactly one MCTP message type,
         // so secured-message support is determined by which type the
@@ -170,7 +170,7 @@ impl SpdmPalTransport for McuSpdmMctpTransport {
     /// Receives the next MCTP-framed SPDM request. After this call
     /// `buf[0]` is the MCTP transport header byte and
     /// `buf[1..len]` is the SPDM payload — no shifting performed.
-    async fn recv_request(&mut self, buf: &mut [u8]) -> McuResult<(SpdmPalIoKind, usize)> {
+    async fn recv_request(&mut self, buf: &mut [u8]) -> PalResult<(SpdmPalIoKind, usize)> {
         if buf.len() < MCTP_MSG_HEADER_SIZE {
             return Err(error_code::BUFFER_TOO_SMALL);
         }
@@ -194,7 +194,7 @@ impl SpdmPalTransport for McuSpdmMctpTransport {
     /// the SPDM payload into `msg[1..]`; the transport fills `msg[0]`
     /// with the MCTP message-type byte in place and forwards the full
     /// slice to the syscall — no extra allocation.
-    async fn send_response(&mut self, kind: SpdmPalIoKind, msg: &mut [u8]) -> McuResult<()> {
+    async fn send_response(&mut self, kind: SpdmPalIoKind, msg: &mut [u8]) -> PalResult<()> {
         // The bound `msg_type` dictates what we send on the wire; the
         // caller must agree.
         if kind != self.kind() {

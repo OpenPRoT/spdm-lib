@@ -375,9 +375,9 @@ impl<Pal: SpdmPal, const MAX_SESSIONS: usize, Vdm: SpdmVdmBackend>
     ///
     /// # Returns
     ///
-    /// * `Err(McuErrorCode)` — A fatal transport error. Successful
+    /// * `Err(PalErrorCode)` — A fatal transport error. Successful
     ///   loops never return.
-    pub async fn run(&mut self) -> McuResult<()> {
+    pub async fn run(&mut self) -> PalResult<()> {
         #[cfg(feature = "debug-trace")]
         use core::fmt::Write;
         #[cfg(feature = "debug-trace")]
@@ -508,13 +508,13 @@ impl<Pal: SpdmPal, const MAX_SESSIONS: usize, Vdm: SpdmVdmBackend>
     ///
     /// # Errors
     ///
-    /// * `Err(McuErrorCode)` — Transport-level failure during send.
+    /// * `Err(PalErrorCode)` — Transport-level failure during send.
     async fn send_error_pdu(
         &self,
         io: &<Pal as SpdmPalIoTransport>::Io<'_>,
         err: SpdmError,
         req_version: SpdmVersion,
-    ) -> McuResult<()> {
+    ) -> PalResult<()> {
         // ERROR response uses the same version as
         // the requester's message. For `VersionMismatch`, the
         // responder shall instead use the highest supported version
