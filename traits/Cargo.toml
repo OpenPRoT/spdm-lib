@@ -8,8 +8,8 @@ edition.workspace = true
 
 [dependencies]
 async-trait.workspace = true
-mcu-caliptra-api-lite = { workspace = true }
-mcu-error = { workspace = true }
+spdm-crypto = { workspace = true }
+spdm-error = { workspace = true }
 
 [features]
 default = []
