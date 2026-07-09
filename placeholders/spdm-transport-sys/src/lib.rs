@@ -72,6 +72,10 @@ pub mod mctp {
         ) -> Result<(), ErrorCode> {
             unimplemented!("spdm-transport-sys placeholder: mctp::send_response")
         }
+
+        pub fn max_message_size(&self) -> Result<u32, ErrorCode> {
+            unimplemented!("spdm-transport-sys placeholder: mctp::max_message_size")
+        }
     }
 
     /// SPDM MCTP driver numbers.

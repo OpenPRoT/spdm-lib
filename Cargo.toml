@@ -15,8 +15,12 @@ members = [
     "placeholders/spdm-transport-sys",
     "placeholders/spdm-console",
     "placeholders/spdm-platform",
-    "legacy",
 ]
+
+# legacy/ is the preserved host-crypto reference monolith. It requires a newer
+# rustc than the pinned 1.85 (uses `is_multiple_of`), so it is excluded from the
+# workspace build. Build it separately with a newer toolchain when needed.
+exclude = ["legacy"]
 
 [workspace.package]
 version = "0.1.0"
