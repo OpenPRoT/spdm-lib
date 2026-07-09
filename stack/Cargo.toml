@@ -18,9 +18,6 @@ zerocopy = { workspace = true }
 spdm-console = { workspace = true, optional = true }
 spdm-transport-sys = { workspace = true, optional = true }
 
-[dev-dependencies]
-futures.workspace = true
-
 [features]
 default = []
 set-certificate = ["spdm-traits/set-certificate"]

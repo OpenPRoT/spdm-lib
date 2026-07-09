@@ -489,7 +489,6 @@ mod tests {
     use spdm_traits::{
         SpdmPalAlloc, SpdmPalIo, SpdmVdmBackend, VdmRegistry, VdmResponse, VdmResponseBuffer,
     };
-    use futures::executor::block_on;
     use spdm_error::PalResult;
     use std::vec;
     use std::vec::Vec;
@@ -580,14 +579,14 @@ mod tests {
         let second_chunk = chunk_send_request(9, 1, true, None, second);
 
         let first_io = TestIo::message(first_chunk.clone());
-        let rsp = block_on(handle_chunk_send(
+        let rsp = handle_chunk_send(
             &mut state,
             &pal,
             &first_io,
             &vdm,
             &first_chunk,
             false,
-        ))
+        )
         .unwrap();
         assert_eq!(
             &rsp[..],
@@ -603,14 +602,14 @@ mod tests {
         assert!(state.large_msg_ctx.request_in_progress());
 
         let second_io = TestIo::message(second_chunk.clone());
-        let rsp = block_on(handle_chunk_send(
+        let rsp = handle_chunk_send(
             &mut state,
             &pal,
             &second_io,
             &vdm,
             &second_chunk,
             false,
-        ))
+        )
         .unwrap();
         assert_eq!(
             vdm.captured_token_payload.take(),

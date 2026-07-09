@@ -41,7 +41,6 @@ type_complexity = { level = "allow", priority = 1 }
 bitfield = "0.14.0"
 bitfield-struct = "0.13.0"
 zerocopy = { version = "0.8.17", features = ["derive"] }
-futures = "0.3.31"
 
 # Platform-independent placeholders (replacing caliptra-mcu deps)
 spdm-error = { path = "placeholders/spdm-error" }

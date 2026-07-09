@@ -5,7 +5,6 @@ extern crate std;
 use super::*;
 use crate::error::{SPDM_BUSY, SPDM_OPERATION_FAILED, SPDM_RESET_REQUIRED, SPDM_UNSPECIFIED};
 use spdm_codec::{errors as wire_errors, OtherParamSupport};
-use futures::executor::block_on;
 use std::vec::Vec;
 
 #[path = "support.rs"]
@@ -32,7 +31,7 @@ fn test_handle_set_certificate_v12_writes_cert_chain() {
     let payload = cert_payload(&der, root_hash);
     let io = set_certificate_io(SpdmVersion::V12, 1, 0, &payload);
 
-    let rsp = block_on(handle_set_certificate(&mut state, &pal, &io)).unwrap();
+    let rsp = handle_set_certificate(&mut state, &pal, &io).unwrap();
 
     assert_eq!(
         &rsp[..],
@@ -66,7 +65,7 @@ fn test_handle_set_certificate_v12_uses_device_cert_without_alias_cap() {
     let payload = cert_payload(&der, root_hash);
     let io = set_certificate_io(SpdmVersion::V12, 1, 0, &payload);
 
-    block_on(handle_set_certificate(&mut state, &pal, &io)).unwrap();
+    handle_set_certificate(&mut state, &pal, &io).unwrap();
 
     assert_eq!(
         pal.op.take(),
@@ -89,7 +88,7 @@ fn test_handle_set_certificate_v13_non_multi_key_uses_alias_cert() {
     let payload = cert_payload(&der, root_hash);
     let io = set_certificate_io(SpdmVersion::V13, 2, 0, &payload);
 
-    block_on(handle_set_certificate(&mut state, &pal, &io)).unwrap();
+    handle_set_certificate(&mut state, &pal, &io).unwrap();
 
     assert_eq!(
         pal.op.take(),
@@ -118,7 +117,7 @@ fn test_handle_set_certificate_v13_rejects_multikey_when_not_advertised() {
     let attributes = 2 | (CERT_MODEL_GENERIC_CERT << 4);
     let io = set_certificate_io(SpdmVersion::V13, attributes, 7, &payload);
 
-    let err = block_on(handle_set_certificate(&mut state, &pal, &io)).unwrap_err();
+    let err = handle_set_certificate(&mut state, &pal, &io).unwrap_err();
 
     assert_eq!(err, SPDM_INVALID_REQUEST);
     assert_eq!(pal.op.take(), None);
@@ -134,7 +133,7 @@ fn test_handle_set_certificate_v13_multi_key_writes_cert_chain() {
     let attributes = 2 | (CERT_MODEL_GENERIC_CERT << 4);
     let io = set_certificate_io(SpdmVersion::V13, attributes, 7, &payload);
 
-    let rsp = block_on(handle_set_certificate(&mut state, &pal, &io)).unwrap();
+    let rsp = handle_set_certificate(&mut state, &pal, &io).unwrap();
 
     assert_eq!(
         &rsp[..],
@@ -170,7 +169,7 @@ fn test_handle_set_certificate_v13_multi_key_cap_one_writes_cert_chain() {
     let attributes = 2 | (CERT_MODEL_GENERIC_CERT << 4);
     let io = set_certificate_io(SpdmVersion::V13, attributes, 7, &payload);
 
-    block_on(handle_set_certificate(&mut state, &pal, &io)).unwrap();
+    handle_set_certificate(&mut state, &pal, &io).unwrap();
 
     assert_eq!(
         pal.op.take(),
@@ -190,7 +189,7 @@ fn test_handle_set_certificate_v13_erase_succeeds() {
     let mut state = state(SpdmVersion::V13);
     let io = set_certificate_io(SpdmVersion::V13, 3 | (1 << 7), 0, &[]);
 
-    let rsp = block_on(handle_set_certificate(&mut state, &pal, &io)).unwrap();
+    let rsp = handle_set_certificate(&mut state, &pal, &io).unwrap();
 
     assert_eq!(
         &rsp[..],
@@ -215,7 +214,7 @@ fn test_handle_set_certificate_rejects_unadvertised_capability() {
     let payload = cert_payload(&der, test_digest(&der[..5]));
     let io = set_certificate_io(SpdmVersion::V12, 1, 0, &payload);
 
-    let err = block_on(handle_set_certificate(&mut state, &pal, &io)).unwrap_err();
+    let err = handle_set_certificate(&mut state, &pal, &io).unwrap_err();
 
     assert_eq!(err, unsupported_set_certificate());
     assert_eq!(pal.op.take(), None);
@@ -232,7 +231,7 @@ fn test_handle_set_certificate_rejects_request_larger_than_mtu() {
     };
     let mut state = state(SpdmVersion::V12);
 
-    let err = block_on(handle_set_certificate(&mut state, &pal, &io)).unwrap_err();
+    let err = handle_set_certificate(&mut state, &pal, &io).unwrap_err();
 
     assert_eq!(err, SPDM_INVALID_REQUEST);
     assert_eq!(pal.op.take(), None);
@@ -249,7 +248,7 @@ fn test_handle_set_certificate_rejects_unsupported_slot() {
     let payload = cert_payload(&der, test_digest(&der[..5]));
     let io = set_certificate_io(SpdmVersion::V12, 2, 0, &payload);
 
-    let err = block_on(handle_set_certificate(&mut state, &pal, &io)).unwrap_err();
+    let err = handle_set_certificate(&mut state, &pal, &io).unwrap_err();
 
     assert_eq!(err, SPDM_INVALID_REQUEST);
     assert_eq!(pal.op.take(), None);
@@ -264,7 +263,7 @@ fn test_handle_set_certificate_rejects_erase_for_unsupported_slot() {
     let mut state = state(SpdmVersion::V13);
     let io = set_certificate_io(SpdmVersion::V13, 3 | (1 << 7), 0, &[]);
 
-    let err = block_on(handle_set_certificate(&mut state, &pal, &io)).unwrap_err();
+    let err = handle_set_certificate(&mut state, &pal, &io).unwrap_err();
 
     assert_eq!(err, SPDM_INVALID_REQUEST);
     assert_eq!(pal.op.take(), None);
@@ -279,7 +278,7 @@ fn test_handle_set_certificate_rejects_unnegotiated_hash_algo() {
     let payload = cert_payload(&der, test_digest(&der[..5]));
     let io = set_certificate_io(SpdmVersion::V12, 1, 0, &payload);
 
-    let err = block_on(handle_set_certificate(&mut state, &pal, &io)).unwrap_err();
+    let err = handle_set_certificate(&mut state, &pal, &io).unwrap_err();
 
     assert_eq!(err, SPDM_UNSPECIFIED);
     assert_eq!(pal.op.take(), None);
@@ -294,7 +293,7 @@ fn test_handle_set_certificate_rejects_unnegotiated_base_asym_algo() {
     let payload = cert_payload(&der, test_digest(&der[..5]));
     let io = set_certificate_io(SpdmVersion::V12, 1, 0, &payload);
 
-    let err = block_on(handle_set_certificate(&mut state, &pal, &io)).unwrap_err();
+    let err = handle_set_certificate(&mut state, &pal, &io).unwrap_err();
 
     assert_eq!(err, SPDM_INVALID_REQUEST);
     assert_eq!(pal.op.take(), None);
@@ -312,7 +311,7 @@ fn test_handle_set_certificate_checks_authorization_before_algorithms() {
     let payload = cert_payload(&der, test_digest(&der[..5]));
     let io = set_certificate_io(SpdmVersion::V12, 1, 0, &payload);
 
-    let err = block_on(handle_set_certificate(&mut state, &pal, &io)).unwrap_err();
+    let err = handle_set_certificate(&mut state, &pal, &io).unwrap_err();
 
     assert_eq!(err, SPDM_SESSION_REQUIRED);
     assert_eq!(pal.op.take(), None);
@@ -349,7 +348,7 @@ fn test_handle_set_certificate_rejects_unauthorized_request() {
     let payload = cert_payload(&der, test_digest(&der[..5]));
     let io = set_certificate_io(SpdmVersion::V12, 1, 0, &payload);
 
-    let err = block_on(handle_set_certificate(&mut state, &pal, &io)).unwrap_err();
+    let err = handle_set_certificate(&mut state, &pal, &io).unwrap_err();
 
     assert_eq!(err, SPDM_SESSION_REQUIRED);
     assert_eq!(pal.op.take(), None);
@@ -364,7 +363,7 @@ fn test_handle_set_certificate_passes_root_hash_through_without_recomputing() {
     let payload = cert_payload(&der, root_hash);
     let io = set_certificate_io(SpdmVersion::V12, 1, 0, &payload);
 
-    block_on(handle_set_certificate(&mut state, &pal, &io)).unwrap();
+    handle_set_certificate(&mut state, &pal, &io).unwrap();
 
     assert_eq!(
         pal.op.take(),
@@ -394,7 +393,7 @@ fn test_handle_set_certificate_calls_pal_validation_before_write() {
     let payload = cert_payload(&der, test_digest(&der[..5]));
     let io = set_certificate_io(SpdmVersion::V12, 1, 0, &payload);
 
-    let err = block_on(handle_set_certificate(&mut state, &pal, &io)).unwrap_err();
+    let err = handle_set_certificate(&mut state, &pal, &io).unwrap_err();
 
     assert_eq!(err, SPDM_INVALID_REQUEST);
     assert_eq!(pal.op.take(), None);
@@ -411,7 +410,7 @@ fn test_handle_set_certificate_preserves_wire_validation_error() {
     let payload = cert_payload(&der, test_digest(&der[..5]));
     let io = set_certificate_io(SpdmVersion::V12, 1, 0, &payload);
 
-    let err = block_on(handle_set_certificate(&mut state, &pal, &io)).unwrap_err();
+    let err = handle_set_certificate(&mut state, &pal, &io).unwrap_err();
 
     assert_eq!(err, SPDM_OPERATION_FAILED);
     assert_eq!(pal.op.take(), None);
@@ -428,7 +427,7 @@ fn test_handle_set_certificate_preserves_wire_write_error() {
     let payload = cert_payload(&der, test_digest(&der[..5]));
     let io = set_certificate_io(SpdmVersion::V12, 1, 0, &payload);
 
-    let err = block_on(handle_set_certificate(&mut state, &pal, &io)).unwrap_err();
+    let err = handle_set_certificate(&mut state, &pal, &io).unwrap_err();
 
     assert_eq!(err, SPDM_BUSY);
     assert_eq!(pal.op.take(), None);
@@ -443,7 +442,7 @@ fn test_handle_set_certificate_preserves_wire_erase_error() {
     let mut state = state(SpdmVersion::V13);
     let io = set_certificate_io(SpdmVersion::V13, 3 | (1 << 7), 0, &[]);
 
-    let err = block_on(handle_set_certificate(&mut state, &pal, &io)).unwrap_err();
+    let err = handle_set_certificate(&mut state, &pal, &io).unwrap_err();
 
     assert_eq!(err, SPDM_RESET_REQUIRED);
     assert_eq!(pal.op.take(), None);

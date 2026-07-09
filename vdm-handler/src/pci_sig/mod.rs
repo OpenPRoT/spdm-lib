@@ -104,11 +104,8 @@ mod tests {
     extern crate std;
 
     use core::cell::Cell;
-    use core::future::Future;
     use core::marker::PhantomData;
     use core::ops::{Deref, DerefMut};
-    use core::pin::Pin;
-    use core::task::{Context, Poll, RawWaker, RawWakerVTable, Waker};
 
     use spdm_codec::{errors::SPDM_VERSION_MISMATCH, IDE_KM_PROTOCOL_ID};
     use spdm_traits::{SpdmPalIoKind, VdmResponse};
@@ -210,33 +207,6 @@ mod tests {
             value: T,
         ) -> PalResult<Self::PersistentBox<T>> {
             Ok(Box::new(value))
-        }
-    }
-
-    fn block_on<F: Future>(future: F) -> F::Output {
-        fn raw_waker() -> RawWaker {
-            fn clone(_: *const ()) -> RawWaker {
-                raw_waker()
-            }
-            fn wake(_: *const ()) {}
-            fn wake_by_ref(_: *const ()) {}
-            fn drop(_: *const ()) {}
-            RawWaker::new(
-                core::ptr::null(),
-                &RawWakerVTable::new(clone, wake, wake_by_ref, drop),
-            )
-        }
-
-        // SAFETY: The no-op waker never dereferences the data pointer; these
-        // tests only poll futures that complete synchronously.
-        let waker = unsafe { Waker::from_raw(raw_waker()) };
-        let mut context = Context::from_waker(&waker);
-        let mut future = Box::pin(future);
-        loop {
-            match Future::poll(Pin::as_mut(&mut future), &mut context) {
-                Poll::Ready(output) => return output,
-                Poll::Pending => core::hint::spin_loop(),
-            }
         }
     }
 
@@ -429,7 +399,7 @@ mod tests {
         let io = TestIo;
         let mut inline = vec![0; inline_len];
         let mut large = [];
-        let response = block_on(backend.handle_request(
+        let response = backend.handle_request(
             req,
             VdmResponseBuffer {
                 inline: &mut inline,
@@ -437,7 +407,7 @@ mod tests {
                 alloc: &alloc,
                 io: &io,
             },
-        ))?;
+        )?;
         Ok((response, inline))
     }
 
