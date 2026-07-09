@@ -650,11 +650,10 @@ pub fn established_session(
     let (state, mut sessions, session_id) = handshake_session(pal);
     let session = sessions.find_mut(session_id).unwrap();
     
-        session
-            .key_schedule
-            .generate_data_keys(pal, &empty_io, &[0u8; SHA384_DIGEST_SIZE]),
-    
-    .unwrap();
+    session
+        .key_schedule
+        .generate_data_keys(pal, &empty_io, &[0u8; SHA384_DIGEST_SIZE])
+        .unwrap();
     session.key_schedule.destroy_handshake_secrets();
     session.state = crate::session::SessionState::Established;
     (state, sessions, session_id)
