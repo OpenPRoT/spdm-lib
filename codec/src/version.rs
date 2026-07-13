@@ -4,7 +4,7 @@
 
 use zerocopy::{FromBytes, Immutable, IntoBytes, KnownLayout, Unaligned};
 
-use crate::{ReqRespCode, ResponseBody, WireError, WireWriter};
+use crate::{ReqRespCode, RequestBody, ResponseBody, WireError, WireReader, WireWriter};
 
 // ---- SpdmVersion -----------------------------------------------------------
 
@@ -49,6 +49,77 @@ impl SpdmVersion {
             SpdmVersion::V12 => "1.2",
             SpdmVersion::V13 => "1.3",
         }
+    }
+}
+
+// ---- GET_VERSION request wire types ----------------------------------------
+
+/// 2-byte GET_VERSION request body (DSP0274 §10.2 Table 8): `Param1` and
+/// `Param2` are both Reserved and must be 0.
+#[derive(FromBytes, IntoBytes, KnownLayout, Immutable, Unaligned, Copy, Clone, Debug, Default)]
+#[repr(C)]
+pub struct GetVersionReqBody {
+    pub param1: u8,
+    pub param2: u8,
+}
+
+impl GetVersionReqBody {
+    pub const SIZE: usize = 2;
+}
+
+const _: () = assert!(core::mem::size_of::<GetVersionReqBody>() == GetVersionReqBody::SIZE);
+
+impl RequestBody for GetVersionReqBody {
+    const REQUEST_CODE: ReqRespCode = ReqRespCode::GET_VERSION;
+
+    fn body_size(&self) -> usize {
+        GetVersionReqBody::SIZE
+    }
+
+    fn encode_body(&self, w: &mut WireWriter<'_>) -> Result<(), WireError> {
+        w.write(self)
+    }
+}
+
+// ---- VERSION response parser (requester side) ------------------------------
+
+/// A parsed VERSION response: the responder's supported version list.
+#[derive(Debug, Clone)]
+pub struct ParsedVersionRsp {
+    /// Number of valid entries in `versions`.
+    pub count: usize,
+    /// Supported versions, decoded from the entry list. Unknown/future
+    /// encodings are skipped, so `count` may be less than the wire entry count.
+    pub versions: [Option<SpdmVersion>; Self::MAX_ENTRIES],
+}
+
+impl ParsedVersionRsp {
+    /// Maximum number of version entries we retain (there are only four
+    /// defined SPDM versions today).
+    pub const MAX_ENTRIES: usize = 8;
+
+    /// Parses a VERSION response body (everything after the 2-byte SPDM common
+    /// header). Returns the decoded version list.
+    pub fn parse(body: &[u8]) -> Result<Self, WireError> {
+        let mut r = WireReader::new(body);
+        let hdr: &VersionRspBody = r.read()?;
+        let entry_count = hdr.entry_count as usize;
+
+        let mut versions = [None; Self::MAX_ENTRIES];
+        let mut kept = 0;
+        for _ in 0..entry_count {
+            let entry: &VersionNumberEntry = r.read()?;
+            if let Some(v) = SpdmVersion::from_u8(entry.major_minor) {
+                if kept < Self::MAX_ENTRIES {
+                    versions[kept] = Some(v);
+                    kept += 1;
+                }
+            }
+        }
+        Ok(Self {
+            count: kept,
+            versions,
+        })
     }
 }
 

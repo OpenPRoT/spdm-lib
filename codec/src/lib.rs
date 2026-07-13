@@ -28,21 +28,23 @@ mod wire;
 
 pub use algorithms::{
     alg_type, AeadAlgos, AlgStructEntry, AlgorithmsRsp, AlgorithmsRspBodyFixed, AsymAlgos,
-    DheAlgos, HashAlgos, KeyScheduleAlgos, MeasHashAlgos, MeasSpec,
-    NegotiateAlgorithmsReqBodyFixed, OtherParamSupport, MAX_ALG_STRUCT_ENTRIES,
+    DheAlgos, HashAlgos, KeyScheduleAlgos, MeasHashAlgos, MeasSpec, NegotiateAlgorithmsReq,
+    NegotiateAlgorithmsReqBodyFixed, OtherParamSupport, ParsedAlgorithmsRsp,
+    MAX_ALG_STRUCT_ENTRIES,
 };
-pub use builder::ResponseBody;
-pub use capabilities::{CapFlags, CapabilitiesBody, CapabilitiesRsp};
+pub use builder::{RequestBody, ResponseBody};
+pub use capabilities::{CapFlags, CapabilitiesBody, CapabilitiesRsp, GetCapabilitiesReq};
 pub use certificate::{
-    CertificateRsp, CertificateRspBody, GetCertificateReqBody, ATTR_SLOT_SIZE_REQUESTED,
+    CertificateRsp, CertificateRspBody, GetCertificateReq, GetCertificateReqBody,
+    ParsedCertificateRsp, ATTR_SLOT_SIZE_REQUESTED,
 };
-pub use challenge::{ChallengeAuthRsp, ChallengeReqBody};
+pub use challenge::{ChallengeAuthRsp, ChallengeReq, ChallengeReqBody, ParsedChallengeAuth};
 pub use chunk::{
     ChunkGetReqBody, ChunkResponseBody, ChunkSendAckBody, ChunkSendReqBody,
     CHUNK_ACK_ATTR_EARLY_ERROR, CHUNK_ATTR_LAST_CHUNK, CHUNK_RESPONSE_FIXED_BODY_SIZE,
     LARGE_RESPONSE_SIZE_FIELD_SIZE,
 };
-pub use digests::{DigestsRsp, DigestsRspBody};
+pub use digests::{DigestsRsp, DigestsRspBody, GetDigestsReqBody, ParsedDigestsRsp};
 pub use end_session::{EndSessionAck, EndSessionReqBody};
 pub use finish::{FinishReqBody, FinishRsp};
 pub use header::{
@@ -53,8 +55,9 @@ pub use key_exchange::{
     KeyExchangeReqBody, KeyExchangeRsp, ECDH_P384_EXCHANGE_DATA_SIZE, KEY_EXCHANGE_RANDOM_DATA_LEN,
 };
 pub use measurements::{
-    DmtfMeasurementBlockHeader, GetMeasurementsReqBody, MeasurementsRsp, MEAS_BLOCK_METADATA_SIZE,
-    SPDM_MAX_MEASUREMENT_RECORD_SIZE,
+    DmtfMeasurementBlockHeader, GetMeasurementsReq, GetMeasurementsReqBody, MeasurementsRsp,
+    ParsedMeasurementsRsp, MEAS_ATTR_RAW_REQUESTED, MEAS_ATTR_SIGNATURE_REQUESTED,
+    MEAS_BLOCK_METADATA_SIZE, MEAS_OP_ALL, SPDM_MAX_MEASUREMENT_RECORD_SIZE,
 };
 pub use set_certificate::{SetCertificateReqBody, SetCertificateRsp, SetCertificateRspBody};
 pub use vendor_defined::pci_sig::ide_km::{
@@ -74,7 +77,10 @@ pub use vendor_defined::{
     decode_vendor_defined_req, StandardsBodyId, VendorDefinedReq, VendorDefinedReqPdu,
     VendorDefinedRspBody, VendorDefinedRspPdu,
 };
-pub use version::{SpdmVersion, VersionNumberEntry, VersionRsp, VersionRspBody};
+pub use version::{
+    GetVersionReqBody, ParsedVersionRsp, SpdmVersion, VersionNumberEntry, VersionRsp,
+    VersionRspBody,
+};
 pub use wire::{WireError, WireReader, WireWriter};
 
 pub use opaque::{

@@ -5,7 +5,8 @@
 use zerocopy::{FromBytes, Immutable, IntoBytes, KnownLayout, Unaligned};
 
 use crate::{
-    ReqRespCode, ResponseBody, WireError, WireWriter, REQUESTER_CONTEXT_LEN, SPDM_NONCE_LEN,
+    ReqRespCode, RequestBody, ResponseBody, WireError, WireReader, WireWriter,
+    ECC_P384_SIGNATURE_SIZE, REQUESTER_CONTEXT_LEN, SPDM_NONCE_LEN,
 };
 
 // ---- Constants -------------------------------------------------------------
@@ -192,5 +193,120 @@ impl DmtfMeasurementBlockHeader {
             value_type: meas_value_type | (if is_raw { 0x80 } else { 0x00 }),
             value_size: value_len.to_le_bytes(),
         }
+    }
+}
+
+// ---- GET_MEASUREMENTS request builder (requester side) ---------------------
+
+/// Measurement request attribute bit: signature requested.
+pub const MEAS_ATTR_SIGNATURE_REQUESTED: u8 = 0x01;
+/// Measurement request attribute bit: raw bitstream requested.
+pub const MEAS_ATTR_RAW_REQUESTED: u8 = 0x02;
+/// Measurement operation value: return all measurement blocks.
+pub const MEAS_OP_ALL: u8 = 0xFF;
+
+/// Builder for a GET_MEASUREMENTS request.
+///
+/// When `signature_requested`, the body carries `Nonce(32) + SlotID(1)` after
+/// the 2-byte fixed prefix; V1.3+ then appends an 8-byte RequesterContext.
+pub struct GetMeasurementsReq {
+    pub attributes: u8,
+    pub measurement_operation: u8,
+    /// Present when a signature is requested.
+    pub nonce: Option<[u8; SPDM_NONCE_LEN]>,
+    pub slot_id: u8,
+    /// Present for V1.3+.
+    pub requester_context: Option<[u8; REQUESTER_CONTEXT_LEN]>,
+}
+
+impl RequestBody for GetMeasurementsReq {
+    const REQUEST_CODE: ReqRespCode = ReqRespCode::GET_MEASUREMENTS;
+
+    fn body_size(&self) -> usize {
+        2 + if self.nonce.is_some() {
+            SPDM_NONCE_LEN + 1
+        } else {
+            0
+        } + if self.requester_context.is_some() {
+            REQUESTER_CONTEXT_LEN
+        } else {
+            0
+        }
+    }
+
+    fn encode_body(&self, w: &mut WireWriter<'_>) -> Result<(), WireError> {
+        w.write(&GetMeasurementsReqBody {
+            attributes: self.attributes,
+            measurement_operation: self.measurement_operation,
+        })?;
+        if let Some(nonce) = &self.nonce {
+            w.write_bytes(nonce)?;
+            w.write_bytes(&[self.slot_id & 0x0F])?;
+        }
+        if let Some(ctx) = &self.requester_context {
+            w.write_bytes(ctx)?;
+        }
+        Ok(())
+    }
+}
+
+/// A parsed MEASUREMENTS response.
+///
+/// `no_sig_prefix` is the response body excluding the trailing signature — the
+/// bytes the requester appends to the L1 transcript before verifying.
+#[derive(Clone, Copy)]
+pub struct ParsedMeasurementsRsp<'a> {
+    pub total_number_of_measurement: u8,
+    pub slot_id: u8,
+    pub number_of_blocks: u8,
+    pub measurement_record: &'a [u8],
+    pub nonce: &'a [u8],
+    /// Body bytes excluding the trailing signature (empty signature → whole body).
+    pub no_sig_prefix: &'a [u8],
+    /// Trailing signature; empty if none was requested.
+    pub signature: &'a [u8],
+}
+
+impl<'a> ParsedMeasurementsRsp<'a> {
+    /// Parse a MEASUREMENTS response body (everything after the 2-byte SPDM
+    /// header). `signed` and `has_requester_context` describe the variable
+    /// trailing fields negotiated for this request/connection.
+    pub fn parse(
+        body: &'a [u8],
+        signed: bool,
+        has_requester_context: bool,
+    ) -> Result<Self, WireError> {
+        let sig_len = if signed { ECC_P384_SIGNATURE_SIZE } else { 0 };
+        if body.len() < sig_len {
+            return Err(WireError);
+        }
+        let no_sig_len = body.len() - sig_len;
+        let no_sig_prefix = &body[..no_sig_len];
+        let signature = &body[no_sig_len..];
+
+        let mut r = WireReader::new(no_sig_prefix);
+        let total = r.take(1)?[0];
+        let slot_id = r.take(1)?[0] & 0x0F;
+        let number_of_blocks = r.take(1)?[0];
+        let rec_len_bytes = r.take(3)?;
+        let rec_len =
+            u32::from_le_bytes([rec_len_bytes[0], rec_len_bytes[1], rec_len_bytes[2], 0]) as usize;
+        let measurement_record = r.take(rec_len)?;
+        let nonce = r.take(SPDM_NONCE_LEN)?;
+        let opaque_len = u16::from_le_bytes(r.take(2)?.try_into().map_err(|_| WireError)?);
+        r.skip(opaque_len as usize)?;
+        if has_requester_context {
+            r.skip(REQUESTER_CONTEXT_LEN)?;
+        }
+
+        Ok(Self {
+            total_number_of_measurement: total,
+            slot_id,
+            number_of_blocks,
+            measurement_record,
+            nonce,
+            no_sig_prefix,
+            signature,
+        })
     }
 }
