@@ -29,7 +29,7 @@
 
 use zerocopy::{little_endian::U16, FromBytes, Immutable, IntoBytes, KnownLayout, Unaligned};
 
-use crate::{ReqRespCode, ResponseBody, WireError, WireWriter};
+use crate::{ReqRespCode, RequestBody, ResponseBody, WireError, WireReader, WireWriter};
 
 /// 6-byte GET_CERTIFICATE request body (after the 2-byte SPDM
 /// common header).
@@ -102,5 +102,62 @@ impl ResponseBody for CertificateRsp<'_> {
             remainder_length: U16::new(self.remainder_length),
         })?;
         w.write_bytes(self.chain_portion)
+    }
+}
+
+// ---- GET_CERTIFICATE request (requester side) ------------------------------
+
+/// Builder for a GET_CERTIFICATE request. Requests `[offset, offset+length)` of
+/// the SPDM cert chain for `slot_id`.
+pub struct GetCertificateReq {
+    pub slot_id: u8,
+    pub attributes: u8,
+    pub offset: u16,
+    pub length: u16,
+}
+
+impl RequestBody for GetCertificateReq {
+    const REQUEST_CODE: ReqRespCode = ReqRespCode::GET_CERTIFICATE;
+
+    fn body_size(&self) -> usize {
+        GetCertificateReqBody::SIZE
+    }
+
+    fn encode_body(&self, w: &mut WireWriter<'_>) -> Result<(), WireError> {
+        w.write(&GetCertificateReqBody {
+            slot_id: self.slot_id,
+            attributes: self.attributes,
+            offset: U16::new(self.offset),
+            length: U16::new(self.length),
+        })
+    }
+}
+
+/// A parsed CERTIFICATE response: the header fields plus a view over the
+/// cert-chain portion bytes for `[offset, offset+portion_length)`.
+#[derive(Clone, Copy)]
+pub struct ParsedCertificateRsp<'a> {
+    pub slot_id: u8,
+    pub param2: u8,
+    pub portion_length: u16,
+    pub remainder_length: u16,
+    pub portion: &'a [u8],
+}
+
+impl<'a> ParsedCertificateRsp<'a> {
+    /// Parse a CERTIFICATE response body (everything after the 2-byte SPDM
+    /// header).
+    pub fn parse(body: &'a [u8]) -> Result<Self, WireError> {
+        let mut r = WireReader::new(body);
+        let hdr: &CertificateRspBody = r.read()?;
+        let portion_length = hdr.portion_length.get();
+        let portion = r.take(portion_length as usize)?;
+        Ok(Self {
+            slot_id: hdr.slot_id,
+            param2: hdr.param2,
+            portion_length,
+            remainder_length: hdr.remainder_length.get(),
+            portion,
+        })
     }
 }

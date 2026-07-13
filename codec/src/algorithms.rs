@@ -13,7 +13,7 @@ use zerocopy::{
 };
 
 use crate::flag_macros::{def_flag_set_le, def_flag_set_u8};
-use crate::{ReqRespCode, ResponseBody, WireError, WireWriter};
+use crate::{ReqRespCode, RequestBody, ResponseBody, WireError, WireReader, WireWriter};
 
 // ---- typed algorithm bit-flag types ----------------------------------------
 
@@ -158,6 +158,58 @@ const _: () = assert!(
         == NegotiateAlgorithmsReqBodyFixed::SIZE
 );
 
+/// Builder for a NEGOTIATE_ALGORITHMS request (requester side, v1.2+).
+///
+/// Emits the 30-byte fixed prefix followed by the `AlgStruct[]` entries. This
+/// builder never sends extended (vendor) algorithms — `ext_asym_count` /
+/// `ext_hash_count` are 0 and each `AlgStructEntry` uses `ExtAlgCount = 0`.
+pub struct NegotiateAlgorithmsReq {
+    pub measurement_spec: MeasSpec,
+    pub other_param_support: OtherParamSupport,
+    pub base_asym_algo: AsymAlgos,
+    pub base_hash_algo: HashAlgos,
+    /// AlgStruct entries to offer; `None` slots are skipped.
+    pub alg_structs: [Option<AlgStructEntry>; MAX_ALG_STRUCT_ENTRIES],
+}
+
+impl NegotiateAlgorithmsReq {
+    fn num_alg_struct(&self) -> u8 {
+        self.alg_structs.iter().filter(|x| x.is_some()).count() as u8
+    }
+}
+
+impl RequestBody for NegotiateAlgorithmsReq {
+    const REQUEST_CODE: ReqRespCode = ReqRespCode::NEGOTIATE_ALGORITHMS;
+
+    fn body_size(&self) -> usize {
+        NegotiateAlgorithmsReqBodyFixed::SIZE
+            + (self.num_alg_struct() as usize) * AlgStructEntry::SIZE
+    }
+
+    fn encode_body(&self, w: &mut WireWriter<'_>) -> Result<(), WireError> {
+        let num = self.num_alg_struct();
+        let length = (crate::SpdmMsgHdrPdu::SIZE + self.body_size()) as u16;
+        w.write(&NegotiateAlgorithmsReqBodyFixed {
+            num_alg_struct: num,
+            param2: 0,
+            length: U16::new(length),
+            measurement_spec: self.measurement_spec,
+            other_param_support: self.other_param_support,
+            base_asym_algo: self.base_asym_algo,
+            base_hash_algo: self.base_hash_algo,
+            reserved1: [0; 12],
+            ext_asym_count: 0,
+            ext_hash_count: 0,
+            reserved2: 0,
+            mel_spec_or_reserved: 0,
+        })?;
+        for entry in self.alg_structs.iter().flatten() {
+            w.write(entry)?;
+        }
+        Ok(())
+    }
+}
+
 // ---- ALGORITHMS response wire types ----------------------------------------
 
 /// Fixed-size prefix of the ALGORITHMS response body. Followed by
@@ -280,5 +332,55 @@ impl ResponseBody for AlgorithmsRsp {
             w.write(entry)?;
         }
         Ok(())
+    }
+}
+
+/// A parsed ALGORITHMS response (requester side): the responder's selected
+/// algorithms plus the per-family AlgStruct selections.
+#[derive(Clone, Copy)]
+pub struct ParsedAlgorithmsRsp {
+    pub measurement_spec_sel: MeasSpec,
+    pub other_param_support: OtherParamSupport,
+    pub meas_hash_algo: MeasHashAlgos,
+    pub base_asym_sel: AsymAlgos,
+    pub base_hash_sel: HashAlgos,
+    /// DHE selection from the DHE AlgStruct, if present.
+    pub dhe: DheAlgos,
+    /// AEAD selection from the AEAD AlgStruct, if present.
+    pub aead: AeadAlgos,
+    /// KeySchedule selection from the KeySchedule AlgStruct, if present.
+    pub key_schedule: KeyScheduleAlgos,
+}
+
+impl ParsedAlgorithmsRsp {
+    /// Parse an ALGORITHMS response body (everything after the 2-byte SPDM
+    /// common header). Extracts the fixed selections and the DHE/AEAD/
+    /// KeySchedule AlgStruct entries; other AlgStruct types are ignored.
+    pub fn parse(body: &[u8]) -> Result<Self, WireError> {
+        let mut r = WireReader::new(body);
+        let fixed: &AlgorithmsRspBodyFixed = r.read()?;
+
+        let mut out = Self {
+            measurement_spec_sel: fixed.measurement_spec_sel,
+            other_param_support: fixed.other_param_support,
+            meas_hash_algo: fixed.meas_hash_algo,
+            base_asym_sel: fixed.base_asym_sel,
+            base_hash_sel: fixed.base_hash_sel,
+            dhe: DheAlgos::EMPTY,
+            aead: AeadAlgos::EMPTY,
+            key_schedule: KeyScheduleAlgos::EMPTY,
+        };
+
+        for _ in 0..fixed.num_alg_struct {
+            let entry: &AlgStructEntry = r.read()?;
+            let bits = entry.alg_supported.get();
+            match entry.alg_type {
+                alg_type::DHE => out.dhe = DheAlgos::from_bits(bits),
+                alg_type::AEAD => out.aead = AeadAlgos::from_bits(bits),
+                alg_type::KEY_SCHEDULE => out.key_schedule = KeyScheduleAlgos::from_bits(bits),
+                _ => {}
+            }
+        }
+        Ok(out)
     }
 }
