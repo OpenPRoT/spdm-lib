@@ -19,6 +19,7 @@ use std::net::TcpStream;
 
 use spdm_traits::{MeasurementInfo, SpdmPal};
 
+use alloc::AllocStats;
 use certs::CertState;
 
 /// Host platform abstraction layer.
@@ -30,6 +31,8 @@ pub struct HostPal {
     pub(crate) certs: CertState,
     /// Fixed measurement table.
     pub(crate) measurements: Vec<MeasurementInfo>,
+    /// Allocation counters, printed on drop.
+    pub(crate) stats: AllocStats,
 }
 
 impl HostPal {
@@ -39,6 +42,7 @@ impl HostPal {
             stream: RefCell::new(stream),
             certs: CertState::new(),
             measurements: meas::measurement_table(),
+            stats: AllocStats::default(),
         }
     }
 
@@ -55,3 +59,9 @@ impl HostPal {
 // All six sub-traits are implemented across the submodules, so the marker
 // super-trait is satisfied automatically.
 impl SpdmPal for HostPal {}
+
+impl Drop for HostPal {
+    fn drop(&mut self) {
+        self.stats.report();
+    }
+}

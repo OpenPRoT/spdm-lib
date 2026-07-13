@@ -50,3 +50,37 @@ pub trait ResponseBody {
         self.encode_body(w)
     }
 }
+
+/// SPDM request body — the requester-side mirror of [`ResponseBody`].
+///
+/// A requester builds a request by writing the SPDM common header
+/// `(version, Self::REQUEST_CODE)` followed by the request body. This trait
+/// captures the same three command-independent facts as [`ResponseBody`], for
+/// the opposite direction.
+pub trait RequestBody {
+    /// SPDM request code carried in the common header's `code` byte.
+    const REQUEST_CODE: ReqRespCode;
+
+    /// Number of body bytes (everything after the 2-byte common header).
+    fn body_size(&self) -> usize;
+
+    /// Encode the body at the writer's current position.
+    fn encode_body(&self, w: &mut WireWriter<'_>) -> Result<(), WireError>;
+
+    /// Total SPDM-payload size on the wire (common header + body).
+    #[inline]
+    fn encoded_size(&self) -> usize {
+        SpdmMsgHdrPdu::SIZE + self.body_size()
+    }
+
+    /// Write `(common-header(version, Self::REQUEST_CODE) | body)` at the
+    /// writer's current position.
+    fn encode_with_header(
+        &self,
+        version: SpdmVersion,
+        w: &mut WireWriter<'_>,
+    ) -> Result<(), WireError> {
+        w.write(&SpdmMsgHdrPdu::new(version, Self::REQUEST_CODE))?;
+        self.encode_body(w)
+    }
+}

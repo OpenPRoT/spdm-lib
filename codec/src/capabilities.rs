@@ -14,7 +14,7 @@
 use zerocopy::{little_endian::U32, FromBytes, Immutable, IntoBytes, KnownLayout, Unaligned};
 
 use crate::flag_macros::def_flag_set_le;
-use crate::{ReqRespCode, ResponseBody, WireError, WireWriter};
+use crate::{ReqRespCode, RequestBody, ResponseBody, WireError, WireReader, WireWriter};
 
 def_flag_set_le! {
     /// SPDM capability bitfield (DSP0274 §10.5.1 Table 11). Constants
@@ -126,5 +126,46 @@ impl ResponseBody for CapabilitiesRsp {
             data_transfer_size: U32::new(self.data_transfer_size),
             max_spdm_msg_size: U32::new(self.max_spdm_msg_size),
         })
+    }
+}
+
+/// Builder for a GET_CAPABILITIES request (requester side). Same 18-byte
+/// [`CapabilitiesBody`] wire shape as the response, but carries the
+/// `GET_CAPABILITIES` request code.
+pub struct GetCapabilitiesReq {
+    pub ct_exponent: u8,
+    pub flags: CapFlags,
+    pub data_transfer_size: u32,
+    pub max_spdm_msg_size: u32,
+}
+
+impl RequestBody for GetCapabilitiesReq {
+    const REQUEST_CODE: ReqRespCode = ReqRespCode::GET_CAPABILITIES;
+
+    fn body_size(&self) -> usize {
+        CapabilitiesBody::SIZE
+    }
+
+    fn encode_body(&self, w: &mut WireWriter<'_>) -> Result<(), WireError> {
+        w.write(&CapabilitiesBody {
+            param1: 0,
+            param2: 0,
+            reserved: 0,
+            ct_exponent: self.ct_exponent,
+            reserved2: [0; 2],
+            flags: self.flags,
+            data_transfer_size: U32::new(self.data_transfer_size),
+            max_spdm_msg_size: U32::new(self.max_spdm_msg_size),
+        })
+    }
+}
+
+impl CapabilitiesBody {
+    /// Parse a CAPABILITIES response body (everything after the 2-byte SPDM
+    /// common header) into the owned [`CapabilitiesBody`] wire struct.
+    pub fn parse(body: &[u8]) -> Result<Self, WireError> {
+        let mut r = WireReader::new(body);
+        let parsed: &CapabilitiesBody = r.read()?;
+        Ok(*parsed)
     }
 }
