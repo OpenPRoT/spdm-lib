@@ -621,7 +621,7 @@ fn compute_tbs_hash<Pal: SpdmPal>(
     io: &<Pal as SpdmPalIoTransport>::Io<'_>,
     signing_ctx: &[u8; SPDM_SIGNING_CONTEXT_LEN],
     hash: &mut [u8; SHA384_HASH_SIZE],
-) -> spdm_error::PalResult<()> {
+) -> spdm_errors::PalResult<()> {
     let mut state = pal
         .hash_init(io, SpdmPalHashAlgo::Sha384, signing_ctx)
         ?;

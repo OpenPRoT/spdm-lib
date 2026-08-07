@@ -7,7 +7,7 @@
 
 use crate::alloc::BitmapAllocator;
 use spdm_traits::{MeasurementInfo, SpdmPalMeasurements, SPDM_NONCE_LEN};
-use spdm_error::PalResult;
+use spdm_errors::PalResult;
 
 use crate::pal::PlatformSpdmPal;
 
@@ -64,7 +64,7 @@ impl<M: MeasurementProvider> SpdmPalMeasurements for PlatformSpdmPal<M> {
             let mut scratch = self
                 .allocator
                 .alloc_bytes(M::SCRATCH_SIZE)
-                .map_err(|_| spdm_error::codes::INTERNAL_BUG)?;
+                .map_err(|_| spdm_errors::codes::INTERNAL_BUG)?;
             scratch.fill(0);
             self.meas_provider
                 .get_measurement_value(index, nonce, out, &mut scratch, self.allocator)

@@ -9,7 +9,6 @@ members = [
     "stack",
     "transports",
     "vdm-handler",
-    "placeholders/spdm-error",
     "placeholders/spdm-crypto",
     "placeholders/spdm-transport-sys",
     "placeholders/spdm-console",
@@ -44,7 +43,6 @@ bitfield-struct = "0.13.0"
 zerocopy = { version = "0.8.17", features = ["derive"] }
 
 # Platform-independent placeholders (replacing caliptra-mcu deps)
-spdm-error = { path = "placeholders/spdm-error" }
 spdm-crypto = { path = "placeholders/spdm-crypto" }
 spdm-transport-sys = { path = "placeholders/spdm-transport-sys" }
 spdm-console = { path = "placeholders/spdm-console" }

@@ -12,7 +12,7 @@
 
 use std::io::{Read, Write};
 
-use spdm_error::{codes::INVARIANT, PalErrorCode, PalResult};
+use spdm_errors::{codes::INVARIANT, PalErrorCode, PalResult};
 use spdm_traits::{SpdmPalIo, SpdmPalIoKind, SpdmPalIoTransport};
 
 use super::HostPal;

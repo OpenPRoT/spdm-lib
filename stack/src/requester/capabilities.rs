@@ -7,7 +7,7 @@ use spdm_codec::{
     CapFlags, CapabilitiesBody, GetCapabilitiesReq, ParsedVersionRsp, ReqRespCode, RequestBody,
     SpdmMsgHdrPdu, SpdmVersion, WireWriter,
 };
-use spdm_error::{codes::INVARIANT, PalResult};
+use spdm_errors::{codes::INVARIANT, PalResult};
 use spdm_traits::SpdmPalHash;
 use zerocopy::FromBytes;
 

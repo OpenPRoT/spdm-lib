@@ -47,11 +47,11 @@ impl HostPal {
     }
 
     /// Returns the slot-0 cert state, or an error for any other slot.
-    fn slot0(&self, slot: u8) -> spdm_error::PalResult<&CertState> {
+    fn slot0(&self, slot: u8) -> spdm_errors::PalResult<&CertState> {
         if slot == 0 {
             Ok(&self.certs)
         } else {
-            Err(spdm_error::codes::INVARIANT)
+            Err(spdm_errors::codes::INVARIANT)
         }
     }
 }

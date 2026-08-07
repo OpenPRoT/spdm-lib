@@ -121,6 +121,6 @@ impl SpdmVdmBackend for NoVdmBackend {
         Alloc: SpdmPalAlloc,
         Io: SpdmPalIo,
     {
-        Err(spdm_error::codes::NOT_IMPLEMENTED)
+        Err(spdm_errors::codes::NOT_IMPLEMENTED)
     }
 }

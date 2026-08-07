@@ -4,7 +4,7 @@
 
 use sha2::{Digest, Sha384};
 
-use spdm_error::{codes::INVARIANT, PalResult};
+use spdm_errors::{codes::INVARIANT, PalResult};
 use spdm_traits::{MeasurementInfo, SpdmPalMeasurements, SPDM_NONCE_LEN};
 
 use super::HostPal;

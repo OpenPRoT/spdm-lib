@@ -98,7 +98,7 @@ impl<S> SessionTranscript<S> {
         io: &impl SpdmPalIo,
         data: &[u8],
     ) -> PalResult<()> {
-        let state = self.th.as_mut().ok_or(spdm_error::codes::INVARIANT)?;
+        let state = self.th.as_mut().ok_or(spdm_errors::codes::INVARIANT)?;
         hash.hash_update(io, state, data)
     }
 
@@ -112,7 +112,7 @@ impl<S> SessionTranscript<S> {
         io: &impl SpdmPalIo,
         out: &mut [u8],
     ) -> PalResult<()> {
-        let state = self.th.as_ref().ok_or(spdm_error::codes::INVARIANT)?;
+        let state = self.th.as_ref().ok_or(spdm_errors::codes::INVARIANT)?;
         let mut clone = hash.hash_clone(io, state)?;
         hash.hash_finish(io, &mut clone, out)
     }
@@ -124,7 +124,7 @@ impl<S> SessionTranscript<S> {
         io: &impl SpdmPalIo,
         out: &mut [u8],
     ) -> PalResult<()> {
-        let state = self.th.as_mut().ok_or(spdm_error::codes::INVARIANT)?;
+        let state = self.th.as_mut().ok_or(spdm_errors::codes::INVARIANT)?;
         hash.hash_finish(io, state, out)?;
         self.th = None;
         Ok(())

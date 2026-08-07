@@ -489,7 +489,7 @@ mod tests {
     use spdm_traits::{
         SpdmPalAlloc, SpdmPalIo, SpdmVdmBackend, VdmRegistry, VdmResponse, VdmResponseBuffer,
     };
-    use spdm_error::PalResult;
+    use spdm_errors::PalResult;
     use std::vec;
     use std::vec::Vec;
 

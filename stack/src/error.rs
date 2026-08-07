@@ -15,7 +15,7 @@
 //! every layer boundary, no `.map_err(...)` ever needed.
 
 use spdm_errors::{as_spdm_wire, is_mctp_error, is_vdm_no_response};
-use spdm_error::{domain, PalErrorCode};
+use spdm_errors::{domain, PalErrorCode};
 
 /// SPDM-level error suitable for emission as an `ERROR` PDU.
 ///

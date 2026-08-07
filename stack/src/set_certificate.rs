@@ -15,7 +15,7 @@ use spdm_errors::as_spdm_wire;
 use spdm_traits::{
     PalBytes, SpdmPal, SpdmPalAlloc, SpdmPalIo, SpdmPalIoTransport, MAX_SLOTS,
 };
-use spdm_error::PalErrorCode;
+use spdm_errors::PalErrorCode;
 use zerocopy::FromBytes;
 
 use crate::build::build_response;

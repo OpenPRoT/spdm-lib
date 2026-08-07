@@ -11,7 +11,7 @@ use core::cell::UnsafeCell;
 use spdm_crypto::{
     sha_finish, sha_init, sha_update, ApiAlloc, HashAlgo, SHA_CONTEXT_SIZE,
 };
-use spdm_error::PalResult;
+use spdm_errors::PalResult;
 
 #[cfg(feature = "set-certificate")]
 use super::endorsement::ManagedEndorsement;
@@ -77,7 +77,7 @@ impl SharedCertStore {
         key_pair_id: u8,
     ) -> PalResult<()> {
         if idx >= NUM_CERT_SLOTS || chain.is_empty() {
-            return Err(spdm_error::codes::INVARIANT);
+            return Err(spdm_errors::codes::INVARIANT);
         }
         let root_cert = chain[0];
         let sha_buf = alloc.alloc(SHA_CONTEXT_SIZE)?;
@@ -86,7 +86,7 @@ impl SharedCertStore {
         let mut hash = [0u8; 48];
         sha_finish(alloc, &mut state, &mut hash).await?;
 
-        let slot = self.cert_slot_mut(idx).ok_or(spdm_error::codes::INVARIANT)?;
+        let slot = self.cert_slot_mut(idx).ok_or(spdm_errors::codes::INVARIANT)?;
         slot.endorsement = SlotEndorsement::ReadOnly(ReadOnlyEndorsement::new(chain, hash));
         slot.key_pair_id = Some(key_pair_id);
         slot.cert_info = Some(DEFAULT_CERT_INFO);
@@ -106,11 +106,11 @@ impl SharedCertStore {
         capacity: usize,
     ) -> PalResult<()> {
         if idx >= NUM_CERT_SLOTS || capacity == 0 {
-            return Err(spdm_error::codes::INVARIANT);
+            return Err(spdm_errors::codes::INVARIANT);
         }
         let mut endorsement = ManagedEndorsement::new(spdm_slot, driver_num, base, capacity);
         endorsement.load().await?;
-        let slot = self.cert_slot_mut(idx).ok_or(spdm_error::codes::INVARIANT)?;
+        let slot = self.cert_slot_mut(idx).ok_or(spdm_errors::codes::INVARIANT)?;
         slot.key_pair_id = endorsement.key_pair_id();
         slot.cert_info = endorsement.cert_info();
         slot.endorsement = SlotEndorsement::Managed(endorsement);

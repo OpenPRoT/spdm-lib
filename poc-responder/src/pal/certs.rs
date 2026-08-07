@@ -9,7 +9,7 @@ use p384::ecdsa::{signature::hazmat::PrehashSigner, Signature, SigningKey};
 use p384::SecretKey;
 use sha2::{Digest, Sha384};
 
-use spdm_error::{codes::INVARIANT, PalResult};
+use spdm_errors::{codes::INVARIANT, PalResult};
 use spdm_traits::{SpdmPalAsymAlgo, SpdmPalCertStore, SpdmPalHashAlgo};
 
 use super::HostPal;

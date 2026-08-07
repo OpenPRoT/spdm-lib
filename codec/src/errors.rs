@@ -8,7 +8,7 @@
 //! constants the codec emits.
 
 use spdm_errors::{spdm_wire, SUBDOMAIN_LOCAL};
-use spdm_error::{domain, PalErrorCode};
+use spdm_errors::{domain, PalErrorCode};
 
 // ---- SPDM wire errors (DSP0274 §10.10.2) ------------------------------------
 

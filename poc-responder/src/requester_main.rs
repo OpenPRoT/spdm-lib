@@ -14,7 +14,7 @@ use std::net::TcpStream;
 
 mod requester_pal;
 
-use spdm_error::{codes::INVARIANT, PalResult};
+use spdm_errors::{codes::INVARIANT, PalResult};
 use spdm_stack::requester::{RequesterTransport, SpdmRequester};
 
 use requester_pal::{HostHash, HostVerifier};

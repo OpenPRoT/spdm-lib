@@ -139,7 +139,7 @@ impl<K: Clone> KeySchedule<K> {
             .master_ctx
             .dhe_secret
             .take()
-            .ok_or(spdm_error::codes::INVARIANT)?;
+            .ok_or(spdm_errors::codes::INVARIANT)?;
         let mut salt_0 = pal.alloc_bytes(io, SHA384_HASH_SIZE)?;
         salt_0.fill(0);
         let hs = pal.hkdf_extract_bytes(io, &salt_0, &dhe)?;
@@ -149,7 +149,7 @@ impl<K: Clone> KeySchedule<K> {
             .master_ctx
             .handshake_secret
             .as_ref()
-            .ok_or(spdm_error::codes::INVARIANT)?;
+            .ok_or(spdm_errors::codes::INVARIANT)?;
 
         // request_hs = HKDF-Expand(hs, bin_str1(th1_hash), Hash.Length)
         self.handshake_ctx.request_handshake_secret = Some(
@@ -186,7 +186,7 @@ impl<K: Clone> KeySchedule<K> {
                 self.handshake_ctx
                     .request_handshake_secret
                     .as_ref()
-                    .ok_or(spdm_error::codes::INVARIANT)?,
+                    .ok_or(spdm_errors::codes::INVARIANT)?,
                 BinStr::Str7,
                 None,
             )
@@ -201,7 +201,7 @@ impl<K: Clone> KeySchedule<K> {
                 self.handshake_ctx
                     .response_handshake_secret
                     .as_ref()
-                    .ok_or(spdm_error::codes::INVARIANT)?,
+                    .ok_or(spdm_errors::codes::INVARIANT)?,
                 BinStr::Str7,
                 None,
             )
@@ -229,7 +229,7 @@ impl<K: Clone> KeySchedule<K> {
             .master_ctx
             .handshake_secret
             .as_ref()
-            .ok_or(spdm_error::codes::INVARIANT)?;
+            .ok_or(spdm_errors::codes::INVARIANT)?;
 
         // Salt_1 = HKDF-Expand(hs, bin_str0, Hash.Length)
         let salt_1 =
@@ -245,7 +245,7 @@ impl<K: Clone> KeySchedule<K> {
             .master_ctx
             .master_secret
             .as_ref()
-            .ok_or(spdm_error::codes::INVARIANT)?;
+            .ok_or(spdm_errors::codes::INVARIANT)?;
 
         // req_data = HKDF-Expand(ms, bin_str3(th2), Hash.Length)
         self.data_ctx.request_data_secret = Some(
@@ -361,13 +361,13 @@ impl<K: Clone> KeySchedule<K> {
                 .handshake_ctx
                 .request_finished_key
                 .as_ref()
-                .ok_or(spdm_error::codes::INVARIANT),
+                .ok_or(spdm_errors::codes::INVARIANT),
             SessionKeyType::ResponseFinishedKey => self
                 .handshake_ctx
                 .response_finished_key
                 .as_ref()
-                .ok_or(spdm_error::codes::INVARIANT),
-            _ => Err(spdm_error::codes::INVARIANT),
+                .ok_or(spdm_errors::codes::INVARIANT),
+            _ => Err(spdm_errors::codes::INVARIANT),
         }
     }
 
@@ -377,31 +377,31 @@ impl<K: Clone> KeySchedule<K> {
                 self.handshake_ctx
                     .request_handshake_secret
                     .as_ref()
-                    .ok_or(spdm_error::codes::INVARIANT)?,
+                    .ok_or(spdm_errors::codes::INVARIANT)?,
                 self.handshake_ctx.request_seq,
             )),
             SessionKeyType::ResponseHandshakeKey => Ok((
                 self.handshake_ctx
                     .response_handshake_secret
                     .as_ref()
-                    .ok_or(spdm_error::codes::INVARIANT)?,
+                    .ok_or(spdm_errors::codes::INVARIANT)?,
                 self.handshake_ctx.response_seq,
             )),
             SessionKeyType::RequestDataKey => Ok((
                 self.data_ctx
                     .request_data_secret
                     .as_ref()
-                    .ok_or(spdm_error::codes::INVARIANT)?,
+                    .ok_or(spdm_errors::codes::INVARIANT)?,
                 self.data_ctx.request_seq,
             )),
             SessionKeyType::ResponseDataKey => Ok((
                 self.data_ctx
                     .response_data_secret
                     .as_ref()
-                    .ok_or(spdm_error::codes::INVARIANT)?,
+                    .ok_or(spdm_errors::codes::INVARIANT)?,
                 self.data_ctx.response_seq,
             )),
-            _ => Err(spdm_error::codes::INVARIANT),
+            _ => Err(spdm_errors::codes::INVARIANT),
         }
     }
 
@@ -465,7 +465,7 @@ fn hkdf_expand_bin_str<P: SpdmPalAlloc + SpdmPalSessionCrypto>(
         context,
         &mut info,
     )?;
-    let info = info.get(..len).ok_or(spdm_error::codes::INVARIANT)?;
+    let info = info.get(..len).ok_or(spdm_errors::codes::INVARIANT)?;
     pal.hkdf_expand(io, prk, SHA384_HASH_SIZE as u32, info)
         
 }
@@ -486,7 +486,7 @@ fn bin_concat(
     let mut pos = 0;
     let needed = 2 + version_str.len() + bin_str.label().len() + context.map_or(0, |ctx| ctx.len());
     if needed > buf.len() {
-        return Err(spdm_error::codes::INVARIANT);
+        return Err(spdm_errors::codes::INVARIANT);
     }
 
     write_bin_str_bytes(buf, &mut pos, &length.to_le_bytes())?;
@@ -506,8 +506,8 @@ fn bin_concat(
 fn write_bin_str_bytes(buf: &mut [u8], pos: &mut usize, src: &[u8]) -> PalResult<()> {
     let end = pos
         .checked_add(src.len())
-        .ok_or(spdm_error::codes::INVARIANT)?;
-    let dst = buf.get_mut(*pos..end).ok_or(spdm_error::codes::INVARIANT)?;
+        .ok_or(spdm_errors::codes::INVARIANT)?;
+    let dst = buf.get_mut(*pos..end).ok_or(spdm_errors::codes::INVARIANT)?;
     for (d, s) in dst.iter_mut().zip(src) {
         *d = *s;
     }

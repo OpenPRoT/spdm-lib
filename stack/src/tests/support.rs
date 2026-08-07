@@ -15,7 +15,7 @@ use spdm_traits::{
 };
 use core::marker::PhantomData;
 use core::ops::{Deref, DerefMut};
-use spdm_error::{PalErrorCode, PalResult};
+use spdm_errors::{PalErrorCode, PalResult};
 use std::boxed::Box;
 use std::cell::RefCell;
 use std::vec;
@@ -190,7 +190,7 @@ impl SpdmPalIoTransport for TestPal {
     }
 
     fn recv_request(&self) -> PalResult<Self::Io<'_>> {
-        Err(spdm_error::codes::NOT_IMPLEMENTED)
+        Err(spdm_errors::codes::NOT_IMPLEMENTED)
     }
 
     fn send_response(
@@ -199,7 +199,7 @@ impl SpdmPalIoTransport for TestPal {
         _kind: SpdmPalIoKind,
         _msg: &mut [u8],
     ) -> PalResult<()> {
-        Err(spdm_error::codes::NOT_IMPLEMENTED)
+        Err(spdm_errors::codes::NOT_IMPLEMENTED)
     }
 }
 
@@ -404,7 +404,7 @@ impl SpdmPalMeasurements for TestPal {
         _nonce: Option<&[u8; SPDM_NONCE_LEN]>,
         _out: &mut [u8],
     ) -> PalResult<usize> {
-        Err(spdm_error::codes::NOT_IMPLEMENTED)
+        Err(spdm_errors::codes::NOT_IMPLEMENTED)
     }
 }
 

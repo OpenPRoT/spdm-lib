@@ -11,7 +11,7 @@ use core::marker::PhantomData;
 use core::ops::{Deref, DerefMut};
 
 use spdm_crypto::ApiAlloc;
-use spdm_error::PalResult;
+use spdm_errors::PalResult;
 use spdm_traits::{SpdmPalAlloc, SpdmPalIo};
 
 use super::HostPal;

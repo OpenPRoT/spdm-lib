@@ -6,11 +6,22 @@
 //! the per-transport [`PalErrorCode`] constants. Each transport gets its
 //! own submodule so callers can `use spdm_transports::errors::mctp::*;`.
 
-use spdm_error::{domain, PalErrorCode};
+use spdm_errors::{domain, PalErrorCode};
+
+/// Wraps a syscall-layer error as a kernel-passthrough [`PalErrorCode`].
+///
+/// This is the syscall boundary translation. It lives here rather than in
+/// `spdm-errors` because the syscall error type is supplied by the platform,
+/// and `spdm-errors` is library-owned API that depends on nothing. Call sites
+/// use `.map_err(from_syscall)?` instead of a bare `?`.
+#[inline]
+pub fn from_syscall(e: spdm_platform::ErrorCode) -> PalErrorCode {
+    PalErrorCode::kernel(e as u16)
+}
 
 /// Error codes returned by [`crate::mctp::SpdmMctpTransport`].
 ///
-/// All codes live in [`spdm_error::domain::SPDM`] subdomain
+/// All codes live in [`spdm_errors::domain::SPDM`] subdomain
 /// [`spdm_errors::SUBDOMAIN_MCTP`].
 pub mod mctp {
     use super::{domain, PalErrorCode};

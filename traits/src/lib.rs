@@ -15,7 +15,7 @@
 //!   cryptographic and hardware operations.
 //! * [`transport`] — Byte-oriented PAL transport trait.
 //!
-//! Error type: this crate uses [`spdm_error::PalErrorCode`] directly via
+//! Error type: this crate uses [`spdm_errors::PalErrorCode`] directly via
 //! the re-exports below. There is no SPDM-specific error alias —
 //! every runtime userspace API shares one error type.
 #![no_std]
@@ -43,4 +43,4 @@ pub use vendor_defined::*;
 // Re-export the workspace-wide error type/alias for convenience: users
 // of this crate get them transitively without needing `mcu-error` as a
 // direct dependency.
-pub use spdm_error::{PalErrorCode, PalResult};
+pub use spdm_errors::{PalErrorCode, PalResult};

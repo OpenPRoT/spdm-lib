@@ -24,8 +24,8 @@
 //!   dispatcher turns into an `ERROR` PDU.
 //!
 //! Below the handler/dispatcher boundary this crate uses the
-//! workspace-wide [`PalErrorCode`](spdm_error::PalErrorCode) /
-//! [`PalResult`](spdm_error::PalResult) types; `?` lifts those into
+//! workspace-wide [`PalErrorCode`](spdm_errors::PalErrorCode) /
+//! [`PalResult`](spdm_errors::PalResult) types; `?` lifts those into
 //! [`SpdmError`] automatically (see [`error`]).
 
 #![no_std]

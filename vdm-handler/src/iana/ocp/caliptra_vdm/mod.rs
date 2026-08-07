@@ -15,7 +15,7 @@ use spdm_codec::StandardsBodyId;
 use spdm_traits::{
     PalResult, SpdmPalAlloc, SpdmPalIo, SpdmVdmBackend, VdmRegistry, VdmResponse, VdmResponseBuffer,
 };
-use spdm_error::codes::INVARIANT;
+use spdm_errors::codes::INVARIANT;
 
 pub use spdm_codec::vendor_defined::iana::ocp::caliptra::{
     CaliptraCompletionCode, CaliptraVdmCmdResult, CaliptraVdmCommand, CaliptraVdmResult,
@@ -234,7 +234,7 @@ mod tests {
     use spdm_traits::{
         SpdmPalAlloc, SpdmPalIo, SpdmPalIoKind, SpdmVdmBackend, VdmResponse, VdmResponseBuffer,
     };
-    use spdm_error::PalResult;
+    use spdm_errors::PalResult;
     use std::boxed::Box;
     use std::vec;
     use std::vec::Vec;
