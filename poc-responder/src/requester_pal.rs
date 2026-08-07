@@ -10,7 +10,7 @@ use p384::ecdsa::{Signature, VerifyingKey};
 use sha2::{Digest, Sha384};
 use x509_cert::Certificate;
 
-use spdm_error::{codes::INVARIANT, PalResult};
+use spdm_errors::{codes::INVARIANT, PalResult};
 use spdm_stack::requester::PeerVerifier;
 use spdm_traits::{SpdmPalHash, SpdmPalHashAlgo, SpdmPalIo};
 

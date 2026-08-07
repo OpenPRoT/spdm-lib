@@ -13,9 +13,9 @@
 #![forbid(unsafe_code)]
 
 use core::ops::{Deref, DerefMut};
-use spdm_error::PalResult;
+use spdm_errors::PalResult;
 
-pub use spdm_error::{PalErrorCode, PalResult as CryptoResult};
+pub use spdm_errors::{PalErrorCode, PalResult as CryptoResult};
 
 // ----- Allocator contract ----------------------------------------------------
 

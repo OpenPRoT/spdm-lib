@@ -7,7 +7,7 @@
 
 use sha2::{Digest, Sha384};
 
-use spdm_error::{codes::INVARIANT, PalResult};
+use spdm_errors::{codes::INVARIANT, PalResult};
 use spdm_traits::{SpdmPalHash, SpdmPalHashAlgo, SpdmPalIo};
 
 use super::HostPal;

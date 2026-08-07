@@ -9,7 +9,7 @@
 //! dispatch path rather than a panic. Implementing real ECDH/HKDF/AEAD is future
 //! work.
 
-use spdm_error::{codes::NOT_IMPLEMENTED, PalResult};
+use spdm_errors::{codes::NOT_IMPLEMENTED, PalResult};
 use spdm_traits::{SpdmPalIo, SpdmPalSessionCrypto};
 
 use super::HostPal;

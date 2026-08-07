@@ -385,7 +385,7 @@ fn test_validate_der_chain_rejects_trailing_garbage() {
 #[test]
 fn test_handle_set_certificate_calls_pal_validation_before_write() {
     let pal = TestPal {
-        validate_error: Some(spdm_error::codes::INVARIANT),
+        validate_error: Some(spdm_errors::codes::INVARIANT),
         ..TestPal::default()
     };
     let mut state = state(SpdmVersion::V12);

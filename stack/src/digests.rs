@@ -149,9 +149,9 @@ pub(crate) fn cert_chain_hash<Pal: SpdmPal>(
     asym_algo: SpdmPalAsymAlgo,
     algo: SpdmPalHashAlgo,
     out: &mut [u8],
-) -> spdm_error::PalResult<()> {
+) -> spdm_errors::PalResult<()> {
     if (pal.provisioned_slots() & (1 << slot)) == 0 {
-        return Err(spdm_error::codes::INVARIANT);
+        return Err(spdm_errors::codes::INVARIANT);
     }
 
     let der_len = pal.cert_chain_len(io, slot, asym_algo)?;
@@ -185,7 +185,7 @@ pub(crate) fn cert_chain_hash<Pal: SpdmPal>(
     }
 
     if (pal.provisioned_slots() & (1 << slot)) == 0 {
-        return Err(spdm_error::codes::INVARIANT);
+        return Err(spdm_errors::codes::INVARIANT);
     }
 
     pal.hash_finish(io, &mut state, out)

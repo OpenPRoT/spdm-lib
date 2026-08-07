@@ -13,7 +13,6 @@ default = []
 spdm-traits = { workspace = true }
 spdm-codec = { workspace = true }
 spdm-errors = { workspace = true }
-spdm-error = { workspace = true }
 zerocopy = { workspace = true }
 
 [dev-dependencies]
