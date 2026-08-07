@@ -8,7 +8,7 @@ edition.workspace = true
 
 [dependencies]
 spdm-crypto = { workspace = true }
-spdm-error = { workspace = true }
+spdm-errors = { workspace = true }
 
 [features]
 default = []

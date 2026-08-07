@@ -152,16 +152,16 @@ impl<S> Transcript<S> {
                 return Ok(());
             }
             Slot::M1 if self.m1.is_none() => {
-                let vca = self.vca.as_ref().ok_or(spdm_error::codes::INVARIANT)?;
+                let vca = self.vca.as_ref().ok_or(spdm_errors::codes::INVARIANT)?;
                 self.m1 = Some(hash.hash_clone(io, vca)?);
             }
             Slot::L1 if self.l1.is_none() => {
-                let vca = self.vca.as_ref().ok_or(spdm_error::codes::INVARIANT)?;
+                let vca = self.vca.as_ref().ok_or(spdm_errors::codes::INVARIANT)?;
                 self.l1 = Some(hash.hash_clone(io, vca)?);
             }
             _ => {}
         }
-        let state = self.slot_mut(slot).ok_or(spdm_error::codes::INVARIANT)?;
+        let state = self.slot_mut(slot).ok_or(spdm_errors::codes::INVARIANT)?;
         hash.hash_update(io, state, bytes)
     }
 
@@ -176,7 +176,7 @@ impl<S> Transcript<S> {
     where
         H: SpdmPalHash<State = S>,
     {
-        let state = self.slot_mut(slot).ok_or(spdm_error::codes::INVARIANT)?;
+        let state = self.slot_mut(slot).ok_or(spdm_errors::codes::INVARIANT)?;
         hash.hash_finish(io, state, out)?;
         *self.slot_opt_mut(slot) = None;
         Ok(())
@@ -215,7 +215,7 @@ impl<S> Transcript<S> {
     where
         H: SpdmPalHash<State = S>,
     {
-        let vca = self.vca.as_ref().ok_or(spdm_error::codes::INVARIANT)?;
+        let vca = self.vca.as_ref().ok_or(spdm_errors::codes::INVARIANT)?;
         let mut clone = hash.hash_clone(io, vca)?;
         hash.hash_finish(io, &mut clone, out)
     }

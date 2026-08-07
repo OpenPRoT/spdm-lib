@@ -28,7 +28,7 @@ use spdm_codec::{
     AeadAlgos, AsymAlgos, CapFlags, DheAlgos, HashAlgos, KeyScheduleAlgos, MeasHashAlgos, MeasSpec,
     OtherParamSupport, SpdmVersion,
 };
-use spdm_error::PalResult;
+use spdm_errors::PalResult;
 use spdm_traits::{SpdmPalHash, SpdmPalIo, SpdmPalIoKind};
 
 use crate::transcript::Transcript;

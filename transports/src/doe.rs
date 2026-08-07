@@ -27,6 +27,7 @@ use spdm_transport_sys::doe::{driver_num, Doe};
 use spdm_traits::{PalResult, SpdmPalIoKind, SpdmPalTransport};
 
 use crate::errors::doe as error_code;
+use crate::errors::from_syscall;
 
 /// DOE header size in bytes.
 const DOE_HEADER_SIZE: usize = 8;
@@ -97,7 +98,7 @@ impl SpdmPalTransport for SpdmDoeTransport {
             return Err(error_code::BUFFER_TOO_SMALL);
         }
 
-        let recv_len = self.doe.receive_message(buf)? as usize;
+        let recv_len = self.doe.receive_message(buf).map_err(from_syscall)? as usize;
 
         if recv_len < DOE_HEADER_SIZE || recv_len > buf.len() {
             return Err(error_code::INVALID_MESSAGE);
@@ -136,7 +137,7 @@ impl SpdmPalTransport for SpdmDoeTransport {
         // Write DOE header in-place
         buf_write_doe_header(msg, data_object_type, length_dw as u32);
 
-        self.doe.send_message(msg)?;
+        self.doe.send_message(msg).map_err(from_syscall)?;
         Ok(())
     }
 }

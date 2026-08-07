@@ -17,7 +17,7 @@ use spdm_codec::{
     SpdmMsgHdrPdu, SpdmVersion, WireWriter, ECC_P384_SIGNATURE_SIZE, MEAS_ATTR_SIGNATURE_REQUESTED,
     MEAS_OP_ALL, REQUESTER_CONTEXT_LEN, SHA384_HASH_SIZE, SPDM_NONCE_LEN,
 };
-use spdm_error::{codes::INVARIANT, PalResult};
+use spdm_errors::{codes::INVARIANT, PalResult};
 use spdm_traits::SpdmPalHash;
 use zerocopy::FromBytes;
 

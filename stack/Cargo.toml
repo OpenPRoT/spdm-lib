@@ -12,7 +12,6 @@ spdm-traits = { workspace = true }
 spdm-codec = { workspace = true }
 spdm-crypto = { workspace = true }
 spdm-errors = { workspace = true }
-spdm-error = { workspace = true }
 bitfield-struct = { workspace = true }
 zerocopy = { workspace = true }
 spdm-console = { workspace = true, optional = true }

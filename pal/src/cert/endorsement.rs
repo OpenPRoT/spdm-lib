@@ -12,7 +12,7 @@ use spdm_transport_sys::{flash::SpiFlash, DefaultSyscalls};
 #[cfg(feature = "set-certificate")]
 use spdm_platform::ErrorCode;
 use spdm_traits::SpdmPalAsymAlgo;
-use spdm_error::PalResult;
+use spdm_errors::PalResult;
 
 use core::sync::atomic::{AtomicBool, Ordering};
 
@@ -119,7 +119,7 @@ impl SlotEndorsement {
             Self::ReadOnly(e) => e.root_cert_hash(algo, out),
             #[cfg(feature = "set-certificate")]
             Self::Managed(e) => e.root_cert_hash(algo, out),
-            Self::Empty => Err(spdm_error::codes::INVARIANT),
+            Self::Empty => Err(spdm_errors::codes::INVARIANT),
         }
     }
 
@@ -128,7 +128,7 @@ impl SlotEndorsement {
             Self::ReadOnly(e) => e.size(algo),
             #[cfg(feature = "set-certificate")]
             Self::Managed(e) => e.size(algo),
-            Self::Empty => Err(spdm_error::codes::INVARIANT),
+            Self::Empty => Err(spdm_errors::codes::INVARIANT),
         }
     }
 
@@ -137,7 +137,7 @@ impl SlotEndorsement {
             Self::ReadOnly(e) => e.size(algo),
             #[cfg(feature = "set-certificate")]
             Self::Managed(e) => e.capacity(algo),
-            Self::Empty => Err(spdm_error::codes::INVARIANT),
+            Self::Empty => Err(spdm_errors::codes::INVARIANT),
         }
     }
 
@@ -151,7 +151,7 @@ impl SlotEndorsement {
             Self::ReadOnly(e) => e.read(algo, offset, buf),
             #[cfg(feature = "set-certificate")]
             Self::Managed(e) => e.read(algo, offset, buf).await,
-            Self::Empty => Err(spdm_error::codes::INVARIANT),
+            Self::Empty => Err(spdm_errors::codes::INVARIANT),
         }
     }
 
@@ -356,7 +356,7 @@ impl ManagedEndorsement {
 
     fn root_cert_hash(&self, _algo: SpdmPalAsymAlgo, out: &mut [u8]) -> PalResult<()> {
         if !self.initialized {
-            return Err(spdm_error::codes::INVARIANT);
+            return Err(spdm_errors::codes::INVARIANT);
         }
         let n = out.len().min(self.root_hash.len());
         out[..n].copy_from_slice(&self.root_hash[..n]);
@@ -367,7 +367,7 @@ impl ManagedEndorsement {
         if self.initialized {
             Ok(self.len)
         } else {
-            Err(spdm_error::codes::INVARIANT)
+            Err(spdm_errors::codes::INVARIANT)
         }
     }
 
@@ -382,7 +382,7 @@ impl ManagedEndorsement {
         buf: &mut [u8],
     ) -> PalResult<usize> {
         if !self.initialized {
-            return Err(spdm_error::codes::INVARIANT);
+            return Err(spdm_errors::codes::INVARIANT);
         }
         if offset >= self.len || buf.is_empty() {
             return Ok(0);
@@ -404,7 +404,7 @@ impl ManagedEndorsement {
         data: &[u8],
     ) -> PalResult<Self> {
         if algo != SpdmPalAsymAlgo::EccP384 || data.len() > self.der_capacity() {
-            return Err(spdm_error::codes::INVARIANT);
+            return Err(spdm_errors::codes::INVARIANT);
         }
 
         let record = ManagedRecord {
@@ -589,7 +589,7 @@ fn checksum(data: &[u8]) -> u32 {
 }
 
 #[cfg(feature = "set-certificate")]
-fn map_flash_error(err: ErrorCode) -> spdm_error::PalErrorCode {
+fn map_flash_error(err: ErrorCode) -> spdm_errors::PalErrorCode {
     use spdm_codec::errors::*;
 
     match err {

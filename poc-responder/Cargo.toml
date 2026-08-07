@@ -19,7 +19,7 @@ spdm-stack = { workspace = true }
 spdm-traits = { workspace = true }
 spdm-codec = { workspace = true }
 spdm-crypto = { workspace = true }
-spdm-error = { workspace = true }
+spdm-errors = { workspace = true }
 sha2 = "0.10"
 p384 = { version = "0.13", features = ["ecdsa", "pem"] }
 rand = "0.8"

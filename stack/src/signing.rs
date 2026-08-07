@@ -14,7 +14,7 @@
 use spdm_codec::{
     SpdmVersion, SHA384_HASH_SIZE, SPDM_CONTEXT_LEN, SPDM_PREFIX_LEN, SPDM_SIGNING_CONTEXT_LEN,
 };
-use spdm_error::PalResult;
+use spdm_errors::PalResult;
 use spdm_traits::{SpdmPalHash, SpdmPalHashAlgo, SpdmPalIo};
 
 /// SPDM operation string for CHALLENGE_AUTH signing (DSP0274 §15.6).

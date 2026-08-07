@@ -10,7 +10,7 @@ edition.workspace = true
 spdm-traits = { workspace = true }
 spdm-codec = { workspace = true }
 spdm-crypto = { workspace = true }
-spdm-error = { workspace = true }
+spdm-errors = { workspace = true }
 spdm-transport-sys = { workspace = true, optional = true }
 spdm-platform = { workspace = true, optional = true }
 zerocopy = { workspace = true }

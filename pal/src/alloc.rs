@@ -127,7 +127,7 @@ use core::ptr::NonNull;
 /// bitmap small (1 bit per 64 bytes ≈ 0.2 % overhead).
 pub const BITMAP_SLOT_SIZE: usize = 64;
 
-use spdm_error::codes::{BAD_ALIGNMENT as ERR_BAD_ALIGNMENT, OUT_OF_MEMORY as ERR_OUT_OF_MEMORY};
+use spdm_errors::codes::{BAD_ALIGNMENT as ERR_BAD_ALIGNMENT, OUT_OF_MEMORY as ERR_OUT_OF_MEMORY};
 
 /// Single-threaded bitmap allocator over a caller-supplied buffer.
 ///

@@ -25,7 +25,7 @@ use spdm_crypto::{
 };
 #[cfg(feature = "set-certificate")]
 use spdm_crypto::{sha_finish, sha_init, sha_update, HashAlgo, SHA_CONTEXT_SIZE};
-use spdm_error::codes::{INTERNAL_BUG, INVARIANT};
+use spdm_errors::codes::{INTERNAL_BUG, INVARIANT};
 
 /// 48-byte label fed to DPE `CertifyKey`. Keep this stable so DPE
 /// leaf-cert key continuity matches what existing tooling expects.
@@ -352,7 +352,7 @@ impl<M: MeasurementProvider> SpdmPalCertStore for PlatformSpdmPal<M> {
             let managed = match &self.cert_store.cert_slots()[idx].endorsement {
                 endorsement::SlotEndorsement::Managed(e) => *e,
                 endorsement::SlotEndorsement::ReadOnly(_) => {
-                    return Err(spdm_error::codes::NOT_IMPLEMENTED);
+                    return Err(spdm_errors::codes::NOT_IMPLEMENTED);
                 }
                 endorsement::SlotEndorsement::Empty => return Err(INVARIANT),
             };
@@ -389,7 +389,7 @@ impl<M: MeasurementProvider> SpdmPalCertStore for PlatformSpdmPal<M> {
             let managed = match &self.cert_store.cert_slots()[idx].endorsement {
                 endorsement::SlotEndorsement::Managed(e) => *e,
                 endorsement::SlotEndorsement::ReadOnly(_) => {
-                    return Err(spdm_error::codes::NOT_IMPLEMENTED);
+                    return Err(spdm_errors::codes::NOT_IMPLEMENTED);
                 }
                 endorsement::SlotEndorsement::Empty => return Err(INVARIANT),
             };

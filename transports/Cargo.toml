@@ -8,6 +8,6 @@ edition.workspace = true
 
 [dependencies]
 spdm-transport-sys.workspace = true
+spdm-platform.workspace = true
 spdm-traits.workspace = true
 spdm-errors.workspace = true
-spdm-error.workspace = true

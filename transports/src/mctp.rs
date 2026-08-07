@@ -73,6 +73,7 @@ pub const MCTP_MSG_TYPE_SECURED_SPDM: u8 = 0x06;
 // Error codes for this transport live in [`crate::errors::mctp`];
 // internally we alias the module so existing call sites keep working.
 use crate::errors::mctp as error_code;
+use crate::errors::from_syscall;
 
 /// MCTP-based SPDM PAL transport.
 ///
@@ -169,7 +170,7 @@ impl SpdmPalTransport for SpdmMctpTransport {
             return Err(error_code::BUFFER_TOO_SMALL);
         }
 
-        let (req_len, msg_info) = self.mctp.receive_request(buf)?;
+        let (req_len, msg_info) = self.mctp.receive_request(buf).map_err(from_syscall)?;
 
         let req_len = req_len as usize;
         if req_len < MCTP_MSG_HEADER_SIZE || req_len > buf.len() {
@@ -207,7 +208,7 @@ impl SpdmPalTransport for SpdmMctpTransport {
             *first = self.msg_type & MCTP_MSG_TYPE_MASK;
         }
 
-        self.mctp.send_response(msg, msg_info)?;
+        self.mctp.send_response(msg, msg_info).map_err(from_syscall)?;
         Ok(())
     }
 }
