@@ -157,9 +157,7 @@ impl<T: IdeDriver> IdeDriver for &T {
     where
         Alloc: SpdmPalAlloc,
     {
-        (**self)
-            .key_prog(stream_id, key_info, port_index, key, iv, scratch)
-            
+        (**self).key_prog(stream_id, key_info, port_index, key, iv, scratch)
     }
 
     fn key_set_go<Alloc>(
@@ -172,9 +170,7 @@ impl<T: IdeDriver> IdeDriver for &T {
     where
         Alloc: SpdmPalAlloc,
     {
-        (**self)
-            .key_set_go(stream_id, key_info, port_index, scratch)
-            
+        (**self).key_set_go(stream_id, key_info, port_index, scratch)
     }
 
     fn key_set_stop<Alloc>(
@@ -187,9 +183,7 @@ impl<T: IdeDriver> IdeDriver for &T {
     where
         Alloc: SpdmPalAlloc,
     {
-        (**self)
-            .key_set_stop(stream_id, key_info, port_index, scratch)
-            
+        (**self).key_set_stop(stream_id, key_info, port_index, scratch)
     }
 }
 

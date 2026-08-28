@@ -21,7 +21,6 @@ where
     match tdisp
         .driver
         .stop_interface(req_hdr.interface_id.function_id, scratch)
-        
     {
         Ok(0) => Ok(TdispHandlerResult::Response(0)),
         Ok(e) => Ok(TdispHandlerResult::Error(tdisp_error_code(e), 0)),

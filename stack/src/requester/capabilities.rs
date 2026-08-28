@@ -35,7 +35,8 @@ impl<T: RequesterTransport, H: SpdmPalHash, V: PeerVerifier> SpdmRequester<T, H,
             max_spdm_msg_size: self.config.max_spdm_msg_size,
         };
         let mut w = WireWriter::new(&mut self.buf);
-        req.encode_with_header(version, &mut w).map_err(|_| INVARIANT)?;
+        req.encode_with_header(version, &mut w)
+            .map_err(|_| INVARIANT)?;
         let len = w.position();
         let mut out = [0u8; SpdmMsgHdrPdu::SIZE + CapabilitiesBody::SIZE];
         out.copy_from_slice(&self.buf[..len]);

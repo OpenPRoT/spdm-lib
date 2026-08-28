@@ -29,11 +29,11 @@ where
     let req = DeviceInterfaceReportReq::decode(req_payload)?;
 
     let mut report_len = 0u16;
-    match tdisp
-        .driver
-        .get_device_interface_report_len(req_hdr.interface_id.function_id, scratch, &mut report_len)
-        
-    {
+    match tdisp.driver.get_device_interface_report_len(
+        req_hdr.interface_id.function_id,
+        scratch,
+        &mut report_len,
+    ) {
         Ok(0) if req.offset as usize >= report_len as usize => {
             return Ok(TdispHandlerResult::Error(TDISP_ERROR_INVALID_REQUEST, 0));
         }
@@ -62,17 +62,13 @@ where
         .ok_or(SPDM_UNSPECIFIED)?;
 
     let mut copied = 0usize;
-    match tdisp
-        .driver
-        .get_device_interface_report(
-            req_hdr.interface_id.function_id,
-            req.offset,
-            scratch,
-            report_portion,
-            &mut copied,
-        )
-        
-    {
+    match tdisp.driver.get_device_interface_report(
+        req_hdr.interface_id.function_id,
+        req.offset,
+        scratch,
+        report_portion,
+        &mut copied,
+    ) {
         Ok(0) if copied == portion => Ok(TdispHandlerResult::Response(
             DEVICE_INTERFACE_REPORT_RSP_HDR_LEN + copied,
         )),

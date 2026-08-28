@@ -152,61 +152,49 @@ impl<K: Clone> KeySchedule<K> {
             .ok_or(spdm_errors::codes::INVARIANT)?;
 
         // request_hs = HKDF-Expand(hs, bin_str1(th1_hash), Hash.Length)
-        self.handshake_ctx.request_handshake_secret = Some(
-            hkdf_expand_bin_str(
-                pal,
-                io,
-                self.version_str,
-                hs_ref,
-                BinStr::Str1,
-                Some(th1_hash),
-            )
-            ?,
-        );
+        self.handshake_ctx.request_handshake_secret = Some(hkdf_expand_bin_str(
+            pal,
+            io,
+            self.version_str,
+            hs_ref,
+            BinStr::Str1,
+            Some(th1_hash),
+        )?);
 
         // response_hs = HKDF-Expand(hs, bin_str2(th1_hash), Hash.Length)
-        self.handshake_ctx.response_handshake_secret = Some(
-            hkdf_expand_bin_str(
-                pal,
-                io,
-                self.version_str,
-                hs_ref,
-                BinStr::Str2,
-                Some(th1_hash),
-            )
-            ?,
-        );
+        self.handshake_ctx.response_handshake_secret = Some(hkdf_expand_bin_str(
+            pal,
+            io,
+            self.version_str,
+            hs_ref,
+            BinStr::Str2,
+            Some(th1_hash),
+        )?);
 
         // finished keys = HKDF-Expand(handshake_secret, bin_str7, Hash.Length)
-        self.handshake_ctx.request_finished_key = Some(
-            hkdf_expand_bin_str(
-                pal,
-                io,
-                self.version_str,
-                self.handshake_ctx
-                    .request_handshake_secret
-                    .as_ref()
-                    .ok_or(spdm_errors::codes::INVARIANT)?,
-                BinStr::Str7,
-                None,
-            )
-            ?,
-        );
+        self.handshake_ctx.request_finished_key = Some(hkdf_expand_bin_str(
+            pal,
+            io,
+            self.version_str,
+            self.handshake_ctx
+                .request_handshake_secret
+                .as_ref()
+                .ok_or(spdm_errors::codes::INVARIANT)?,
+            BinStr::Str7,
+            None,
+        )?);
 
-        self.handshake_ctx.response_finished_key = Some(
-            hkdf_expand_bin_str(
-                pal,
-                io,
-                self.version_str,
-                self.handshake_ctx
-                    .response_handshake_secret
-                    .as_ref()
-                    .ok_or(spdm_errors::codes::INVARIANT)?,
-                BinStr::Str7,
-                None,
-            )
-            ?,
-        );
+        self.handshake_ctx.response_finished_key = Some(hkdf_expand_bin_str(
+            pal,
+            io,
+            self.version_str,
+            self.handshake_ctx
+                .response_handshake_secret
+                .as_ref()
+                .ok_or(spdm_errors::codes::INVARIANT)?,
+            BinStr::Str7,
+            None,
+        )?);
 
         Ok(())
     }
@@ -232,8 +220,7 @@ impl<K: Clone> KeySchedule<K> {
             .ok_or(spdm_errors::codes::INVARIANT)?;
 
         // Salt_1 = HKDF-Expand(hs, bin_str0, Hash.Length)
-        let salt_1 =
-            hkdf_expand_bin_str(pal, io, self.version_str, hs_ref, BinStr::Str0, None)?;
+        let salt_1 = hkdf_expand_bin_str(pal, io, self.version_str, hs_ref, BinStr::Str0, None)?;
 
         // Master-Secret = HKDF-Extract(Salt_1, zero_filled)
         let mut zero_filled = pal.alloc_bytes(io, SHA384_HASH_SIZE)?;
@@ -248,30 +235,24 @@ impl<K: Clone> KeySchedule<K> {
             .ok_or(spdm_errors::codes::INVARIANT)?;
 
         // req_data = HKDF-Expand(ms, bin_str3(th2), Hash.Length)
-        self.data_ctx.request_data_secret = Some(
-            hkdf_expand_bin_str(
-                pal,
-                io,
-                self.version_str,
-                ms_ref,
-                BinStr::Str3,
-                Some(th2_hash),
-            )
-            ?,
-        );
+        self.data_ctx.request_data_secret = Some(hkdf_expand_bin_str(
+            pal,
+            io,
+            self.version_str,
+            ms_ref,
+            BinStr::Str3,
+            Some(th2_hash),
+        )?);
 
         // rsp_data = HKDF-Expand(ms, bin_str4(th2), Hash.Length)
-        self.data_ctx.response_data_secret = Some(
-            hkdf_expand_bin_str(
-                pal,
-                io,
-                self.version_str,
-                ms_ref,
-                BinStr::Str4,
-                Some(th2_hash),
-            )
-            ?,
-        );
+        self.data_ctx.response_data_secret = Some(hkdf_expand_bin_str(
+            pal,
+            io,
+            self.version_str,
+            ms_ref,
+            BinStr::Str4,
+            Some(th2_hash),
+        )?);
 
         Ok(())
     }
@@ -304,9 +285,7 @@ impl<K: Clone> KeySchedule<K> {
         ciphertext: &mut [u8],
     ) -> PalResult<(usize, [u8; 16])> {
         let (key, seq) = self.aead_key_and_seq(key_type)?;
-        let result = pal
-            .aead_encrypt(io, key, spdm_version, seq, aad, plaintext, ciphertext)
-            ?;
+        let result = pal.aead_encrypt(io, key, spdm_version, seq, aad, plaintext, ciphertext)?;
         self.increment_seq(key_type);
         Ok(result)
     }
@@ -325,9 +304,8 @@ impl<K: Clone> KeySchedule<K> {
         plaintext: &mut [u8],
     ) -> PalResult<usize> {
         let (key, seq) = self.aead_key_and_seq(key_type)?;
-        let result = pal
-            .aead_decrypt(io, key, spdm_version, seq, aad, ciphertext, tag, plaintext)
-            ?;
+        let result =
+            pal.aead_decrypt(io, key, spdm_version, seq, aad, ciphertext, tag, plaintext)?;
         self.increment_seq(key_type);
         Ok(result)
     }
@@ -467,7 +445,6 @@ fn hkdf_expand_bin_str<P: SpdmPalAlloc + SpdmPalSessionCrypto>(
     )?;
     let info = info.get(..len).ok_or(spdm_errors::codes::INVARIANT)?;
     pal.hkdf_expand(io, prk, SHA384_HASH_SIZE as u32, info)
-        
 }
 
 /// Build the SPDM HKDF info field in caller-provided scratch.
@@ -507,7 +484,9 @@ fn write_bin_str_bytes(buf: &mut [u8], pos: &mut usize, src: &[u8]) -> PalResult
     let end = pos
         .checked_add(src.len())
         .ok_or(spdm_errors::codes::INVARIANT)?;
-    let dst = buf.get_mut(*pos..end).ok_or(spdm_errors::codes::INVARIANT)?;
+    let dst = buf
+        .get_mut(*pos..end)
+        .ok_or(spdm_errors::codes::INVARIANT)?;
     for (d, s) in dst.iter_mut().zip(src) {
         *d = *s;
     }

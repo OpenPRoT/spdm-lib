@@ -136,13 +136,22 @@ fn main() {
         Ok(n) => {
             println!("[req] VCA complete:");
             println!("[req]   version          : {}", n.version.spec_str());
-            println!("[req]   peer flags       : 0x{:08x}", n.peer_flags.into_bits());
+            println!(
+                "[req]   peer flags       : 0x{:08x}",
+                n.peer_flags.into_bits()
+            );
             println!(
                 "[req]   peer DTS / maxmsg: {} / {}",
                 n.peer_data_transfer_size, n.peer_max_spdm_msg_size
             );
-            println!("[req]   base_asym_sel    : 0x{:08x}", n.base_asym_sel.into_bits());
-            println!("[req]   base_hash_sel    : 0x{:08x}", n.base_hash_sel.into_bits());
+            println!(
+                "[req]   base_asym_sel    : 0x{:08x}",
+                n.base_asym_sel.into_bits()
+            );
+            println!(
+                "[req]   base_hash_sel    : 0x{:08x}",
+                n.base_hash_sel.into_bits()
+            );
             n
         }
         Err(e) => {
