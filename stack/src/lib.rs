@@ -56,6 +56,13 @@ mod transcript;
 mod vendor_defined;
 mod version;
 
+/// Shared test-only PAL/harness. Declared once for the whole crate: every test
+/// module reaches it as `crate::test_support`, since declaring the same file as
+/// a module more than once trips clippy's `duplicate_mod`.
+#[cfg(test)]
+#[path = "tests/support.rs"]
+pub(crate) mod test_support;
+
 pub use error::*;
 pub use stack::*;
 pub use transcript::*;

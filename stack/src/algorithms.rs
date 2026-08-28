@@ -283,8 +283,7 @@ fn multi_key_cap_allows_connection(local: CapFlags, peer: CapFlags) -> bool {
 }
 
 #[cfg(test)]
-#[path = "tests/support.rs"]
-mod support;
+use crate::test_support as support;
 
 #[cfg(test)]
 mod tests {

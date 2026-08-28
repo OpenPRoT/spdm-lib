@@ -577,8 +577,7 @@ fn compute_tbs_hash<Pal: SpdmPal>(
 }
 
 #[cfg(test)]
-#[path = "tests/support.rs"]
-pub(crate) mod support;
+pub(crate) use crate::test_support as support;
 
 #[cfg(test)]
 mod tests {
