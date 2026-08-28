@@ -7,8 +7,8 @@
 //! [`spdm_errors`]; this module owns the concrete error
 //! constants the codec emits.
 
-use spdm_errors::{spdm_wire, SUBDOMAIN_LOCAL};
 use spdm_errors::{domain, PalErrorCode};
+use spdm_errors::{spdm_wire, SUBDOMAIN_LOCAL};
 
 // ---- SPDM wire errors (DSP0274 §10.10.2) ------------------------------------
 

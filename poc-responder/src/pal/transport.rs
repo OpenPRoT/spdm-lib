@@ -95,7 +95,11 @@ fn log_spdm(dir: &str, msg: &[u8]) {
     let version = msg[0];
     let code = msg[1];
     let name = spdm_code_name(code);
-    let error = if code == 0x7F { "  *** ERROR PDU ***" } else { "" };
+    let error = if code == 0x7F {
+        "  *** ERROR PDU ***"
+    } else {
+        ""
+    };
     println!(
         "[poc] {dir}  {name} (v1.{}, code 0x{code:02x}, {} bytes){error}",
         version & 0x0f,
@@ -230,4 +234,3 @@ impl SpdmPalIoTransport for HostPal {
         self.send_frame(CMD_NORMAL, msg)
     }
 }
-

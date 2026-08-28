@@ -23,8 +23,8 @@
 //! SPDM payload follows the header directly. On send, the payload is
 //! padded to 4-byte (DWORD) alignment.
 
-use spdm_transport_sys::doe::{driver_num, Doe};
 use spdm_traits::{PalResult, SpdmPalIoKind, SpdmPalTransport};
+use spdm_transport_sys::doe::{driver_num, Doe};
 
 use crate::errors::doe as error_code;
 use crate::errors::from_syscall;

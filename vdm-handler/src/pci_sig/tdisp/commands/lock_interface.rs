@@ -35,7 +35,6 @@ where
     if tdisp
         .driver
         .generate_start_interface_nonce(scratch, nonce)
-        
         .is_err()
     {
         return Ok(TdispHandlerResult::Error(
@@ -49,7 +48,6 @@ where
     match tdisp
         .driver
         .lock_interface(req_hdr.interface_id.function_id, param, scratch)
-        
     {
         Ok(0) => Ok(TdispHandlerResult::Response(START_INTERFACE_NONCE_SIZE)),
         Ok(e) => Ok(TdispHandlerResult::Error(tdisp_error_code(e), 0)),

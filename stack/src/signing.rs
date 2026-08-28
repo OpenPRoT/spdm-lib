@@ -25,10 +25,7 @@ pub const OP_MEASUREMENTS: &[u8] = b"responder-measurements signing";
 /// Builds the 100-byte SPDM signing context for `version` and `op`.
 ///
 /// `op` must be one of the `OP_*` constants (≤ [`SPDM_CONTEXT_LEN`] bytes).
-pub fn build_signing_context(
-    version: SpdmVersion,
-    op: &[u8],
-) -> [u8; SPDM_SIGNING_CONTEXT_LEN] {
+pub fn build_signing_context(version: SpdmVersion, op: &[u8]) -> [u8; SPDM_SIGNING_CONTEXT_LEN] {
     let mut ctx = [0u8; SPDM_SIGNING_CONTEXT_LEN];
     let base = b"dmtf-spdm-v";
     let ver: &[u8; 5] = match version {

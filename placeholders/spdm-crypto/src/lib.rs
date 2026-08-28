@@ -141,11 +141,7 @@ pub fn cm_hmac<A: ApiAlloc>(
     unimplemented!("spdm-crypto placeholder: cm_hmac")
 }
 
-pub fn hkdf_extract<A: ApiAlloc>(
-    _alloc: &A,
-    _salt: HkdfSalt<'_>,
-    _ikm: &Cmk,
-) -> PalResult<Cmk> {
+pub fn hkdf_extract<A: ApiAlloc>(_alloc: &A, _salt: HkdfSalt<'_>, _ikm: &Cmk) -> PalResult<Cmk> {
     unimplemented!("spdm-crypto placeholder: hkdf_extract")
 }
 
@@ -161,11 +157,7 @@ pub fn hkdf_expand<A: ApiAlloc>(
 
 // ----- Key import ------------------------------------------------------------
 
-pub fn cm_import<A: ApiAlloc>(
-    _alloc: &A,
-    _usage: CmKeyUsage,
-    _data: &[u8],
-) -> PalResult<Cmk> {
+pub fn cm_import<A: ApiAlloc>(_alloc: &A, _usage: CmKeyUsage, _data: &[u8]) -> PalResult<Cmk> {
     unimplemented!("spdm-crypto placeholder: cm_import")
 }
 
@@ -275,10 +267,7 @@ pub fn dpe_sign_ecc_p384<A: ApiAlloc>(
     unimplemented!("spdm-crypto placeholder: dpe_sign_ecc_p384")
 }
 
-pub fn walk_dpe_chain<A: ApiAlloc, S: DpeChainSink>(
-    _alloc: &A,
-    _sink: &mut S,
-) -> PalResult<u32> {
+pub fn walk_dpe_chain<A: ApiAlloc, S: DpeChainSink>(_alloc: &A, _sink: &mut S) -> PalResult<u32> {
     unimplemented!("spdm-crypto placeholder: walk_dpe_chain")
 }
 

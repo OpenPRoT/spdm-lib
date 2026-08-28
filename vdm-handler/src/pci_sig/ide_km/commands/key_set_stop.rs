@@ -28,7 +28,6 @@ where
             key_set_stop.port_index,
             scratch,
         )
-        
         .map_err(map_ide_error)?;
 
     write_key_go_stop_ack(key_set_stop, writer)

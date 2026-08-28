@@ -109,13 +109,15 @@ impl<T: RequesterTransport, H: SpdmPalHash, V: PeerVerifier> SpdmRequester<T, H,
         if total < SPDM_CERT_CHAIN_HDR_LEN {
             return Err(INVARIANT);
         }
-        self.verifier.validate_chain(&chain[SPDM_CERT_CHAIN_HDR_LEN..total])
+        self.verifier
+            .validate_chain(&chain[SPDM_CERT_CHAIN_HDR_LEN..total])
     }
 
     /// CHALLENGE → CHALLENGE_AUTH, verifying the M1 signature.
     fn challenge(&mut self, slot_id: u8, pubkey: &V::PubKey) -> PalResult<()> {
         let version = self.version;
-        let requester_context = (version >= SpdmVersion::V13).then_some([0u8; REQUESTER_CONTEXT_LEN]);
+        let requester_context =
+            (version >= SpdmVersion::V13).then_some([0u8; REQUESTER_CONTEXT_LEN]);
         let req = ChallengeReq {
             slot_id,
             meas_summary_hash_type: 0, // none (this milestone)
@@ -153,7 +155,8 @@ impl<T: RequesterTransport, H: SpdmPalHash, V: PeerVerifier> SpdmRequester<T, H,
     /// signature. Returns the number of measurement blocks.
     fn get_measurements(&mut self, slot_id: u8, pubkey: &V::PubKey) -> PalResult<u8> {
         let version = self.version;
-        let requester_context = (version >= SpdmVersion::V13).then_some([0u8; REQUESTER_CONTEXT_LEN]);
+        let requester_context =
+            (version >= SpdmVersion::V13).then_some([0u8; REQUESTER_CONTEXT_LEN]);
         let req = GetMeasurementsReq {
             attributes: MEAS_ATTR_SIGNATURE_REQUESTED,
             measurement_operation: MEAS_OP_ALL,
@@ -199,7 +202,8 @@ impl<T: RequesterTransport, H: SpdmPalHash, V: PeerVerifier> SpdmRequester<T, H,
         version: SpdmVersion,
     ) -> PalResult<([u8; BUF_LEN], usize)> {
         let mut w = WireWriter::new(&mut self.buf);
-        req.encode_with_header(version, &mut w).map_err(|_| INVARIANT)?;
+        req.encode_with_header(version, &mut w)
+            .map_err(|_| INVARIANT)?;
         let len = w.position();
         let mut out = [0u8; BUF_LEN];
         out[..len].copy_from_slice(&self.buf[..len]);
@@ -245,7 +249,8 @@ impl<T: RequesterTransport, H: SpdmPalHash, V: PeerVerifier> SpdmRequester<T, H,
         prefix[..m1_len].copy_from_slice(&msg[..m1_len]);
         self.append_m1(&prefix[..m1_len])?;
         let mut m1_hash = [0u8; SHA384_HASH_SIZE];
-        self.transcript.finalize_m1(&self.hash, &NullIo, &mut m1_hash)?;
+        self.transcript
+            .finalize_m1(&self.hash, &NullIo, &mut m1_hash)?;
         let ctx = build_signing_context(version, OP_CHALLENGE_AUTH);
         compute_tbs_hash(&self.hash, &NullIo, &ctx, &m1_hash)
     }
@@ -261,7 +266,8 @@ impl<T: RequesterTransport, H: SpdmPalHash, V: PeerVerifier> SpdmRequester<T, H,
         prefix[..l1_len].copy_from_slice(&msg[..l1_len]);
         self.append_l1(&prefix[..l1_len])?;
         let mut l1_hash = [0u8; SHA384_HASH_SIZE];
-        self.transcript.finalize_l1(&self.hash, &NullIo, &mut l1_hash)?;
+        self.transcript
+            .finalize_l1(&self.hash, &NullIo, &mut l1_hash)?;
         let ctx = build_signing_context(version, OP_MEASUREMENTS);
         compute_tbs_hash(&self.hash, &NullIo, &ctx, &l1_hash)
     }

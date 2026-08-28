@@ -38,7 +38,6 @@ where
     match tdisp
         .driver
         .start_interface(req_hdr.interface_id.function_id, scratch)
-        
     {
         Ok(0) => {
             tdisp.state.set_nonce(req_hdr.interface_id, None);

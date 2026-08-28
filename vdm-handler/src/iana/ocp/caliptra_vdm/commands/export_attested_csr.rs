@@ -59,16 +59,13 @@ where
     // Prefer the worst-case `large` staging buffer when the stack provisioned
     // one; otherwise only a single-frame inline response is possible.
     if large.len() > CSR_PAYLOAD_HEADER_LEN {
-        let data_len = match cmds
-            .export_attested_csr(
-                device_key_id,
-                algorithm,
-                &nonce,
-                scratch,
-                &mut large[CSR_PAYLOAD_HEADER_LEN..],
-            )
-            
-        {
+        let data_len = match cmds.export_attested_csr(
+            device_key_id,
+            algorithm,
+            &nonce,
+            scratch,
+            &mut large[CSR_PAYLOAD_HEADER_LEN..],
+        ) {
             Ok(n) => n,
             Err(code) => return CaliptraVdmCmdResult::Error(code),
         };
@@ -94,16 +91,13 @@ where
         if inline_payload.len() <= INLINE_PREFIX_LEN {
             return CaliptraVdmCmdResult::Error(CaliptraCompletionCode::InsufficientResources);
         }
-        let data_len = match cmds
-            .export_attested_csr(
-                device_key_id,
-                algorithm,
-                &nonce,
-                scratch,
-                &mut inline_payload[INLINE_PREFIX_LEN..],
-            )
-            
-        {
+        let data_len = match cmds.export_attested_csr(
+            device_key_id,
+            algorithm,
+            &nonce,
+            scratch,
+            &mut inline_payload[INLINE_PREFIX_LEN..],
+        ) {
             Ok(n) => n,
             Err(code) => return CaliptraVdmCmdResult::Error(code),
         };

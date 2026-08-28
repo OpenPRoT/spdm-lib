@@ -16,10 +16,7 @@ impl<T: RequesterTransport, H: SpdmPalHash, V: PeerVerifier> SpdmRequester<T, H,
     /// Sends `NEGOTIATE_ALGORITHMS` offering the requester's configured
     /// algorithms (DHE + AEAD + KeySchedule AlgStructs, no extended algs) and
     /// returns the responder's selections.
-    pub fn negotiate_algorithms(
-        &mut self,
-        version: SpdmVersion,
-    ) -> PalResult<ParsedAlgorithmsRsp> {
+    pub fn negotiate_algorithms(&mut self, version: SpdmVersion) -> PalResult<ParsedAlgorithmsRsp> {
         let cfg = self.config;
         let req = NegotiateAlgorithmsReq {
             measurement_spec: cfg.measurement_spec,
@@ -34,7 +31,8 @@ impl<T: RequesterTransport, H: SpdmPalHash, V: PeerVerifier> SpdmRequester<T, H,
             ],
         };
         let mut w = WireWriter::new(&mut self.buf);
-        req.encode_with_header(version, &mut w).map_err(|_| INVARIANT)?;
+        req.encode_with_header(version, &mut w)
+            .map_err(|_| INVARIANT)?;
         let len = w.position();
         // NEGOTIATE_ALGORITHMS is small and bounded; copy out for the send.
         let mut out = [0u8; 64];
