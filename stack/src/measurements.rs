@@ -4,14 +4,13 @@
 
 use spdm_codec::{
     DmtfMeasurementBlockHeader, GetMeasurementsReqBody, ReqRespCode, SpdmMsgHdrPdu, SpdmVersion,
-    WireWriter, ECC_P384_SIGNATURE_SIZE, MEAS_BLOCK_METADATA_SIZE, REQUESTER_CONTEXT_LEN,
-    SHA384_HASH_SIZE, SPDM_CONTEXT_LEN, SPDM_PREFIX_LEN, SPDM_SIGNING_CONTEXT_LEN,
+    ECC_P384_SIGNATURE_SIZE, MEAS_BLOCK_METADATA_SIZE, REQUESTER_CONTEXT_LEN, SHA384_HASH_SIZE,
+    SPDM_CONTEXT_LEN, SPDM_PREFIX_LEN, SPDM_SIGNING_CONTEXT_LEN,
 };
 use spdm_traits::SpdmPalAlloc;
 use spdm_traits::*;
 use zerocopy::{FromBytes, IntoBytes};
 
-use crate::build::alloc_padded;
 use crate::chunk;
 use crate::error::{SpdmResult, SPDM_INVALID_REQUEST, SPDM_UNEXPECTED_REQUEST, SPDM_UNSPECIFIED};
 use crate::stack::{ConnectionState, Phase};
@@ -29,10 +28,11 @@ struct MeasurementsResponseCtx<'a> {
     total_number_of_measurement: u8,
     content_changed: u8,
     number_of_blocks: u8,
-    measurement_record_len: usize,
     nonce: &'a [u8; SPDM_NONCE_LEN],
     requester_context: Option<&'a [u8]>,
-    large_resp_len: usize,
+    /// Upper bound on the encoded response, from the advertised measurement
+    /// sizes. The actual response is often shorter.
+    max_spdm_len: usize,
 }
 
 pub(crate) fn handle_get_measurements_req<'a, Pal: SpdmPal>(
@@ -121,10 +121,7 @@ pub(crate) fn handle_get_measurements_req<'a, Pal: SpdmPal>(
 
     // If signature requested, append GET_MEASUREMENTS request to L1 transcript.
     if signature_requested {
-        state
-            .transcript
-            .append_l1(pal, io, &req[..spdm_req_len])
-            ?;
+        state.transcript.append_l1(pal, io, &req[..spdm_req_len])?;
     }
 
     // Content changed: 2 = no change detected (when signature requested).
@@ -143,119 +140,49 @@ pub(crate) fn handle_get_measurements_req<'a, Pal: SpdmPal>(
     } else {
         0
     };
-    let spdm_len = SpdmMsgHdrPdu::SIZE + body_len_without_sig + signature_len;
+    let spdm_max_len = SpdmMsgHdrPdu::SIZE + body_len_without_sig + signature_len;
     let mut nonce = [0u8; SPDM_NONCE_LEN];
     pal.generate_nonce(io, &mut nonce)
-        
         .map_err(|_| SPDM_UNSPECIFIED)?;
-    if spdm_len > state.effective_data_transfer_size(pal) {
-        let plan = MeasurementsResponseCtx {
-            meas_info,
-            meas_op,
-            meas_nonce: requester_nonce,
-            signature_requested,
-            slot_id,
-            total_number_of_measurement,
-            content_changed,
-            number_of_blocks,
-            measurement_record_len,
-            nonce: &nonce,
-            requester_context,
-            large_resp_len: spdm_len,
-        };
-        return handle_large_measurements_response(state, pal, io, &plan);
-    }
-
-    let head = pal.header_size();
-    let raw_len = head + spdm_len;
-    let mut resp = alloc_padded(pal, io, raw_len).map_err(|_| SPDM_UNSPECIFIED)?;
-
-    let spdm_len_without_sig;
-    let signature_offset;
-    {
-        let mut w = WireWriter::new(&mut resp[head..]);
-        w.write(&SpdmMsgHdrPdu::new(
-            state.version,
-            ReqRespCode::MEASUREMENTS,
-        ))?;
-        w.write_bytes(&[total_number_of_measurement])?;
-        let param2 = (slot_id & 0x0F) | ((content_changed & 0x03) << 4);
-        w.write_bytes(&[param2])?;
-        w.write_bytes(&[number_of_blocks])?;
-        write_u24_le(&mut w, measurement_record_len)?;
-
-        let record = w.reserve(measurement_record_len)?;
-        let written_blocks =
-            write_measurement_record(pal, io, meas_info, meas_op, requester_nonce, record)?;
-        if written_blocks != number_of_blocks {
-            return Err(SPDM_UNSPECIFIED);
-        }
-
-        w.write_bytes(&nonce)?;
-        w.write_bytes(&0u16.to_le_bytes())?;
-        if let Some(ctx) = requester_context {
-            w.write_bytes(ctx)?;
-        }
-
-        spdm_len_without_sig = w.position();
-        signature_offset = head + spdm_len_without_sig;
-        if signature_requested {
-            w.reserve(ECC_P384_SIGNATURE_SIZE)?;
-        }
-    }
-
-    if !signature_requested {
-        return Ok((resp, spdm_len));
-    }
-
-    // Append MEASUREMENTS response (without signature) to L1.
-    state
-        .transcript
-        .append_l1(pal, io, &resp[head..head + spdm_len_without_sig])
-        ?;
-
-    // Finalize L1 transcript hash.
-    let mut hash = [0u8; SHA384_HASH_SIZE];
-    state.transcript.finalize_l1(pal, io, &mut hash)?;
-
-    // Build signing context and compute TBS hash.
-    let signing_ctx = signing_context(state.version);
-    compute_tbs_hash(pal, io, signing_ctx, &mut hash)
-        
-        .map_err(|_| SPDM_UNSPECIFIED)?;
-
-    // Sign the TBS hash directly into the response's signature slot, avoiding
-    // a 96-byte stack buffer that would otherwise live across the sign .
-    let asym_algo = state.asym_algo();
-    let sig_slot = resp
-        .get_mut(signature_offset..signature_offset + ECC_P384_SIGNATURE_SIZE)
-        .ok_or(SPDM_UNSPECIFIED)?;
-    let sig_len = pal
-        .sign_hash(io, slot_id, asym_algo, &hash, sig_slot)
-        
-        .map_err(|_| SPDM_UNSPECIFIED)?;
-    if sig_len != ECC_P384_SIGNATURE_SIZE {
-        return Err(SPDM_UNSPECIFIED);
-    }
-
-    Ok((resp, spdm_len))
+    let plan = MeasurementsResponseCtx {
+        meas_info,
+        meas_op,
+        meas_nonce: requester_nonce,
+        signature_requested,
+        slot_id,
+        total_number_of_measurement,
+        content_changed,
+        number_of_blocks,
+        nonce: &nonce,
+        requester_context,
+        max_spdm_len: spdm_max_len,
+    };
+    handle_measurements_response(state, pal, io, &plan)
 }
 
-fn handle_large_measurements_response<'a, Pal: SpdmPal>(
+/// Builds MEASUREMENTS into a max-capacity buffer, then decides from the
+/// *actual* encoded length whether it fits a normal response or must be
+/// chunked. Building once avoids forcing chunking on the advertised worst case
+/// when the real measurement values are shorter.
+fn handle_measurements_response<'a, Pal: SpdmPal>(
     state: &mut ConnectionState<Pal::State, <Pal as SpdmPalAlloc>::LargeBuf>,
     pal: &'a Pal,
     io: &<Pal as SpdmPalIoTransport>::Io<'_>,
     plan: &MeasurementsResponseCtx<'_>,
 ) -> SpdmResult<(PalBytes<'a, Pal>, usize)> {
-    chunk::validate_buffered_large_response(state, pal, plan.large_resp_len)?;
-
-    // We replace the local AutoWipeGuard struct definition with standard WipeOnDrop from chunk!
+    // Leave transport headroom at the front so a normal response can be sent
+    // straight out of this buffer; the chunked path shifts it away instead.
+    let head = pal.header_size();
+    let raw_max_len = head
+        .checked_add(plan.max_spdm_len)
+        .ok_or(SPDM_UNSPECIFIED)?;
+    let padded_max_len = align_send_len(pal, raw_max_len)?;
     let mut guard = chunk::WipeOnDrop {
-        buf: Some(pal.alloc_large_buf(plan.large_resp_len)?),
+        buf: Some(pal.alloc_large_buf(padded_max_len)?),
     };
     let buf = guard.buf.as_mut().ok_or(SPDM_UNSPECIFIED)?;
 
-    let mut offset = 0usize;
+    let mut offset = head;
     let hdr = SpdmMsgHdrPdu::new(state.version, ReqRespCode::MEASUREMENTS);
     offset = write_into_slice(buf, offset, hdr.as_bytes())?;
 
@@ -263,9 +190,12 @@ fn handle_large_measurements_response<'a, Pal: SpdmPal>(
     fixed[0] = plan.total_number_of_measurement;
     fixed[1] = (plan.slot_id & 0x0F) | ((plan.content_changed & 0x03) << 4);
     fixed[2] = plan.number_of_blocks;
-    fixed[3..6].copy_from_slice(&u24_le(plan.measurement_record_len)?);
+    // MeasurementRecordLength is backfilled once the record is written.
+    fixed[3..6].fill(0);
+    let record_len_offset = offset + 3;
     offset = write_into_slice(buf, offset, &fixed)?;
 
+    let record_start = offset;
     let (next_offset, written_blocks) = write_measurement_record_into_slice(
         pal,
         io,
@@ -274,12 +204,16 @@ fn handle_large_measurements_response<'a, Pal: SpdmPal>(
         plan.meas_nonce,
         buf,
         offset,
-    )
-    ?;
+    )?;
     if written_blocks != plan.number_of_blocks {
         return Err(SPDM_UNSPECIFIED);
     }
     offset = next_offset;
+    let actual_measurement_record_len = offset.checked_sub(record_start).ok_or(SPDM_UNSPECIFIED)?;
+    let len_bytes = u24_le(actual_measurement_record_len)?;
+    buf.get_mut(record_len_offset..record_len_offset + 3)
+        .ok_or(SPDM_UNSPECIFIED)?
+        .copy_from_slice(&len_bytes);
 
     offset = write_into_slice(buf, offset, plan.nonce)?;
     offset = write_into_slice(buf, offset, &0u16.to_le_bytes())?;
@@ -288,47 +222,66 @@ fn handle_large_measurements_response<'a, Pal: SpdmPal>(
     }
 
     let signature_offset = offset;
+    let spdm_len_without_sig = signature_offset.checked_sub(head).ok_or(SPDM_UNSPECIFIED)?;
+    let signature_len = if plan.signature_requested {
+        ECC_P384_SIGNATURE_SIZE
+    } else {
+        0
+    };
+    let spdm_len = spdm_len_without_sig
+        .checked_add(signature_len)
+        .ok_or(SPDM_UNSPECIFIED)?;
+    let raw_len = head.checked_add(spdm_len).ok_or(SPDM_UNSPECIFIED)?;
+    let use_normal_response = spdm_len <= state.effective_data_transfer_size(pal);
+    if !use_normal_response {
+        chunk::validate_buffered_large_response_with_capacity(state, pal, spdm_len, buf.len())?;
+    }
+
     if plan.signature_requested {
-        state
-            .transcript
-            .append_l1(pal, io, &buf[..signature_offset])
-            ?;
+        let transcript_rsp = buf.get(head..signature_offset).ok_or(SPDM_UNSPECIFIED)?;
+        state.transcript.append_l1(pal, io, transcript_rsp)?;
 
         let mut hash = [0u8; SHA384_HASH_SIZE];
         state.transcript.finalize_l1(pal, io, &mut hash)?;
 
         let signing_ctx = signing_context(state.version);
-        compute_tbs_hash(pal, io, signing_ctx, &mut hash)
-            
-            .map_err(|_| SPDM_UNSPECIFIED)?;
+        compute_tbs_hash(pal, io, signing_ctx, &mut hash).map_err(|_| SPDM_UNSPECIFIED)?;
 
         let asym_algo = state.asym_algo();
-        let mut signature = [0u8; ECC_P384_SIGNATURE_SIZE];
+        // Sign directly into the response's signature slot, avoiding a 96-byte
+        // stack buffer.
+        let signature = buf
+            .get_mut(signature_offset..signature_offset + ECC_P384_SIGNATURE_SIZE)
+            .ok_or(SPDM_UNSPECIFIED)?;
         let sig_len = pal
-            .sign_hash(io, plan.slot_id, asym_algo, &hash, &mut signature)
-            
+            .sign_hash(io, plan.slot_id, asym_algo, &hash, signature)
             .map_err(|_| SPDM_UNSPECIFIED)?;
         if sig_len != ECC_P384_SIGNATURE_SIZE {
             return Err(SPDM_UNSPECIFIED);
         }
-        write_into_slice(buf, signature_offset, &signature)?;
-        offset += ECC_P384_SIGNATURE_SIZE;
     }
 
-    if offset != plan.large_resp_len {
-        return Err(SPDM_UNSPECIFIED);
+    if use_normal_response {
+        let padded_len = align_send_len(pal, raw_len)?;
+        zero_slice(buf, raw_len, padded_len)?;
+        let final_buf = guard.buf.take().ok_or(SPDM_UNSPECIFIED)?;
+        let resp = pal
+            .large_buf_into_bytes(final_buf, padded_len)
+            .map_err(|_| SPDM_UNSPECIFIED)?;
+        return Ok((resp, spdm_len));
     }
 
+    // Chunked: the large buffer holds bare SPDM bytes, so drop the headroom.
+    shift_left(buf, head, spdm_len)?;
     let final_buf = guard.buf.take().ok_or(SPDM_UNSPECIFIED)?;
     state.large_msg_ctx.set_buffer(final_buf);
-    let (resp, spdm_len) =
-        match chunk::start_buffered_large_response(state, pal, io, plan.large_resp_len) {
-            Ok(res) => res,
-            Err(err) => {
-                state.large_msg_ctx.reset();
-                return Err(err);
-            }
-        };
+    let (resp, spdm_len) = match chunk::start_buffered_large_response(state, pal, io, spdm_len) {
+        Ok(res) => res,
+        Err(err) => {
+            state.large_msg_ctx.reset();
+            return Err(err);
+        }
+    };
     Ok((resp, spdm_len))
 }
 
@@ -395,14 +348,12 @@ pub(crate) fn measurement_summary_hash<Pal: SpdmPal>(
             .alloc_bytes(io, block_len)
             .map_err(|_| SPDM_UNSPECIFIED)?;
         let written = write_measurement_block(pal, io, entry, None, &mut block)?;
-        if written != block_len {
-            return Err(SPDM_UNSPECIFIED);
-        }
+        let block = block.get(..written).ok_or(SPDM_UNSPECIFIED)?;
 
         match hash_state.as_mut() {
-            Some(state) => pal.hash_update(io, state, &block)?,
+            Some(state) => pal.hash_update(io, state, block)?,
             None => {
-                hash_state = Some(pal.hash_init(io, SpdmPalHashAlgo::Sha384, &block)?);
+                hash_state = Some(pal.hash_init(io, SpdmPalHashAlgo::Sha384, block)?);
             }
         }
     }
@@ -410,41 +361,6 @@ pub(crate) fn measurement_summary_hash<Pal: SpdmPal>(
     let mut state = hash_state.ok_or(SPDM_UNSPECIFIED)?;
     pal.hash_finish(io, &mut state, out)?;
     Ok(())
-}
-
-fn write_measurement_record<Pal: SpdmPal>(
-    pal: &Pal,
-    io: &<Pal as SpdmPalIoTransport>::Io<'_>,
-    info: &[MeasurementInfo],
-    meas_op: u8,
-    nonce: Option<&[u8; SPDM_NONCE_LEN]>,
-    out: &mut [u8],
-) -> SpdmResult<u8> {
-    let mut offset = 0usize;
-    let mut blocks = 0u8;
-    match meas_op {
-        0x00 => {}
-        0xFF => {
-            for entry in info {
-                let written =
-                    write_measurement_block(pal, io, entry, nonce, &mut out[offset..])?;
-                offset += written;
-                blocks = blocks.checked_add(1).ok_or(SPDM_UNSPECIFIED)?;
-            }
-        }
-        idx => {
-            let entry = info
-                .iter()
-                .find(|m| m.index == idx)
-                .ok_or(SPDM_INVALID_REQUEST)?;
-            offset += write_measurement_block(pal, io, entry, nonce, &mut out[offset..])?;
-            blocks = 1;
-        }
-    }
-    if offset != out.len() {
-        return Err(SPDM_UNSPECIFIED);
-    }
-    Ok(blocks)
 }
 
 fn write_measurement_record_into_slice<Pal: SpdmPal>(
@@ -462,8 +378,7 @@ fn write_measurement_record_into_slice<Pal: SpdmPal>(
         0xFF => {
             for entry in info {
                 offset =
-                    write_measurement_record_block_into_slice(pal, io, entry, nonce, out, offset)
-                        ?;
+                    write_measurement_record_block_into_slice(pal, io, entry, nonce, out, offset)?;
                 blocks = blocks.checked_add(1).ok_or(SPDM_UNSPECIFIED)?;
             }
         }
@@ -472,8 +387,7 @@ fn write_measurement_record_into_slice<Pal: SpdmPal>(
                 .iter()
                 .find(|m| m.index == idx)
                 .ok_or(SPDM_INVALID_REQUEST)?;
-            offset = write_measurement_record_block_into_slice(pal, io, entry, nonce, out, offset)
-                ?;
+            offset = write_measurement_record_block_into_slice(pal, io, entry, nonce, out, offset)?;
             blocks = 1;
         }
     }
@@ -488,25 +402,33 @@ fn write_measurement_record_block_into_slice<Pal: SpdmPal>(
     out: &mut [u8],
     mut offset: usize,
 ) -> SpdmResult<usize> {
-    let block_hdr =
-        DmtfMeasurementBlockHeader::new(info.index, info.is_raw, info.value_type, info.value_size);
-    offset = write_into_slice(out, offset, block_hdr.as_bytes())?;
-
+    // The value is fetched into its final position first: only then is its
+    // real length known, and the header records that rather than the
+    // advertised maximum.
     let value_size = info.value_size as usize;
-    if value_size == 0 {
-        return Ok(offset);
-    }
-
-    let mut value = pal.alloc_bytes(io, value_size)?;
-    let value_len = pal
-        .get_measurement_value(io, info.index, nonce, &mut value)
-        
-        .map_err(|_| SPDM_UNSPECIFIED)?;
-    if value_len != value_size {
+    let header_start = offset;
+    let value_start = offset
+        .checked_add(MEAS_BLOCK_METADATA_SIZE)
+        .ok_or(SPDM_UNSPECIFIED)?;
+    let value_end = value_start
+        .checked_add(value_size)
+        .ok_or(SPDM_UNSPECIFIED)?;
+    let value_len = {
+        let value = out
+            .get_mut(value_start..value_end)
+            .ok_or(SPDM_UNSPECIFIED)?;
+        pal.get_measurement_value(io, info.index, nonce, value)
+            .map_err(|_| SPDM_UNSPECIFIED)?
+    };
+    if value_len > value_size {
         return Err(SPDM_UNSPECIFIED);
     }
+    let value_len_u16 = u16::try_from(value_len).map_err(|_| SPDM_UNSPECIFIED)?;
 
-    write_into_slice(out, offset, &value)
+    let block_hdr =
+        DmtfMeasurementBlockHeader::new(info.index, info.is_raw, info.value_type, value_len_u16);
+    offset = write_into_slice(out, header_start, block_hdr.as_bytes())?;
+    offset.checked_add(value_len).ok_or(SPDM_UNSPECIFIED)
 }
 
 /// Write a single DMTF measurement block (header + value) into `out`.
@@ -527,25 +449,20 @@ fn write_measurement_block<Pal: SpdmPal>(
     let value_buf = &mut out[MEAS_BLOCK_METADATA_SIZE..MEAS_BLOCK_METADATA_SIZE + value_size];
     let value_len = pal
         .get_measurement_value(io, info.index, nonce, value_buf)
-        
         .map_err(|_| SPDM_UNSPECIFIED)?;
-    if value_len != value_size {
+    if value_len > value_size {
         return Err(SPDM_UNSPECIFIED);
     }
+    let value_len_u16 = u16::try_from(value_len).map_err(|_| SPDM_UNSPECIFIED)?;
 
     // Build and write the block header.
     let block_hdr =
-        DmtfMeasurementBlockHeader::new(info.index, info.is_raw, info.value_type, info.value_size);
+        DmtfMeasurementBlockHeader::new(info.index, info.is_raw, info.value_type, value_len_u16);
     for (d, s) in out.iter_mut().zip(block_hdr.as_bytes()) {
         *d = *s;
     }
 
-    Ok(MEAS_BLOCK_METADATA_SIZE + value_size)
-}
-
-fn write_u24_le(w: &mut WireWriter<'_>, len: usize) -> SpdmResult<()> {
-    w.write_bytes(&u24_le(len)?)?;
-    Ok(())
+    Ok(MEAS_BLOCK_METADATA_SIZE + value_len)
 }
 
 fn u24_le(len: usize) -> SpdmResult<[u8; 3]> {
@@ -566,6 +483,38 @@ fn write_into_slice(out: &mut [u8], offset: usize, bytes: &[u8]) -> SpdmResult<u
         .ok_or(SPDM_UNSPECIFIED)?
         .copy_from_slice(bytes);
     Ok(next)
+}
+
+/// Moves `len` bytes from `src` down to offset 0, in place.
+fn shift_left(buf: &mut [u8], src: usize, len: usize) -> SpdmResult<()> {
+    let end = src.checked_add(len).ok_or(SPDM_UNSPECIFIED)?;
+    if end > buf.len() || len > buf.len() {
+        return Err(SPDM_UNSPECIFIED);
+    }
+
+    // SAFETY: Bounds are checked above and `ptr::copy` handles overlapping
+    // ranges, which is required when removing transport headroom in-place.
+    unsafe {
+        core::ptr::copy(buf.as_ptr().add(src), buf.as_mut_ptr(), len);
+    }
+    Ok(())
+}
+
+fn zero_slice(buf: &mut [u8], start: usize, end: usize) -> SpdmResult<()> {
+    let dst = buf.get_mut(start..end).ok_or(SPDM_UNSPECIFIED)?;
+    dst.fill(0);
+    Ok(())
+}
+
+/// Rounds `len` up to the transport's send-length granularity.
+fn align_send_len<Pal: SpdmPal>(pal: &Pal, len: usize) -> SpdmResult<usize> {
+    let align = pal.send_len_alignment();
+    if align == 0 {
+        return Err(SPDM_UNSPECIFIED);
+    }
+    len.checked_add(align - 1)
+        .map(|n| (n / align) * align)
+        .ok_or(SPDM_UNSPECIFIED)
 }
 
 /// Precomputed 100-byte SPDM signing contexts for "responder-measurements signing".
@@ -622,9 +571,68 @@ fn compute_tbs_hash<Pal: SpdmPal>(
     signing_ctx: &[u8; SPDM_SIGNING_CONTEXT_LEN],
     hash: &mut [u8; SHA384_HASH_SIZE],
 ) -> spdm_errors::PalResult<()> {
-    let mut state = pal
-        .hash_init(io, SpdmPalHashAlgo::Sha384, signing_ctx)
-        ?;
+    let mut state = pal.hash_init(io, SpdmPalHashAlgo::Sha384, signing_ctx)?;
     pal.hash_update(io, &mut state, hash)?;
     pal.hash_finish(io, &mut state, hash)
+}
+
+#[cfg(test)]
+#[path = "tests/support.rs"]
+pub(crate) mod support;
+
+#[cfg(test)]
+mod tests {
+    extern crate std;
+
+    use super::*;
+    use spdm_traits::SpdmPalIo;
+    use std::vec::Vec;
+    use zerocopy::IntoBytes;
+
+    static MEASUREMENT_INFO: [MeasurementInfo; 1] = [MeasurementInfo {
+        index: 0xFD,
+        value_size: 300,
+        value_type: 0,
+        is_raw: false,
+        is_tcb: true,
+    }];
+    static MEASUREMENT_VALUE: [u8; 4] = [0xDE, 0xAD, 0xBE, 0xEF];
+
+    // A measurement advertised as 300 bytes but only 4 bytes long must be sent
+    // as a normal response, not chunked against the advertised worst case.
+    #[test]
+    fn advertised_measurement_max_does_not_force_large_response_when_actual_fits() {
+        let pal = support::TestPal {
+            mtu: 64,
+            measurement_info: &MEASUREMENT_INFO,
+            measurement_value: &MEASUREMENT_VALUE,
+            ..Default::default()
+        };
+        let mut state: ConnectionState<support::TestHashState, Vec<u8>> = ConnectionState {
+            phase: Phase::AfterAlgorithms,
+            version: SpdmVersion::V12,
+            ..Default::default()
+        };
+
+        let mut req = Vec::new();
+        let hdr = SpdmMsgHdrPdu::new(SpdmVersion::V12, ReqRespCode::GET_MEASUREMENTS);
+        let body = GetMeasurementsReqBody {
+            attributes: 0,
+            measurement_operation: 0xFD,
+        };
+        req.extend_from_slice(hdr.as_bytes());
+        req.extend_from_slice(body.as_bytes());
+        let io = support::TestIo::message(req);
+
+        let (resp, spdm_len) =
+            handle_get_measurements_req(&mut state, &pal, &io, io.request()).unwrap();
+
+        assert!(spdm_len <= pal.mtu());
+        assert_eq!(resp[1], ReqRespCode::MEASUREMENTS.0);
+        assert_eq!(resp[4], 1);
+        assert_eq!(
+            &resp[5..8],
+            &(MEAS_BLOCK_METADATA_SIZE as u32 + 4).to_le_bytes()[..3]
+        );
+    }
 }

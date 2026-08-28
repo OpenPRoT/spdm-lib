@@ -45,12 +45,7 @@ pub trait EndorsementCertChain {
 
     /// Read endorsement chain bytes at `offset` into `buf`.
     /// Returns bytes written.
-    fn read(
-        &mut self,
-        algo: SpdmPalAsymAlgo,
-        offset: usize,
-        buf: &mut [u8],
-    ) -> PalResult<usize>;
+    fn read(&mut self, algo: SpdmPalAsymAlgo, offset: usize, buf: &mut [u8]) -> PalResult<usize>;
 
     /// Write endorsement cert chain data for the given algorithm.
     /// `ReadOnlyEndorsement` rejects this; `MutableEndorsement`
@@ -163,14 +158,66 @@ pub trait SpdmPalCertStore: crate::SpdmPalIoTransport {
         data: &[u8],
     ) -> PalResult<()>;
 
+    /// Begins a non-atomic streaming SET_CERTIFICATE write transaction.
+    ///
+    /// Implementations may erase/overwrite target storage at begin time. A
+    /// request becomes valid only after [`finish_write_cert_chain_stream`](Self::finish_write_cert_chain_stream)
+    /// commits metadata; interrupted or invalid requests need not preserve the old chain.
+    #[allow(clippy::too_many_arguments)]
+    fn begin_write_cert_chain_stream(
+        &self,
+        _io: &Self::Io<'_>,
+        _slot: u8,
+        _algo: SpdmPalAsymAlgo,
+        _key_pair_id: u8,
+        _cert_info: u8,
+        _root_hash: &[u8; 48],
+        _data_len: usize,
+    ) -> PalResult<()> {
+        Err(spdm_errors::codes::NOT_IMPLEMENTED)
+    }
+
+    /// Writes one DER chunk at `offset` within the streaming cert-chain data.
+    fn write_cert_chain_stream_chunk(
+        &self,
+        _io: &Self::Io<'_>,
+        _slot: u8,
+        _algo: SpdmPalAsymAlgo,
+        _offset: usize,
+        _data: &[u8],
+    ) -> PalResult<()> {
+        Err(spdm_errors::codes::NOT_IMPLEMENTED)
+    }
+
+    /// Commits a streaming SET_CERTIFICATE write transaction.
+    #[allow(clippy::too_many_arguments)]
+    fn finish_write_cert_chain_stream(
+        &self,
+        _io: &Self::Io<'_>,
+        _slot: u8,
+        _algo: SpdmPalAsymAlgo,
+        _key_pair_id: u8,
+        _cert_info: u8,
+        _root_hash: &[u8; 48],
+        _data_len: usize,
+    ) -> PalResult<()> {
+        Err(spdm_errors::codes::NOT_IMPLEMENTED)
+    }
+
+    /// Aborts a streaming SET_CERTIFICATE write transaction.
+    fn abort_write_cert_chain_stream(
+        &self,
+        _io: &Self::Io<'_>,
+        _slot: u8,
+        _algo: SpdmPalAsymAlgo,
+    ) -> PalResult<()> {
+        Ok(())
+    }
+
     /// Erase the cert chain in `slot` for the given algorithm.
     #[cfg(feature = "set-certificate")]
-    fn erase_cert_chain(
-        &self,
-        io: &Self::Io<'_>,
-        slot: u8,
-        algo: SpdmPalAsymAlgo,
-    ) -> PalResult<()>;
+    fn erase_cert_chain(&self, io: &Self::Io<'_>, slot: u8, algo: SpdmPalAsymAlgo)
+        -> PalResult<()>;
 
     /// KeyPairID associated with the slot.
     /// Returns `None` for unprovisioned slots.

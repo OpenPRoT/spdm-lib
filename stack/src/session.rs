@@ -11,10 +11,11 @@
 //! 3. Session used for secured message framing
 //! 4. GET_VERSION or error → [`SessionManager::remove_all_and_destroy`]
 
-use spdm_codec::{errors::SPDM_SESSION_LIMIT_EXCEEDED, SpdmVersion};
-use spdm_traits::{PalResult, SpdmPalHash, SpdmPalIo};
 use core::ops::{Deref, DerefMut};
+use spdm_codec::{errors::SPDM_SESSION_LIMIT_EXCEEDED, HeartBeatPeriod, SpdmVersion};
+use spdm_traits::{PalResult, SpdmPalHash, SpdmPalIo};
 
+use crate::heartbeat::HEARTBEAT_TIMEOUT_MULTIPLIER;
 use crate::key_schedule::{spdm_version_str, KeySchedule};
 
 // ── Session state ───────────────────────────────────────────────────
@@ -145,6 +146,12 @@ pub struct SessionInfo<K: Clone, S> {
     pub key_schedule: KeySchedule<K>,
     /// Per-session TH transcript hash state.
     pub transcript: SessionTranscript<S>,
+    /// HeartbeatPeriod negotiated in KEY_EXCHANGE_RSP. `DISABLED` (zero) means
+    /// no liveness watchdog runs for this session.
+    pub heartbeat_period: HeartBeatPeriod,
+    /// Monotonic ms after which a silent session is torn down. `None` when the
+    /// watchdog is not armed.
+    pub deadline_ms: Option<u64>,
 }
 
 impl<K: Clone, S> Drop for SessionInfo<K, S> {
@@ -164,7 +171,38 @@ impl<K: Clone, S> SessionInfo<K, S> {
             state: SessionState::HandshakeInProgress,
             key_schedule: KeySchedule::new(spdm_version_str(version)),
             transcript: SessionTranscript::new(),
+            heartbeat_period: HeartBeatPeriod::DISABLED,
+            deadline_ms: None,
         }
+    }
+
+    /// Timeout window in ms: `HEARTBEAT_TIMEOUT_MULTIPLIER` missed periods.
+    fn heartbeat_window_ms(&self) -> Option<u64> {
+        if !self.heartbeat_period.is_enabled() {
+            return None;
+        }
+        (self.heartbeat_period.secs() as u64)
+            .checked_mul(1000)
+            .and_then(|ms| ms.checked_mul(HEARTBEAT_TIMEOUT_MULTIPLIER))
+    }
+
+    /// Start the watchdog for a session that has just negotiated a period.
+    pub fn arm_heartbeat(&mut self, now_ms: u64) {
+        self.deadline_ms = self
+            .heartbeat_window_ms()
+            .and_then(|window| now_ms.checked_add(window));
+    }
+
+    /// Refresh the watchdog after any traffic on this session.
+    pub fn touch_heartbeat(&mut self, now_ms: u64) {
+        if self.deadline_ms.is_some() {
+            self.arm_heartbeat(now_ms);
+        }
+    }
+
+    /// True when the watchdog is armed and `now_ms` is past the deadline.
+    pub fn heartbeat_expired(&self, now_ms: u64) -> bool {
+        self.deadline_ms.is_some_and(|deadline| now_ms >= deadline)
     }
 }
 
@@ -270,6 +308,40 @@ impl<K: Clone, S, B: Deref<Target = SessionInfo<K, S>> + DerefMut, const N: usiz
     }
 
     /// Check if any session is in the handshake phase.
+    /// Tear down every session whose heartbeat watchdog has expired.
+    ///
+    /// This stack's transport receive is blocking, so expiry is evaluated
+    /// lazily whenever the responder next wakes for a message rather than from
+    /// a timer. A session that has gone silent is therefore reclaimed on the
+    /// next inbound message, not at the instant its deadline passes.
+    pub fn expire_due(&mut self, now_ms: u64) -> usize {
+        let mut expired_count = 0;
+        for slot in self.sessions.iter_mut() {
+            let expired = slot
+                .as_ref()
+                .is_some_and(|session| session.heartbeat_expired(now_ms));
+            if expired {
+                if let Some(mut session) = slot.take() {
+                    session.key_schedule.destroy_all();
+                }
+                expired_count += 1;
+            }
+        }
+        expired_count
+    }
+
+    /// Earliest armed watchdog deadline across all sessions, if any.
+    ///
+    /// A transport that can wait with a timeout would sleep until this instant;
+    /// with the blocking receive used here it is informational.
+    pub fn nearest_deadline_ms(&self) -> Option<u64> {
+        self.sessions
+            .iter()
+            .flatten()
+            .filter_map(|session| session.deadline_ms)
+            .min()
+    }
+
     pub fn has_handshake_in_progress(&self) -> bool {
         self.sessions
             .iter()
