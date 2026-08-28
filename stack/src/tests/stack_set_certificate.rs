@@ -7,8 +7,7 @@ use spdm_codec::CHUNK_ACK_ATTR_EARLY_ERROR;
 use spdm_traits::NoVdmBackend;
 use std::vec::Vec;
 
-#[path = "support.rs"]
-mod support;
+use crate::test_support as support;
 use support::*;
 
 fn send_secured_chunk(

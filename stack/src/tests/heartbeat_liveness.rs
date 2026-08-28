@@ -14,8 +14,7 @@ use spdm_codec::HeartBeatPeriod;
 use spdm_traits::NoVdmBackend;
 use std::vec::Vec;
 
-#[path = "support.rs"]
-mod support;
+use crate::test_support as support;
 use support::*;
 
 // 2 x period x 1000 ms; period defaults to 3 s in the reference config.

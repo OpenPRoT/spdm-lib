@@ -7,8 +7,7 @@ use crate::error::{SPDM_BUSY, SPDM_OPERATION_FAILED, SPDM_RESET_REQUIRED, SPDM_U
 use spdm_codec::{errors as wire_errors, OtherParamSupport};
 use std::vec::Vec;
 
-#[path = "support.rs"]
-mod support;
+use crate::test_support as support;
 use support::*;
 
 fn state(version: SpdmVersion) -> ConnectionState<TestHashState, Vec<u8>> {
