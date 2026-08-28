@@ -1,3 +1,1370 @@
+commit e88afa2afc4913596d27bcfbe34a1186c14acae6
+Author: mlvisaya <38512415+mlvisaya@users.noreply.github.com>
+Date:   Thu Aug 27 11:42:53 2026 -0700
+
+    fix: align SPDM debug unlock with common format (#2014)
+    
+    Carry the full common RequestDebugUnlock request and response payloads over SPDM VDM, validate their length fields, enable end-to-end production debug unlock coverage in the SPDM validator integration test, and refresh the standalone host lockfile.
+
+commit c847e79054f85777b0ec250e9fe4359e212c06b7
+Author: Tim Markey <tmarkey@micron.com>
+Date:   Mon Aug 24 11:23:37 2026 -0700
+
+    spdm: HEARTBEAT / HEARTBEAT_ACK with watchdog (#1927)
+    
+    * spdm: HEARTBEAT / HEARTBEAT_ACK with full liveness watchdog
+    
+    Add SPDM HEARTBEAT (0xE8) / HEARTBEAT_ACK (0x68) support to the Caliptra
+    MCU Rust SPDM responder, together with the complete liveness mechanism the
+    command exists for: HeartbeatPeriod advertisement, a per-session watchdog,
+    keep-alive on session traffic, and automatic teardown. Closes the OCP 2.7
+    SPDM-15 gap (HEARTBEAT_ACK required).
+    
+    Message layer (always compiled):
+    - HEARTBEAT handler validates version + the 4-byte shape (reserved
+      Param1/Param2 ignored per DSP0274) and returns HEARTBEAT_ACK. Phase-gated
+      to an established secure session; an unsecured HEARTBEAT gets
+      SessionRequired.
+    
+    Full liveness, behind off-by-default feature `spdm-set-heartbeat`
+    (DSP0274 1.3.0 section 10.20):
+    - KEY_EXCHANGE_RSP advertises a non-zero HeartbeatPeriod (default 3 s) iff
+      both endpoints set HBEAT_CAP, else 0. The period is folded into both the
+      partial and full builds so the transcript hash stays consistent.
+    - A per-session watchdog is armed at 2x the period on FINISH_RSP
+      transmission, only when the peer set HBEAT_CAP.
+    - Any successfully handled secured command restarts the watchdog, so live
+      traffic keeps the session open.
+    - On watchdog expiry the run loop clears the session and erases its keys.
+    - HBEAT_CAP is advertised only when the feature is enabled.
+    
+    The shipped default build is unchanged: no HBEAT_CAP is advertised and
+    HeartbeatPeriod is 0 (the spec-legal "heartbeat not supported" behavior).
+    
+    Design notes:
+    - The clock lives on the PAL trait (SpdmPalIoTransport) with an inert
+      default (now_ms -> 0, sleep_ms pends forever), so host unit tests need no
+      alarm capsule; the real PAL impl is alarm-capsule-backed (libtock Alarm
+      via AsyncAlarm), compiled only under the feature.
+    - The run loop races recv_request against the nearest session deadline with
+      a minimal local two-future select (embassy-futures is not vendored),
+      polling recv first so an arriving request wins a simultaneous timer.
+    - The fake alarm capsule now tracks a virtual monotonic clock (command TIME
+      reflects accumulated set_relative deltas) so tests can observe time move.
+    
+    Tests: 5 HEARTBEAT-handler cases, 7 liveness-watchdog cases (arm, touch,
+    nearest-deadline, expiry, secured keep-alive, cap advertise/hide), and 2
+    codec HeartbeatPeriod-encoding cases. Green with the feature both on and off.
+    
+    * spdm: simplify heartbeat cap-flags and factor out run-loop receive
+    
+    - Fold heartbeat_cap_flags() into a single cfg!() body instead of paired
+      #[cfg]/#[cfg(not)] functions.
+    - Factor the run-loop receive into a recv_next() free function so the
+      feature-gated liveness-watchdog branching lives in one place. Taken over
+      split borrows (pal shared, sessions mutable) rather than a &mut self
+      method, so the returned Io borrows only pal and does not pin a whole-self
+      borrow across the rest of the loop.
+    - Drop the unused embassy-sync dependency from the PAL crate; the run loop
+      uses a local two-future select, not embassy.
+    
+    No functional change. fmt/clippy clean and stack tests green with
+    spdm-set-heartbeat both on and off.
+    
+    * spdm: encode clock unit as Milliseconds newtype
+    
+    Replace the raw u64 clock/duration values on SpdmPalIoTransport with a
+    Milliseconds(u64) newtype defined in the spdm-traits crate, and rename
+    now_ms/sleep_ms to now/sleep. This keeps the unit in the type signature
+    so it can't be confused with an unrelated integer. Per-session deadline
+    math stays u64 internally; the newtype is unwrapped at the call sites.
+    
+    * spdm: encode KEY_EXCHANGE_RSP HeartbeatPeriod as a newtype
+    
+    Wrap the KEY_EXCHANGE_RSP HeartbeatPeriod byte in a HeartBeatPeriod(u8)
+    newtype in the codec crate, replacing the bare u8 on KeyExchangeRsp and
+    the per-session field. The type documents the unit (seconds) and the
+    distinguished zero value (heartbeat supported but not desired), with
+    DISABLED / is_enabled() / secs() accessors. Deadline math unwraps to u64
+    at the one arithmetic site.
+    
+    * spdm: fold heartbeat_period_for into a single cfg!() body
+    
+    Ungate DEFAULT_HEARTBEAT_PERIOD_SECS so both arms compile in every build,
+    then collapse the paired #[cfg]/#[cfg(not)] blocks into one function using
+    cfg!(). Same pattern already applied to heartbeat_cap_flags. The constant
+    is dead-code-eliminated when the feature is off.
+    
+    * spdm: sleep_ms takes u32; clamp at the trait boundary
+    
+    The alarm capsule value is u32, and the sleep duration (deadline - now) is
+    bounded by 2 x HeartbeatPeriod, so u32 is always sufficient. Make the helper's
+    parameter type honest and move the single clamp to the Milliseconds boundary.
+
+commit 78567d6b7c6655ebcdbc1f800ece21079a312142
+Author: Vishal Mhatre <38512878+mhatrevi@users.noreply.github.com>
+Date:   Sun Aug 16 13:51:19 2026 -0700
+
+    [feat] DOT: implement ownership transfer commands over MCI and SPDM VDM (#1930)
+    
+    * dot: implement authorized runtime lock command
+    
+    * dot: implement authorized runtime disable command
+    
+    * dot: implement runtime unlock challenge
+    
+    * dot: implement runtime unlock command
+    
+    * dot: implement authorized runtime rotate command
+    
+    * dot: add authorized backup blob command
+    
+    * dot: implement runtime status command
+    
+    * dot: implement runtime recovery command
+    
+    * dot: implement runtime override challenge
+    
+    * dot: implement runtime override command
+    
+    * dot: add SPDM VDM host validation
+    
+    * docs: document runtime DOT command family
+
+commit e0a1415f30df34de5928f9888d3b6acff819544b
+Author: Marco Visaya <marcovisaya@microsoft.com>
+Date:   Fri Aug 14 10:35:32 2026 -0700
+
+    Rename caliptra API lite crate
+    
+    Rename the local mcu-caliptra-api-lite package to mcu-caliptra-api and move its directory from runtime/userspace/api/caliptra-api-lite to runtime/userspace/api/caliptra-api.
+    
+    Update workspace membership and dependencies, Rust imports, documentation references, downstream manifests, and both Cargo lockfiles. Keep the separate upstream caliptra-api dependency unchanged.
+
+commit 0ed081c586544d804ae4d37b87bb43c26c09cb5d
+Author: parvathib <bhogaraju.parvathi@gmail.com>
+Date:   Thu Aug 13 18:17:29 2026 -0700
+
+    refactor(alloc): extract bitmap scratch pool into caliptra-mcu-scratch-alloc
+    
+    - Move the generic bitmap pool out of the SPDM PAL into a new crate at
+      runtime/userspace/scratch-alloc, alongside error/syscall/userlog.
+    - Non-SPDM tasks (image loader, boot measurement, MCU mailbox) no longer
+      depend on caliptra-mcu-spdm-pal just to get scratch memory.
+    - Only the SpdmPalAlloc impl stays in spdm-pal; the new crate depends
+      solely on mcu-error and api-lite (the ApiAlloc/ApiAllocPool impls must
+      travel with the type or they violate the orphan rule).
+    - Pool types are not re-exported from spdm-pal, so the removed dependency
+      edge cannot silently reappear.
+    - Rename McuSpdmBox to ScratchBox; it was never SPDM-specific.
+    - No behavior or size change: each task still owns its pool and
+      BitmapAllocator remains !Send + !Sync.
+
+commit d024fbc53ab846149890389f0ac0f278e6a18775
+Author: parvathib <bhogaraju.parvathi@gmail.com>
+Date:   Wed Aug 12 21:54:34 2026 -0700
+
+    feat(attestation): implement GET_ATTESTATION on SPDM VDM and MCI mailbox
+    
+    Returns signed attestation evidence bound to a requester nonce, over
+    SPDM VDM 0x05 and MCI mailbox 0x4D47_4154 ("MGAT").
+    
+    - Format selection: the evidence formats a build can serve are fixed at
+      link time by the generators it enables; a request selects among them.
+    - Discovery: evidence_format 0x0000 returns the supported-format bitmap
+      instead of evidence.
+    - Host tooling: adds GetAttestation (0x1007) to caliptra-util-host; the
+      emulator validators query the format bitmap instead of hardcoding it.
+
+commit 4e1dacfc626aa2f4e1ae1d9bf3d341f5ccd70695
+Author: Vishal Mhatre <38512878+mhatrevi@users.noreply.github.com>
+Date:   Fri Aug 14 10:23:55 2026 -0700
+
+    [feat] Owner hash provisioning and fuse burning commands (#1968)
+    
+    * spdm-vdm: add authorized fuse partition lock
+    
+    * fuses: add authorized owner hash provisioning
+
+commit 5a331c0128d946f4dd1607fca8ae4bea366ea592
+Author: mlvisaya <38512415+mlvisaya@users.noreply.github.com>
+Date:   Fri Aug 14 06:01:52 2026 -0700
+
+    Fix caliptra-util-host validator failures (#1973)
+    
+    Remove the GetDeviceCapabilities precheck from the SPDM VDM validator because that command is only supported over MCTP VDM.
+    
+    Parse FE_PROG authorized requests from byte slices instead of an aligned zerocopy reference. SPDM VDM payloads begin at an unaligned offset, which previously returned InvalidParameter before signature verification and caused authorization-negative tests to receive 0x02 instead of AccessDenied 0x0c. Add regression coverage for the unaligned wire payload.
+    
+    Make isolated SPDM fuse suites signal completion and failure through per-test state instead of terminating the entire Cargo process. This allows all prefix-matched suites to run serially without hanging or stopping after the first suite.
+    
+    Enable userspace logging for the MCTP VDM validator feature so ClearDebugLog is available. Update CI to run the current isolated SPDM suites, build one filtered firmware bundle for all validator tests, reuse it through CPTRA_FIRMWARE_BUNDLE, and run precheckin concurrently with validator tests.
+
+commit 12daeeda36d5670f1d747a8bc652d44dbc07302e
+Author: Arthur Heymans <38512878+mhatrevi@users.noreply.github.com>
+Date:   Wed Aug 12 21:12:24 2026 +0200
+
+    spdm-lite: add authorized fuse VDM commands (#1911)
+    
+    * spdm-lite: add authorized fuse VDM commands
+    
+    Add the PVPK, MCMS, MRVK, and RVKH AuthorizedCommand subcommands.
+    Parse their mailbox-header-free payloads exactly, verify the one-use
+    challenge signatures through the platform authorizer, and dispatch to the
+    transport-neutral fuse operations.
+    
+    Cover byte-exact parsing, request-size rejection, completion mapping, and
+    the 48-byte challenge response. Document the implemented payload and
+    signature wire format.
+    
+    * caliptra-util-host: support authorized fuse VDM commands
+    
+    Add typed host requests, explicit little-endian SPDM VDM encoders, and
+    client APIs for vendor PK-hash provisioning, minimum-SVN increase,
+    vendor-key revocation, and PK-hash-slot revocation.
+    
+    Preserve device completion codes through the transport, session, and
+    command layers so validator policy tests distinguish responder rejection
+    from transport, session, and signing failures. Enable bounded generic
+    large-request reassembly for the emulator SPDM app so the hybrid signatures
+    reach AuthorizedCommand dispatch.
+    
+    Advertise all implemented authorized subcommands, reject nonzero reserved
+    fields, and document the complete authorization trailer. Extend the real
+    signature validator coverage to reject tampered payloads, command IDs,
+    public-key anchors, and either signature leg.
+    
+    Tests:
+      - cargo test -p caliptra-mcu-spdm-vdm-handler (50 passed)
+      - cargo test -p user-app capability_masks_follow_compiled_services --features test-caliptra-util-host-spdm-vdm-validator
+      - cargo test --manifest-path caliptra-util-host/apps/spdm/client/Cargo.toml --lib (10 passed)
+      - cargo check --manifest-path caliptra-util-host/apps/spdm/client/Cargo.toml
+      - cargo check --manifest-path platforms/emulator/runtime/userspace/apps/user/Cargo.toml --features test-caliptra-util-host-spdm-vdm-validator
+      - cargo xtask precheckin
+
+commit 17fc75af1fb3d73dc0b5c8f07e5e0349d4cf2634
+Author: Arthur Heymans <arthur@aheymans.xyz>
+Date:   Tue Aug 11 04:49:32 2026 +0200
+
+    test(spdm): cover promoted algorithms negotiation edge cases (#1897)
+    
+    Add responder-level regression coverage for the promoted SPDM ALGORITHMS
+    handler:
+    
+    - omit a peer-only ReqBaseAsymAlg structure from the response;
+    - preserve exact response sizing and VCA transcript bytes; and
+    - return ALGORITHMS with BaseAsymSel=0 and advance state when no common
+      base asymmetric algorithm exists.
+    
+    Addresses #1647 and #1658 through regression coverage; no production handler
+    change was necessary.
+
+commit 1cb5b9981522f64959cc6e34c5943ca6c9750e8e
+Author: Xiling Sun <150394362+helloxiling@users.noreply.github.com>
+Date:   Fri Aug 7 16:40:16 2026 -0700
+
+    Add production support for FirmwareVersion and DeviceCapabilities commands (#1906)
+    
+    Source Caliptra Core version and capabilities from the Core mailbox, report
+    MCU runtime version and the compiled capability bitmap over MCI mailbox and
+    MCTP VDM, and retire the mock command handlers.
+
+commit 71fbdbc15a5ac0c6b7db40c1f4aea26c319e8570
+Author: Raunak Gupta <raunakgupta@micron.com>
+Date:   Wed Aug 5 09:34:40 2026 -0600
+
+    feat(cmd-auth): [C] mcu_cmd_auth_improvement (#1848)
+    
+    * feat(cmd-auth): MCU-local asymmetric command authorization
+    
+    Authorize privileged MCU mailbox commands locally on the device using a hybrid
+    ECDSA-P384 + ML-DSA-87 signature scheme, embedding only a hash of the vendor
+    verification keys instead of the full keys.
+    
+    Design:
+    - The device embeds only a 48-byte anchor = SHA-384(ecc_pub_x || ecc_pub_y ||
+      mldsa_pub). The vendor public keys travel on the wire with each authorized
+      command; the device recomputes the hash, matches the anchor, then verifies.
+    - Freshness via a device-issued one-time 48-byte nonce that also travels on the
+      wire (prod-debug-unlock idiom): the device compares the wire nonce to its
+      stored challenge, then rebuilds the pre-image from the wire copy.
+    - Authorization mirrors the prod-debug-unlock idiom: pre-image =
+      cmd_id(BE,4) || cmd_body || nonce(48), signed as two digests of the same raw
+      pre-image — ECDSA-P384 over SHA-384(pre-image) and ML-DSA-87 over
+      SHA-512(pre-image).
+    - Strict-AND, fail-closed verify: nonce == stored one-time challenge ->
+      SHA-384(received pubkeys) == embedded anchor -> ECDSA -> ML-DSA; any failure
+      returns AccessDenied.
+    - Verification reuses the existing generic Caliptra ECDSA384_SIGNATURE_VERIFY
+      and MLDSA87_SIGNATURE_VERIFY mailbox commands; no new Caliptra command.
+    - Gates all eight mailbox-dispatched authorized commands (FE_PROG,
+      PROVISION_VENDOR_PK_HASH, FUSE_READ/WRITE/LOCK_PARTITION,
+      INCREASE_CALIPTRA_MIN_SVN, REVOKE_VENDOR_PUB_KEY/PK_HASH) over the MCU mailbox
+      and SPDM/VDM transports.
+    
+    Sizing: authorized requests carry the traveling public keys (~7.5 KiB), so the
+    mailbox scratch pool is raised 12 KiB -> 16 KiB to hold the request buffer, the
+    response buffer, and the SVN/revoke handlers' nested FW_INFO allocation
+    concurrently; otherwise fw_info fails with OUT_OF_MEMORY after authorization.
+    
+    Integration boot: boot the MCU runtime the SoC manifest digested rather than
+    injecting a separately compiled runtime, which would not match the bundle
+    manifest under CPTRA_FIRMWARE_BUNDLE (RUNTIME_DIGEST_MISMATCH).
+    
+    Tests: MCU-local gate tests (G1 positives per command, G2 anchor, G3 nonce, G4
+    tampered body, G5 strict-AND), anchor key-substitution and replay isolation, and
+    a wire-size KAT.
+    
+    * docs(cmd-auth): note the pre-image dual-digest scheme in signer doc
+    
+    Comment-only touch to re-trigger CI.
+    
+    * refactor(cmd-auth): centralize the nonce width + verify both signature legs
+    
+    Address the same review feedback applied to the sibling nonce-48 PR: use a
+    single source of truth for the authorized-command challenge/nonce width and
+    give the signer both-leg test coverage.
+    
+    - Define AUTH_CMD_NONCE_LEN in caliptra-mcu-mbox-common as the single source of
+      truth for the challenge/nonce width, and reference it at every authorized-
+      command site that previously hard-coded 48: the challenge response struct, the
+      signer trait, the CommandAuthorizer trait, the device verifier, the emulator
+      mock, the host command-types crate (re-exported as AUTH_CMD_CHALLENGE_SIZE),
+      the integration helpers, and the SPDM/VDM path (trait, emulator impl, host
+      client, and the FeProgVdmReq wire parser).
+    - Replace the signer's local nonce const with a re-export of the shared constant
+      plus a compile-time `const _: () = assert!(AUTH_CMD_NONCE_LEN == 48);` near the
+      use site. ECC-P384 coordinate/private-key sizes and SHA-384 digest sizes that
+      also equal 48 are left as their own constants.
+    - Add an ML-DSA-87 signer KAT that verifies the PQC leg over SHA-512(pre-image)
+      (positive and wrong-nonce negative), complementing the existing ECDSA-P384 leg
+      test, so both legs are covered.
+    
+    * cmd-auth: move signatures to end of authorized-command wire layout
+    
+    Reorder the authorized-command wire block so the signatures come LAST,
+    matching the caliptra-sw ProductionAuthDebugUnlockToken field order:
+    
+      [ command body | nonce(48) | ecc_pub_x(48) | ecc_pub_y(48)
+        | mldsa_pub(2592) | ecc_sig_r(48) | ecc_sig_s(48) | mldsa_sig(4628) ]
+    
+    Previously the signatures were placed first (right after the command body),
+    so the signed pre-image was never a contiguous wire prefix. With sigs last,
+    the nonce + public keys precede them, mirroring prod-debug-unlock.
+    
+    Unchanged: the signed pre-image (cmd_id(BE,4) || body || nonce), the per-leg
+    hashes (ECDSA over SHA-384, ML-DSA over SHA-512), the key anchor
+    (SHA-384(ecc_pub_x||ecc_pub_y||mldsa_pub)), and all field sizes/totals
+    (FE_PROG authorized body = 7464 bytes).
+    
+    Sites updated (encoders + decoders kept byte-symmetric):
+    - host FeProgRequest struct + Default + offset_of! asserts (fuse.rs)
+    - device VDM FeProgVdmReq struct + new per-field offset_of! asserts
+    - device mailbox authorizer slice walk (cmd_auth_mock.rs)
+    - shared integration-test tail encoder (runtime/mod.rs)
+    - FE_PROG + FUSE_READ negative-gate tamper offsets + KAT comment
+    - VDM transport doc comment
+    
+    Verified: cargo build (offset asserts are the compile-time order lock),
+    cargo fmt, clippy, signer unit tests (5/5), and the full auth e2e suite
+    test_cmd_auth_asym (10/10) on the software emulator with a matching
+    firmware bundle.
+    
+    * cmd-auth: parse the authorization block with zerocopy; reuse take_challenge
+    
+    Addresses two review comments on the authorized-command decoder.
+    
+    1. Replace the manual per-field slice walk with a zerocopy struct.
+    
+       The signatures-last reorder made the walk five `req.get(off..off + N)` steps
+       with four `off +=` bookkeeping lines. Introduce
+    
+         #[repr(C)] struct AuthorizationBlock {
+             nonce[48] | ecc_pub_x[48] | ecc_pub_y[48] | mldsa_pub[2592] | sig
+         }
+    
+       and parse it in one call. All fields are u8 arrays, so #[repr(C)] adds no
+       padding and alignment is 1; a cast can only fail on length.
+    
+       Uses ref_from_prefix, not ref_from_bytes or ref_from_suffix:
+       - ref_from_bytes is exact-size and would newly reject frames with trailing
+         bytes, which the previous walk accepted.
+       - ref_from_suffix anchors to the end of the slice, so trailing bytes would
+         silently shift the window and misparse the nonce and keys.
+    
+       The two offset bases are unchanged and deliberately differ: the tail starts
+       at cmd_len (which includes MailboxReqHeader) while cmd_body starts after that
+       header. The struct describes only the fixed tail, so neither base moves.
+    
+       Adds six compile-time asserts this file previously had none of - one size and
+       five per-field offset_of!. Per-field offsets matter because a size-only
+       assert passes for any field permutation, so it would not catch a reorder.
+       This matches the asserts already guarding the two sibling definitions of the
+       same wire layout, FeProgVdmReq and FeProgRequest.
+    
+    2. verify_signatures now calls the existing take_challenge() trait method
+       instead of inlining CHALLENGE.lock(|state| state.borrow_mut().take()).
+       Byte-identical body, same consumption point before the nonce comparison, and
+       it gives the previously uncalled trait method its only caller.
+    
+    Both changes are behaviour-preserving. Verified: cargo build (the new asserts
+    are the layout proof), cargo fmt --check, cargo clippy, and test_cmd_auth_asym
+    10/10 pass on a firmware bundle rebuilt from this source.
+
+commit 9d6ac7cd96674b376256326b5565c7b1eb994574
+Author: Parvathi Bhogaraju <bhogaraju.parvathi@gmail.com>
+Date:   Thu Jul 30 19:14:09 2026 -0700
+
+    Clean up attestation evidence configuration (#1783)
+    
+    - Add build-time configurable OCP EAT claims and sizing
+    - Move EAT claims/signing ownership into attestation-evidence
+    - Add feature-gated PCR quote evidence and remove legacy caliptra-api helpers
+
+commit 08b807cde160f1880aa39374a558bf2c9d0be1d9
+Author: Parvathi Bhogaraju <bhogaraju.parvathi@gmail.com>
+Date:   Tue Jul 28 17:33:28 2026 -0700
+
+    Add production attestation evidence path (#1782)
+    
+    Add the Measurement API evidence-generation boundary, including DPE tagged-TCI reads, normalized measurement values, selected-AK lineage filtering, generated concise-evidence templates, and buffer-too-small behavior.
+    
+    Add a shared attestation-evidence crate that wraps Measurement API concise evidence in OCP EAT claims, reads MCI debug status at runtime, signs via Measurement API selected-AK wrappers, and exposes PCR quote as a transport-neutral evidence format.
+    
+    Wire SPDM GET_MEASUREMENTS through spdm-pal providers for signed OCP EAT and PCR quote formats, keep user-app provider selection at initialization, and allow SPDM measurement records to use provider-returned actual lengths within advertised maximum sizes.
+    
+    Keep optional/private EAT claims and legacy caliptra-api evidence cleanup as follow-up work; emulator/end-to-end coverage remains in the next PR.
+
+commit 770fa3102f2306da2153a51f84e00a86f4626b76
+Author: Arthur Heymans <arthur@aheymans.xyz>
+Date:   Fri Jul 24 23:57:52 2026 +0200
+
+    [SPDM_CERT_PROVISIONING] Add SET_CERTIFICATE E2E coverage (#1718)
+    
+    * spdm: compose managed AliasCert chains
+    
+    Exclude the Caliptra IDevID and LDevID prefix when composing writable
+    AliasCert slots so the installed Owner chain is followed by the dynamic
+    FMC, RT, and DPE leaf certificates.
+    
+    * spdm: authenticate requester certificate chains
+    
+    Configure slot-scoped trust anchors for libspdm, verify certificate roots and
+    signatures, expose authenticated CHALLENGE and GET_CERTIFICATE operations, and
+    parse concatenated DER certificates with RustCrypto.
+    
+    * spdm: add Owner certificate provisioning e2e
+    
+    Authenticate the Vendor slot, validate an attested CSR, issue and install an
+    Owner LDevID chain, verify the composed slot, and challenge the provisioned
+    identity. Use RustCrypto builders and parsers for host-side X.509 handling.
+    
+    * spdm: fix certificate chain verification
+    
+    Parse the libspdm certificate-chain header before validating the root hash,
+    and reuse the configured Owner root when issuing the LDevID certificate.
+    
+    Tests:
+      - caliptra-spdm-requester requester::tests
+      - caliptra-spdm-vdm-client ocp_dev_identity_provision
+      - OCP Device Identity provisioning integration test
+
+commit 93d50bf3d26e970433046870670540190a7617d3
+Author: Arthur Heymans <arthur@aheymans.xyz>
+Date:   Fri Jul 24 17:35:20 2026 +0200
+
+    refactor(spdm): unify Caliptra VDM command handling (#1753)
+    
+    Route transport-neutral Caliptra VDM operations through the shared static
+    command service while keeping SPDM stream state and authorization hooks
+    separate. Reuse the scratch-backed lite mailbox APIs and shared command
+    authorizer introduced on main.
+    
+    Add firmware/device information, log, and CSR command coverage, preserve the
+    host-built DebugUnlock token checksum, and define byte-exact DebugUnlock VDM
+    request and response framing.
+    
+    Tests:
+      - cargo test -p caliptra-mcu-spdm-vdm-handler
+      - cargo test -p caliptra-mcu-core-util-host-transport
+      - cargo test -p caliptra-mcu-mctp-vdm-lib
+      - cargo check -p mcu-caliptra-api-lite
+      - cargo check -p user-app --features spdm
+      - cargo check -p user-app --no-default-features --features test-mctp-spdm-attestation
+      - cargo xtask precheckin
+
+commit 63fb7f83c66c92affb073a9d5524430cf3c48a7b
+Author: Zach Halvorsen <zhalvorsen@google.com>
+Date:   Wed Jul 22 19:59:40 2026 -0700
+
+    Switch reference command authorizer to use asymmetric keys (#1744)
+    
+    The old reference used HMAC (symmetric) keys which are difficult to keep
+    secure because they need to exist in both an HSM or similar
+    infrastructure and be referenced by the firmware. Instead of giving an
+    example of provisioning this key into fuses and worrying about key
+    hygiene we have switched to using asymmetric keys so a public keys can
+    be stored directly in firmware.
+    
+    This example uses both ECDSA and ML-DSA to verify the authorization to
+    maintain PQC safety.
+
+commit fa89ee7516a78bb11505aac177c22435c90c984e
+Author: Xiling Sun <150394362+helloxiling@users.noreply.github.com>
+Date:   Tue Jul 21 10:28:38 2026 -0700
+
+    Update Caliptra common commands spec and code alignment  (#1661)
+    
+    * doc: update caliptra common cmds and transport doc
+    
+    * docs: address review comments
+    
+    * vdm: align command cleanup with docs
+
+commit 0a02bf63a001061136083c1982f4a0bbeac6dd1b
+Author: Parvathi Bhogaraju <bhogaraju.parvathi@gmail.com>
+Date:   Mon Jul 20 20:12:52 2026 -0700
+
+    mcu-mbox: Remove caliptra-api dependency, part 2 (#1780)
+    
+    Goal
+    This series removes caliptra-api from the caliptra-mcu-mbox-lib dependency tree. After all three PRs are stacked, caliptra-mcu-mbox-lib should no longer depend on caliptra-api.
+    
+    This part
+    Part 2 removes the common/mcu-mbox -> caliptra-api dependency path.
+    
+    Moves the Caliptra mailbox wire definitions used by common/mcu-mbox into mcu-caliptra-api-lite.
+    Switches common/mcu-mbox from caliptra-api reexports to mcu-caliptra-api-lite mailbox definitions.
+    Removes common/mcu-mbox's direct dependency on caliptra-api.
+    Keeps common/mcu-mbox as a wire-only lite consumer with default-features disabled.
+    Keeps existing mcu-caliptra-api-lite users on the default mailbox-io behavior while gating syscall-backed lite APIs behind that feature.
+    Adds wire layout and checksum tests for the copied mailbox definitions.
+    
+    Stack
+    mcu-mbox: Remove caliptra-api dependency, part 1 — syscall dependency cleanup.
+    mcu-mbox: Remove caliptra-api dependency, part 2 — move mailbox wire definitions to mcu-caliptra-api-lite and switch common/mcu-mbox to lite definitions.
+    mcu-mbox: Remove caliptra-api dependency, part 3 — remove the mcu-mbox-lib -> romtime -> caliptra-api fuse-helper dependency path.
+
+commit a30378f9b24c616821489d62f3ee0aa42975b3c7
+Author: Parvathi Bhogaraju <bhogaraju.parvathi@gmail.com>
+Date:   Wed Jul 15 19:54:18 2026 -0700
+
+    Use measurement API for DPE handles (#1758)
+    
+    * Use measurement API for DPE handles
+    
+    Route attestation cert, kid, and signing operations through the library-owned Measurement API instance. Measurement API now owns the read-handle, issue-command, write-rotated-handle sequence for DPE operations that can rotate handles.
+    
+    Keep caliptra-api-lite as the low-level DPE mailbox layer, while SPDM cert store and OCP EAT use the Measurement API surface instead of calling DPE helpers directly.
+
+commit d41321bc6bce9dfcaaa667a389b7dbc56582eda8
+Author: Parvathi Bhogaraju <bhogaraju.parvathi@gmail.com>
+Date:   Wed Jul 15 15:12:10 2026 -0700
+
+    Move MCU mailbox to scratch-backed lite APIs (#1761)
+
+commit 4c4e4e2aee4a891ae4b25d4479b73d78ea80ee61
+Author: Arthur Heymans <arthur@aheymans.xyz>
+Date:   Mon Jul 13 22:36:42 2026 +0200
+
+    Implement streaming DebugUnlock and SET_CERTIFICATE (#1694)
+    
+    * Implement streaming SPDM DebugUnlock and SET_CERTIFICATE
+    
+    Preserve the DebugUnlock VDM payload as host-prebuilt Caliptra RT mailbox
+    request bytes and stream recognized CHUNK_SEND requests directly into a
+    guarded Caliptra mailbox transaction. Add userspace/kernel abort support so
+    interrupted streams release the mailbox cleanly.
+    
+    Add minimal SET_CERTIFICATE CHUNK_SEND streaming through cert-store
+    transactions, with metadata committed only after final validation and root
+    hash verification. Keep non-streaming compatibility for existing PALs.
+    
+    Document the DebugUnlock VDM payload contract and add tests for the new
+    streaming paths and validation behavior.
+    
+    * Address PR 1694 review feedback
+    
+    * spdm: gate SET_CERTIFICATE test helper
+    
+    * spdm: avoid holding mailbox mutex during streamed unlock
+    
+    Keep only DebugUnlock stream state in the VDM hook and use the mailbox
+    chunked syscalls directly for start, continue, finish, and abort. This
+    avoids holding the userspace mailbox mutex across remote CHUNK_SEND traffic.
+    
+    Remove the guarded chunked request helper that encouraged long-lived mutex
+    ownership across streamed requests.
+    
+    * spdm: fix streamed provisioning followups
+    
+    Reject streamed SET_CERTIFICATE requests that bypass the alias-cert policy and
+    clear transient write state when a streamed update is aborted.
+    
+    Document the DebugUnlock VDM payload contract and the emulator stream
+    serialization invariant.
+    
+    Tests:
+      - cargo test -p caliptra-mcu-spdm-stack --features set-certificate,generic-large-request
+      - cargo test -p caliptra-mcu-spdm-vdm-handler
+      - cargo test -p caliptra-mcu-spdm-pal --features set-certificate
+    
+    * spdm: address streamed provisioning review feedback
+    
+    - keep mailbox abort timeout fallback armed on driver failure
+    - move streamed certificate checksums into persistent storage
+    - validate certificate root hashes on buffered and streamed paths
+    - allow chunked SET_CERTIFICATE in established secure sessions
+    - document the common Debug Unlock command body
+    
+    * spdm: fix streamed request framing and cleanup
+    
+    - preserve mailbox bytes across unaligned payload chunks
+    - bind chunked requests to their originating session
+    - abort failed certificate streams and align validation errors
+    - narrow VDM streaming hooks to DebugUnlock
+
+commit 74f6ea139162f36985efd879f9782a0d57952f60
+Author: Parvathi Bhogaraju <bhogaraju.parvathi@gmail.com>
+Date:   Tue Jul 7 21:56:25 2026 -0700
+
+    Use chunked CertifyKey for DPE leaf cert (#1710)
+    
+    * Use chunked CertifyKey for DPE leaf cert
+
+commit 3961d0bb6768c1af7bdc1d96b11865edd668c9c6
+Author: Parvathi Bhogaraju <bhogaraju.parvathi@gmail.com>
+Date:   Tue Jun 23 17:54:07 2026 -0700
+
+    spdm: replace old spdm-lib with spdm-lite stack (#1682)
+    
+    Replace old spdm-lib with spdm-lite stack.
+
+commit 628d324befdb6ce4694d75fbee426ad09dfa8253
+Author: mlvisaya <38512415+mlvisaya@users.noreply.github.com>
+Date:   Thu Jun 4 08:38:19 2026 -0700
+
+    Add MCU handler for GetAuthChallenge and FeProg Caliptra Commands (#1497)
+    
+    * Add CommandAuthChallengeSigner trait and FE_PROG support to host validators
+    
+    * Address review feedback: AuthorizedCommand sub-dispatch, canonical cmd_id, remove debug logging, update caliptra-sw dep
+    
+    - Redesign SPDM VDM authorized commands: replace separate 0x10/0x12 top-level
+      codes with a single AuthorizedCommand (0x12) that dispatches by a 4-byte
+      sub_cmd_id matching the MCU mailbox FOURCCs:
+        0x4D41_4343 (MACC) = Get Auth Challenge
+        0x4D43_4650 (MCFP) = Program Field Entropy
+      This unifies the cmd_id used in HMAC across SPDM VDM and MCU mailbox
+      transports (Blockers 1, 2)
+    
+    - Fix FE_PROG HMAC cmd_id: validator now uses MC_FE_PROG_CANONICAL_CMD_ID
+      (0x4D43_4650) matching what the firmware verifier expects (Blocker 2)
+    
+    - Add MC_GET_AUTH_CMD_CHALLENGE_CANONICAL_CMD_ID and MC_FE_PROG_CANONICAL_CMD_ID
+      constants to command-types/src/fuse.rs as single source of truth
+    
+    - Remove unconditional println! debug logging from UdpTransportDriver::send_command
+      (Blocker 5)
+    
+    - Update caliptra-sw dependency from mlvisaya/caliptra-sw fork to official
+      chipsalliance/caliptra-sw@fb13ba3a86a5eca0b26e134e64c5197bdfe7d0c5 (Blocker 6)
+    
+    - Update docs (caliptra_common_commands.md, caliptra_spdm_vdm_cmds.md) to
+      reflect new AuthorizedCommand sub-command structure
+    
+    * Add FE_PROG firmware handlers, CommandAuthorizer verify_mac, and integration tests
+    
+    * Update SPDM VDM firmware handler to AuthorizedCommand sub-dispatch with u32 sub_cmd_id
+    
+    - Rename GetAuthCmdChallenge/ProgramFieldEntropy top-level VDM codes to a single
+      AuthorizedCommand (0x12) that reads a u32 sub_cmd_id and dispatches:
+        0x4D41_4343 (MACC) -> get_auth_challenge handler
+        0x4D43_4650 (MCFP) -> program_field_entropy handler
+      Sub-command IDs match MCU mailbox FOURCCs so HMAC inputs are identical
+      across transports
+    
+    - Update FE_PROG_CMD_ID to 0x4D43_4650 in program_field_entropy.rs to match
+      the canonical MC_FE_PROG mailbox command ID used in HMAC computation
+    
+    - Update wire format doc comments in get_auth_challenge.rs and
+      program_field_entropy.rs to reflect 4-byte LE sub_cmd_id
+    
+    * Address PR review feedback: restore FuseRevokeVendorPkHash, real FE_PROG test, remove debug prints, fix docs
+    
+    - Restore FuseRevokeVendorPkHashReq import and match arm in
+      MockCommandAuthorizer::is_authorized so it matches CmdInterface routing
+    - Convert test_fe_prog_debug_bytes into test_fe_prog_authorized_req with
+      proper assert! checks instead of only printing debug output
+    - Remove debug println! in sign_auth_cmd_challenge and
+      execute_authorized_req that dumped HMAC key and MAC material
+    - Update program_field_entropy doc comment to reflect that both MCU
+      mailbox and VDM dispatch layers verify HMAC authorization
+    - Fix protocol test comment: ProgramFieldEntropy sub-command ID is
+      0x4D43_4650 (MCFP), not 0x02
+
+commit dfb49ed751a923c41792d910dde2a0bc0b7676e5
+Author: mlvisaya <38512415+mlvisaya@users.noreply.github.com>
+Date:   Wed May 20 06:48:57 2026 -0700
+
+    Add VDM streaming for ProdDebugUnlock on MCU side (#1426)
+    
+    * Add ProdDebugUnlock support to SPDM VDM host validator
+    
+    Add RequestDebugUnlock and AuthorizeDebugUnlockToken VDM commands to the
+    host-side SPDM validator client. The token command builds the mailbox
+    payload with a proper checksum header so Caliptra RT can verify it.
+    
+    Also adds key serialization/deserialization to DebugUnlockKeys for
+    persisting generated keys between validator invocations.
+    
+    * Address feedback
+    
+    * Add VDM streaming for ProdDebugUnlock on MCU side
+    
+    Implement VdmStreamHandler trait to stream large SPDM VDM payloads
+    directly to the Caliptra mailbox FIFO without buffering the entire
+    message in RAM. This enables the 7500-byte ProdDebugUnlockToken to be
+    delivered via SPDM CHUNK_SEND protocol.
+    
+    Key changes:
+    - VdmStreamHandler trait with stream_init/stream_chunk/stream_finish/
+    stream_abort for chunked mailbox delivery
+    - Dynamic VDM header parsing in CHUNK_SEND handler to extract mailbox
+    command and payload length from the first chunk
+    - VendorDefRespHdr framing in streaming completion response
+    - CaliptraCmdBackend implementation with 4-byte aligned sub-chunking
+    - Debug unlock VDM command handlers (RequestDebugUnlock,
+    AuthorizeDebugUnlockToken)
+    - Integration test covering ExportAttestedCsr and ProdDebugUnlock flows
+
+commit 555d295af24a8078177f9135de70240e57f5b3d1
+Author: xilingsun <150394362+helloxiling@users.noreply.github.com>
+Date:   Mon May 18 18:10:17 2026 -0700
+
+    Add GetLog/ClearLog commands support (#1388)
+
+commit c1f4587b6f90b64fce4782d905579087e189491d
+Author: Parvathi Bhogaraju <bhogaraju.parvathi@gmail.com>
+Date:   Mon May 18 09:20:05 2026 -0700
+
+    Use chipsalliance SPDM DMTF mirrors for CI attestation and validator tests (#1469)
+    
+    - Point CI workflows to chipsalliance/caliptra-spdm-emu caliptra-main
+    - Configure LIBSPDM_MAX_CERT_CHAIN_SIZE=0x2000 for Caliptra cert chains
+    - Reset L1 transcript on measurement error responses
+
+commit 2660cc969856685083797ed83d07b13bb8d875e9
+Author: Arthur Heymans <arthur@aheymans.xyz>
+Date:   Sat May 16 01:55:17 2026 +0200
+
+    spdm: add SET_CERTIFICATE handling with persistent cert storage (#1373)
+    
+    Co-authored-by: Parvathi Bhogaraju <bhogaraju.parvathi@gmail.com>
+
+commit 15da763b64837ccfb6fe1e42a0c27189b4714dd4
+Author: Parvathi Bhogaraju <bhogaraju.parvathi@gmail.com>
+Date:   Thu May 14 13:35:27 2026 -0700
+
+    spdm: flatten error codes into 2 u32 values (#1447)
+    
+    - Add error_code()/ext_code() u32s on SpdmError replacing Debug-based
+      console prints.
+    - Introduce stable wrapper-type IDs (error_type_id, 0xE0..0xFF) so a
+      given inner error type uses the same byte value at every nesting depth.
+    - Group related variants into sub-enums so SpdmError stays simple.
+    - Replace &'static str-carrying variants across the SPDM error types
+      with named variants.
+    
+    Saves ~22 KB user-app .text.
+
+commit 7400a2feea4bf665b1b06229d79133b4d3ab05cf
+Author: Parvathi Bhogaraju <bhogaraju.parvathi@gmail.com>
+Date:   Wed May 13 09:11:42 2026 -0700
+
+    spdm: Reduce .text by converting VCA handlers to sync (#1424)
+    
+    - Convert handle_get_version, handle_get_capabilities,
+      handle_negotiate_algorithms, and handle_end_session to sync functions.
+      These only use VCA transcript appends (synchronous buffer copies).
+    - Add sync append_message_to_vca_transcript() on SpdmContext.
+    - Replace write!() formatting in version_to_str with manual decimal
+      encoding to avoid pulling in core::fmt machinery.
+    
+    Saves ~2.8 KB .text in user-app.
+
+commit 81d7eb3eb934460ce652bc4f42974e8625a8eccf
+Author: Parvathi Bhogaraju <bhogaraju.parvathi@gmail.com>
+Date:   Tue May 12 08:55:57 2026 -0700
+
+    spdm-lib: Remove measurement staging buffer, use shared large message buffer (#1412)
+    
+    Remove the 4 KB MeasurementRecord::data inline buffer from SpdmContext.
+    Measurements are now fetched directly into large_msg_ctx.buf, which is
+    already acquired for GetMeasurements. Also acquire the buffer for
+    Challenge and KeyExchange (measurement summary hash).
+    
+    .bss savings: 4,072 B per responder task.
+    Increase user-app stack from 0xa000 to 0xae00, enabled by the savings.
+
+commit 825bafaa16648a44044cbdcca97ac091ed4a3e04
+Author: Parvathi Bhogaraju <bhogaraju.parvathi@gmail.com>
+Date:   Mon May 11 18:32:39 2026 -0700
+
+    spdm-lib: Share large message buffer via static pool (#1408)
+    
+    Replace per-task inline buffer with a shared static pool using
+    the LargeMsgBufProvider trait. MCTP and DOE responders acquire
+    the buffer on demand and release when idle. Saves ~4 KB .bss
+    when both transports are enabled.
+
+commit 2d5f5460db8ad07e0a012542945cb9ec30bb1e8e
+Author: Parvathi Bhogaraju <bhogaraju.parvathi@gmail.com>
+Date:   Mon May 11 15:31:13 2026 -0700
+
+    Add ExportIdevidCsr VDM command (#1370)
+    
+    Manufacturing mode: returns IDevID CSR for requested algorithm.
+    Production mode: rejects with error (negative test).
+
+commit cc986baa760bb164f994a7f94bb21cd6eab6b580
+Author: Parvathi Bhogaraju <bhogaraju.parvathi@gmail.com>
+Date:   Fri May 8 10:54:15 2026 -0700
+
+    spdm-lib: Refactor large VDM responses and Caliptra VDM command handler (#1351) (#1359)
+    
+    - Use app-provided static buffer to stage buffered responses served in chunks
+          (streaming responses like certificates use a separate path)
+        - Rename crate external-cmds-common to caliptra-mcu-common-commands and define
+          and use OCP error codes for common Caliptra commands
+        - Rename trait UnifiedCommandHandler to CaliptraCmdHandler
+
+commit bf7410bae058eabdfc9cc002cb35cb6d235bf862
+Author: Parvathi Bhogaraju <bhogaraju.parvathi@gmail.com>
+Date:   Fri May 8 06:32:47 2026 -0700
+
+    spdm: Refactor SpdmCertStore for Cert slot management (#1353)
+    
+    - Adds trait methods for setting and erasing certificate in a slot
+    - Make the parameter ordering consistent across all methods
+    - Add documentation for Certificate store
+
+commit 32fc09f64a48cd8a49d8ba533fa7f3b3631c059d
+Author: Parvathi Bhogaraju <bhogaraju.parvathi@gmail.com>
+Date:   Thu May 7 17:09:29 2026 -0700
+
+    spdm-lib: Unify large request/response into shared LargeMessageCtx (#1371)
+    
+    - Combine LargeRequestCtx and LargeResponseCtx into a single
+      LargeMessageCtx using one app-provided buffer.
+      - Eliminate the 1KB intermediate buffer in chunk_send_ack response generation
+      - Reduce the user-app stack reservation (0xAE00 -> 0xA000) to address the Process load error
+
+commit 2a07b78d665ad81da0d82c4e774ba55621cf69b7
+Author: Parvathi Bhogaraju <bhogaraju.parvathi@gmail.com>
+Date:   Tue May 5 00:42:48 2026 -0700
+
+    spdm-lib: Refactor large VDM responses and Caliptra VDM command handler (#1351)
+    
+    - Use app-provided static buffer to stage buffered responses served in chunks
+      (streaming responses like certificates use a separate path)
+    - Rename crate external-cmds-common to caliptra-mcu-common-commands and define
+      and use OCP error codes for common Caliptra commands
+    - Rename trait UnifiedCommandHandler to CaliptraCmdHandler
+
+commit 46c3e2806943dab828b1243eff520e7b9a44d168
+Author: Arthur Heymans <arthur@aheymans.xyz>
+Date:   Mon May 4 21:28:44 2026 +0200
+
+    Implement SPDM CHUNK_SEND handling (#1339)
+    
+    * Implement SPDM CHUNK_SEND handling
+
+commit b55397fd6a082f477f24be1494054d132f2415c8
+Author: Parvathi Bhogaraju <bhogaraju.parvathi@gmail.com>
+Date:   Thu Apr 30 11:32:56 2026 -0700
+
+    Add ExportAttestedCsr command on MCU mailbox and SPDM-over-MCTP transports (#1334)
+    
+    - Add baseline CaliptraCmdHandler implementation in app space backed by Caliptra mailbox API
+    - Support ExportAttestedCsr on MCU mailbox and SPDM-over-MCTP, remove from legacy MCTP VDM
+    - Fix nonce parameter missing from UnifiedCommandHandler trait
+    - Add host-side command-types, mailbox transport, API, client, and validator
+
+commit 5aa615d516f0f39424cd16354dc26ea35fedc8ef
+Author: Parvathi Bhogaraju <bhogaraju.parvathi@gmail.com>
+Date:   Wed Apr 29 11:36:45 2026 -0700
+
+    Add Caliptra VDM command handler for SPDM VDM transport (#1322)
+    
+    - CaliptraVdmHandler matches IANA StandardID + OCP Vendor ID 42623
+      and dispatches CaliptraVdmCommand (0x01-0x11) to per-command handlers
+    - Each handler decodes the VDM request, delegates to
+      UnifiedCommandHandler, and encodes the VDM response
+    - Implemented: firmware_version, device_capabilities, device_id,
+      device_info, export_attested_csr
+
+commit 4338414f4051b2fe11702e4f6f2aa9f88482d40e
+Author: Zach Halvorsen <zhalvorsen@google.com>
+Date:   Fri Apr 10 14:07:19 2026 -0700
+
+    Rename the rest of the local crates with a `caliptra-mcu*` prefix (#1213)
+    
+    * Rename `capsules-runtime` to `caliptra-mcu-capsules-runtime`
+    
+    * Rename `dma-driver` to `caliptra-mcu-dma-driver`
+    
+    * Rename `doe-mbox-driver` to follow new conventions
+    
+    * Rename `doe-transport` to follow new conventions
+    
+    * Rename `emulator` to follow new conventions
+    
+    * Rename `emulator-bmc` to follow new conventions
+    
+    * Rename `emulator-caliptra` to follow new conventions
+    
+    * Rename `emulator-consts` to follow new conventions
+    
+    * Rename `emulator-mcu-mbox` to follow new conventions
+    
+    * Rename `emulator-periph` to follow new conventions
+    
+    * Rename `emulator-registers-generated` to follow new conventions
+    
+    * Rename `flash-ctrl-emulator` to follow new conventions
+    
+    * Rename `flash-ctrl-fpga` to follow new conventions
+    
+    * Rename `flash-driver` to follow new conventions
+    
+    * Rename `flash-image` to follow new conventions
+    
+    * Rename `fusegen` to follow new conventions
+    
+    * Rename `i3c-driver` to follow new conventions
+    
+    * Rename `libtockasync` to follow new conventions
+    
+    * Rename `mcu-builder` to follow new conventions
+    
+    * Rename `mcu-components` to follow new conventions
+    
+    * Rename `mcu-config` to follow new conventions
+    
+    * Rename `mcu-config-emulator` to follow new conventions
+    
+    * Rename `mcu-config-fpga` to follow new conventions
+    
+    * Rename `mcu-error` to follow new conventions
+    
+    * Rename `mcu-firmware-bundler` to follow new conventions
+    
+    * Rename `mcu-fuses-generator` to follow new conventions
+    
+    * Rename `mcu-hw-model` to follow new conventions
+    
+    * Rename `mcu-test-fw-exception-handler` to follow new conventions
+    
+    * Rename `mcu-test-fw-hitless-update-flow` to follow new conventions
+    
+    * Rename `mcu-test-fw-mailbox-responder` to follow new conventions
+    
+    * Rename `mcu-test-fw-otp-blank-check` to follow new conventions
+    
+    * Rename `mcu-test-fw-lc-ctrl` to follow new conventions
+    
+    * Rename `mcu-test-fw-sw-digest-lock` to follow new conventions
+    
+    * Rename `mcu-image-header` to follow new conventions
+    
+    * Rename `mcu-mbox-comm` to follow new conventions
+    
+    * Rename `mcu-mbox-common` to follow new conventions
+    
+    * Rename `mcu-mbox-driver` to follow new conventions
+    
+    * Rename `mcu-otp-lifecycle` to follow new conventions
+    
+    * Rename `mcu-platforms-common` to follow new conventions
+    
+    * Rename `mcu-rom-common` to follow new conventions
+    
+    * Rename `mcu-test-harness` to follow new conventions
+    
+    * Rename `mcu-testing-common` to follow new conventions
+    
+    * Rename `mcu-tock-veer` to follow new conventions
+    
+    * Rename `mctp-vdm-common` to follow new conventions
+    
+    * Rename `otp-digest` to follow new conventions
+    
+    * Rename `pldm-common` to follow new conventions
+    
+    * Rename `pldm-fw-pkg` to follow new conventions
+    
+    * Rename `pldm-ua` to follow new conventions
+    
+    * Rename `poll-common` to follow new conventions
+    
+    * Rename `provisioning-fuses` to follow new conventions
+    
+    * Rename `registers-generated` to follow new conventions
+    
+    * Rename `registers-generator` to follow new conventions
+    
+    * Rename `registers-systemrdl` to follow new conventions
+    
+    * Rename `registers-systemrdl-new` to follow new conventions
+    
+    * Rename `romtime` to follow new conventions
+    
+    * Rename `external-cmds-common` to follow new conventions
+    
+    * Rename `mcu-mbox-lib` to follow new conventions
+    
+    * Rename `mctp-vdm-lib` to follow new conventions
+    
+    * Rename `pldm-lib` to follow new conventions
+    
+    * Rename `spdm-lib` to follow new conventions
+    
+    * Rename `libsyscall-caliptra` to follow new conventions
+    
+    * Rename `libapi-caliptra` to follow new conventions
+    
+    * Rename `libapi-emulated-caliptra` to follow new conventions
+    
+    * Rename `libtock` to follow new conventions
+    
+    * Rename `libtock_alarm` to follow new conventions
+    
+    * Rename `libtock_console` to follow new conventions
+    
+    * Rename `libtock_debug_panic` to follow new conventions
+    
+    * Rename `libtock_low_level_debug` to follow new conventions
+    
+    * Rename `libtock_platform` to follow new conventions
+    
+    * Rename `libtock_rng` to follow new conventions
+    
+    * Rename `libtock_runtime` to follow new conventions
+    
+    * Rename `libtock_small_panic` to follow new conventions
+    
+    * Rename `libtock_unittest` to follow new conventions
+    
+    * Rename `tbf-header` to follow new conventions
+    
+    * Rename `caliptra-util-host-mailbox-test-config` to follow new conventions
+    
+    * Rename `caliptra-util-host-mctp-vdm-test-config` to follow new conventions
+    
+    * Rename `caliptra-mctp-vdm-client` to follow new conventions
+    
+    * Rename `caliptra-util-host-transport` to follow new conventions
+    
+    * Rename `caliptra-util-host-command-types` to follow new conventions
+    
+    * Rename `caliptra-util-host-osal` to follow new conventions
+    
+    * Rename `caliptra-mailbox-server` to follow new conventions
+    
+    * Regenerate register files
+
+commit 98a822bffe4fce5caf79475d891e8f74362b92b2
+Author: Parvathi Bhogaraju <bhogaraju.parvathi@gmail.com>
+Date:   Tue Mar 10 15:52:10 2026 -0700
+
+    add evidence retrieval stage in e2e attestation flow (#1024)
+
+commit 13059da17c4ed394f81c0b78d67a1bb0f948ff57
+Author: Parvathi Bhogaraju <bhogaraju.parvathi@gmail.com>
+Date:   Wed Mar 4 07:22:23 2026 -0800
+
+    add spdm-lib fixes for chunking in secure session (#979)
+
+commit 415b535e41063e67a20d7e9635370a00357c1113
+Author: Parvathi Bhogaraju <bhogaraju.parvathi@gmail.com>
+Date:   Fri Dec 12 15:16:20 2025 -0800
+
+    add support for certificate response chunking (#674)
+    
+    Co-authored-by: Parvathi Bhogaraju <pbhogaraju@microsoft.com>
+
+commit fe5947349a54809b34652ac2d1114e1ee06b0a85
+Author: Parvathi Bhogaraju <bhogaraju.parvathi@gmail.com>
+Date:   Wed Dec 10 11:28:53 2025 -0800
+
+    consolidate request allowance validation within session and streamline other validation checks (#660)
+    
+    Co-authored-by: Parvathi Bhogaraju <pbhogaraju@microsoft.com>
+
+commit 9f12e397b7993e4c2e6eda66cf26ae2d65d85e6e
+Author: Parvathi Bhogaraju <bhogaraju.parvathi@gmail.com>
+Date:   Fri Dec 5 15:10:02 2025 -0800
+
+    add chunking support for measurements response (#644)
+    
+    Co-authored-by: Parvathi Bhogaraju <pbhogaraju@microsoft.com>
+
+commit 5d63070ee92660bd3bcfa545deeb200a0e6a4443
+Author: Parvathi Bhogaraju <bhogaraju.parvathi@gmail.com>
+Date:   Wed Nov 19 05:31:07 2025 -0800
+
+    Add support for OCP EAT in SPDM attestation (#584)
+    
+    * add support for EAT claims within SPDM measurement block
+    
+    ---------
+    
+    Co-authored-by: Parvathi Bhogaraju <pbhogaraju@microsoft.com>
+
+commit 7c8ab98f18387a8d14207b577b4a37ac4651f832
+Author: Parvathi Bhogaraju <bhogaraju.parvathi@gmail.com>
+Date:   Wed Nov 12 16:37:30 2025 -0800
+
+    Add IDE_KM and TDISP integration tests (#566)
+    
+    * add TDISP and IDE command validation  support
+    
+    * display and upload test results
+    
+    * remove test keys
+    
+    * ignore test_key folder
+    
+    * fix unit test errors
+    
+    * Add test root CA with X.509 version set to v3.
+    
+    * set cwd for process
+    
+    * update workflow to use correct paths
+    
+    ---------
+    
+    Co-authored-by: Parvathi Bhogaraju <pbhogaraju@microsoft.com>
+
+commit a2bbb3302796e6f16555e253445545ceb80061f3
+Author: Christopher Swenson <chswenson@microsoft.com>
+Date:   Wed Nov 5 14:58:59 2025 -0800
+
+    Switch to Tock 2.2 and move off nightly Rust (#543)
+    
+    Tock 2.2 added support for building on stable Rust. With a little bit of small tweaks and updates to Embassy, it looks like we can move off nightly Rust and use a proper released version of Tock.
+    
+    Fixes #430
+
+commit 29f5bf354e122d5015b2b1c67ff6be4281d49195
+Author: Parvathi Bhogaraju <bhogaraju.parvathi@gmail.com>
+Date:   Fri Oct 10 11:23:38 2025 -0700
+
+    [SPDM] Refactor Measurements to use trait to populate the value (#485)
+    
+    * use a trait impl to populate SPDM measurement values from user
+    ---------
+    
+    Co-authored-by: Parvathi Bhogaraju <pbhogaraju@microsoft.com>
+
+commit 05084cdd259a5a527475fd6be40cac902115bc44
+Author: Parvathi Bhogaraju <bhogaraju.parvathi@gmail.com>
+Date:   Fri Oct 3 19:00:17 2025 -0700
+
+    [Evidence] Add commands to get device state (#481)
+    
+    * get device state
+    
+    ---------
+    
+    Co-authored-by: Parvathi Bhogaraju <pbhogaraju@microsoft.com>
+    Co-authored-by: Christopher Swenson <chswenson@microsoft.com>
+
+commit a91aa0829c4b2c7ddd2df266b4278b3485b2ac6f
+Author: Parvathi Bhogaraju <bhogaraju.parvathi@gmail.com>
+Date:   Thu Sep 25 12:02:11 2025 -0700
+
+    [TDISP] Add TDISP command implementation on MCU (#415)
+    
+    * TDISP commands implementation
+    ---------
+    
+    Co-authored-by: Parvathi Bhogaraju <pbhogaraju@microsoft.com>
+
+commit 11cad49f242997756696d286b2deca10b8d58cb1
+Author: Parvathi Bhogaraju <bhogaraju.parvathi@gmail.com>
+Date:   Thu Sep 11 14:46:07 2025 -0700
+
+    [IDE_KM] Implement IDE_KM commands (#405)
+    
+    * implement IDE_KM commands
+    
+    ---------
+    
+    Co-authored-by: Parvathi Bhogaraju <pbhogaraju@microsoft.com>
+
+commit 7476a1f44cb98294a4dc8dc4ed29c58d1e103b60
+Author: Parvathi Bhogaraju <bhogaraju.parvathi@gmail.com>
+Date:   Fri Sep 5 11:33:59 2025 -0700
+
+    Refactor Vendor Defined message handlers (#391)
+    
+    * refactor vdm handlers
+    
+    ---------
+    
+    Co-authored-by: Parvathi Bhogaraju <pbhogaraju@microsoft.com>
+
+commit 13ef9cef74e59ab1f9fec03ec48f1693ff67f410
+Author: Parvathi Bhogaraju <bhogaraju.parvathi@gmail.com>
+Date:   Wed Sep 3 21:17:31 2025 -0700
+
+    [SPDM] Enable Secure session tests (#378)
+    
+    * secure message encrypt decrypt and authentication support
+    ---------
+    
+    Co-authored-by: Parvathi Bhogaraju <pbhogaraju@microsoft.com>
+
+commit c6e7ce29aff6fe63ae2511157b871d705e357575
+Author: Parvathi Bhogaraju <bhogaraju.parvathi@gmail.com>
+Date:   Tue Aug 26 17:07:02 2025 -0700
+
+    [SPDM] Add support for END_SESSION command (#350)
+    
+    * secure message encrypt decrypt and authentication support
+    
+    ---------
+    
+    Co-authored-by: Parvathi Bhogaraju <pbhogaraju@microsoft.com>
+
+commit 17a4249c7a2c817c721e074685fea7875177b274
+Author: Parvathi Bhogaraju <bhogaraju.parvathi@gmail.com>
+Date:   Mon Aug 25 08:28:23 2025 -0700
+
+    [SPDM] Add support for secure message encrypt/decrypt and authentication (#345)
+    
+    * secure message encrypt decrypt and authentication support
+    
+    ---------
+    
+    Co-authored-by: Parvathi Bhogaraju <pbhogaraju@microsoft.com>
+
+commit bda90da9121150e82b3e4092de9872e1b2b10ec5
+Author: Parvathi Bhogaraju <bhogaraju.parvathi@gmail.com>
+Date:   Fri Aug 8 16:35:45 2025 -0700
+
+    correct IDE key size (#329)
+    
+    Co-authored-by: Parvathi Bhogaraju <pbhogaraju@microsoft.com>
+
+commit f8112cc4c2b45f7ab225a33f0063fd8316db6d2e
+Author: Christopher Swenson <chswenson@microsoft.com>
+Date:   Tue Aug 5 15:13:11 2025 -0700
+
+    Set PQC type from fuses (#317)
+    
+    * Set PQC type from fuses
+    
+    * Parse the PQC type value directly in clap
+    
+    * Update C binding
+    
+    * Set fuse bit for PQC always in FPGA model
+
+commit a1f8c2899cb060fe11bbf9a8396b0aec258d0e05
+Author: Parvathi Bhogaraju <bhogaraju.parvathi@gmail.com>
+Date:   Mon Aug 4 20:15:24 2025 -0700
+
+    [SPDM] Add FINISH command support with Handshake in the clear mode (#309)
+    
+    * complete FINISH with handshake in the clear mode
+    
+    * use constant_time_eq for hmac comparision
+    
+    ---------
+    
+    Co-authored-by: Parvathi Bhogaraju <pbhogaraju@microsoft.com>
+
+commit 11d7410c8bb99336b55de637f84359cd421c876f
+Author: Parvathi Bhogaraju <bhogaraju.parvathi@gmail.com>
+Date:   Sat Aug 2 15:17:15 2025 -0700
+
+    [TDISP] Define TDISP driver interface and add documentation (#302)
+    
+    * define IDE driver interfaces
+    
+    * keep the name consistent
+    
+    * remove fine grain details from documentation
+    
+    * fix IDE full form
+    
+    * [TDISP] Define TDISP driver interface and  add documentation
+    
+    ---------
+    
+    Co-authored-by: Parvathi Bhogaraju <pbhogaraju@microsoft.com>
+
+commit 17370e660aeeb309ea752287f987efcd9b37c865
+Author: Christopher Swenson <chswenson@microsoft.com>
+Date:   Fri Aug 1 10:48:53 2025 -0700
+
+    [SPDM] Add KEY_EXCHANGE command support (#266)
+    
+    The crypto is in #265
+    This PR adds the following changes:
+    
+    Sets up the necessary infrastructure for secure sessions and their transcripts.
+    Adds the SPDM key schedule required for handling the KEY_EXCHANGE command.
+    Implements the handling of KEY_EXCHANGE.
+    ---------
+    
+    Co-authored-by: Copilot <175728472+Copilot@users.noreply.github.com>
+    Co-authored-by: Parvathi Bhogaraju <pbhogaraju@microsoft.com>
+    Co-authored-by: Marco Visaya <marcovisaya@microsoft.com>
+
+commit 6ef8b4a60f5b8385cbd9c48b65b19fa28f820470
+Author: Parvathi Bhogaraju <bhogaraju.parvathi@gmail.com>
+Date:   Fri Aug 1 06:34:05 2025 -0700
+
+    [IDE] Define IDE driver interfaces (#299)
+    
+    * Define IDE driver interfaces
+    
+    ---------
+    
+    Co-authored-by: Parvathi Bhogaraju <pbhogaraju@microsoft.com>
+
+commit cfaba9a046abc0bd7826d86a9abdb6c885a5ba19
+Author: Parvathi Bhogaraju <bhogaraju.parvathi@gmail.com>
+Date:   Wed Jul 23 09:21:43 2025 -0700
+
+    [SPDM] Update Emulator SPDM stack to support message handling though DOE and MCTP transports (#273)
+    
+    * add doe stack on the emulator
+    
+    * add workflow for DOE and publish artifacts for transaction analysis.
+    
+    * transcript append bug fix for doe and some bug fixes in DOE transpport
+    
+    ---------
+    
+    Co-authored-by: Parvathi Bhogaraju <pbhogaraju@microsoft.com>
+
+commit c5e7b371c3c62df73582650005ed3f5aa2c1c851
+Author: Parvathi Bhogaraju <bhogaraju.parvathi@gmail.com>
+Date:   Thu Jul 17 18:14:20 2025 -0700
+
+    [SPDM] Update MCU SPDM stack to support message handling through DOE and MCTP transports (#258)
+    
+    * add doe and mctp spdm responder tasks with shared cert store.
+    
+    ---------
+    
+    Co-authored-by: Parvathi Bhogaraju <pbhogaraju@microsoft.com>
 commit 6c265012b0a0106472187054f764ad9733764a67
 Author: Parvathi Bhogaraju <bhogaraju.parvathi@gmail.com>
 Date:   Mon Jul 14 15:20:54 2025 -0700

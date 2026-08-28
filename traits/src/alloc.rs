@@ -78,6 +78,13 @@ pub trait SpdmPalAlloc: spdm_crypto::ApiAlloc {
     /// message must survive across later exchanges.
     fn alloc_large_buf(&self, len: usize) -> PalResult<Self::LargeBuf>;
 
+    /// Converts a large-message buffer into a normal response buffer.
+    ///
+    /// Used by handlers that first build into maximum-capacity storage, then
+    /// discover from the actual encoded length that the response fits without
+    /// chunking.
+    fn large_buf_into_bytes(&self, buf: Self::LargeBuf, len: usize) -> PalResult<Self::Bytes<'_>>;
+
     // ---- Persistent typed allocations ----------------------------------------
     //
     // Long-lived objects (session state, hash contexts) that must survive across

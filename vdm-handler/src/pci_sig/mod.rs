@@ -9,9 +9,7 @@
 pub mod ide_km;
 pub mod tdisp;
 
-use spdm_codec::errors::{
-    SPDM_INVALID_REQUEST, SPDM_UNSPECIFIED, SPDM_UNSUPPORTED_REQUEST,
-};
+use spdm_codec::errors::{SPDM_INVALID_REQUEST, SPDM_UNSPECIFIED, SPDM_UNSUPPORTED_REQUEST};
 use spdm_codec::StandardsBodyId;
 use spdm_traits::{
     PalResult, SpdmPalAlloc, SpdmPalIo, SpdmVdmBackend, VdmRegistry, VdmResponse, VdmResponseBuffer,
@@ -87,9 +85,7 @@ where
     let Some(tdisp_inline) = inline.get_mut(1..) else {
         return Err(SPDM_UNSPECIFIED);
     };
-    let response = tdisp
-        .handle_tdisp_payload(payload, alloc, tdisp_inline)
-        ?;
+    let response = tdisp.handle_tdisp_payload(payload, alloc, tdisp_inline)?;
     match response {
         VdmResponse::Inline(len) => {
             inline[0] = protocol_id;
@@ -200,6 +196,15 @@ mod tests {
 
         fn alloc_large_buf(&self, len: usize) -> PalResult<Self::LargeBuf> {
             Ok(vec![0; len])
+        }
+
+        fn large_buf_into_bytes(
+            &self,
+            mut buf: Self::LargeBuf,
+            len: usize,
+        ) -> PalResult<Self::Bytes<'_>> {
+            buf.truncate(len);
+            Ok(buf)
         }
 
         fn alloc_persistent<T: Sized + 'static>(

@@ -42,14 +42,15 @@ mod digests;
 mod end_session;
 mod error;
 mod finish;
+mod heartbeat;
 mod key_exchange;
 pub mod key_schedule;
 mod measurements;
 pub mod requester;
 pub mod session;
-pub(crate) mod signing;
 #[cfg(feature = "set-certificate")]
 mod set_certificate;
+pub(crate) mod signing;
 mod stack;
 mod transcript;
 mod vendor_defined;

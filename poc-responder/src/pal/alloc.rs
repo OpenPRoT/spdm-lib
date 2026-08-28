@@ -142,6 +142,15 @@ impl SpdmPalAlloc for HostPal {
         Ok(vec![0u8; len])
     }
 
+    fn large_buf_into_bytes(
+        &self,
+        mut buf: Self::LargeBuf,
+        len: usize,
+    ) -> PalResult<Self::Bytes<'_>> {
+        buf.truncate(len);
+        Ok(buf)
+    }
+
     fn alloc_persistent<T: Sized + 'static>(&self, value: T) -> PalResult<Self::PersistentBox<T>> {
         AllocStats::bump(&self.stats.persistent);
         Ok(Box::new(value))

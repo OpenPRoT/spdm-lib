@@ -20,6 +20,15 @@ spdm-transport-sys = { workspace = true, optional = true }
 [features]
 default = []
 set-certificate = ["spdm-traits/set-certificate"]
+# Buffer a chunked large request in full before dispatching it, for request
+# types that have no streaming sink. Off by default: streaming paths
+# (SET_CERTIFICATE, AuthorizeDebugUnlockToken) need no large buffer.
+generic-large-request = []
+# HEARTBEAT liveness: advertise HBEAT_CAP, negotiate a non-zero HeartbeatPeriod,
+# and tear down a session whose deadline has passed. Off by default (spec-legal
+# "heartbeat not supported"); the PAL must provide a real monotonic `now()` for
+# the watchdog to advance.
+spdm-set-heartbeat = []
 debug-trace = [
   "spdm-console",
   "spdm-transport-sys",

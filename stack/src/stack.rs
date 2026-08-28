@@ -32,7 +32,7 @@ use crate::key_schedule::SessionKeyType;
 use crate::session::{SessionInfo, SessionManager, SessionState};
 use crate::{
     algorithms, capabilities, certificate, challenge, chunk, digests, end_session, finish,
-    key_exchange, measurements, vendor_defined, version,
+    heartbeat, key_exchange, measurements, vendor_defined, version,
 };
 
 /// Type alias for the SessionManager with full PAL type resolution.
@@ -167,6 +167,7 @@ impl<S, L> ConnectionState<S, L> {
             | CapFlags::ENCRYPT
             | CapFlags::MAC
             | CapFlags::CHUNK
+            | heartbeat_cap_flags()
             | set_certificate_cap_flags();
         let other_param_support =
             OtherParamSupport::OPAQUE_DATA_FMT1 | set_certificate_other_params();
@@ -288,6 +289,14 @@ pub(crate) fn multi_key_conn_rsp<S, L>(state: &ConnectionState<S, L>) -> SpdmRes
     }
 }
 
+fn heartbeat_cap_flags() -> CapFlags {
+    if cfg!(feature = "spdm-set-heartbeat") {
+        CapFlags::HBEAT
+    } else {
+        CapFlags::EMPTY
+    }
+}
+
 #[cfg(feature = "set-certificate")]
 fn set_certificate_cap_flags() -> CapFlags {
     CapFlags::SET_CERT | CapFlags::MULTI_KEY_CONN_RSP | CapFlags::GET_KEY_PAIR_INFO
@@ -381,11 +390,13 @@ impl<Pal: SpdmPal, const MAX_SESSIONS: usize, Vdm: SpdmVdmBackend>
         #[cfg(feature = "debug-trace")]
         use core::fmt::Write;
         #[cfg(feature = "debug-trace")]
-        let mut console = spdm_console::Console::<
-            spdm_transport_sys::DefaultSyscalls,
-        >::writer();
+        let mut console = spdm_console::Console::<spdm_transport_sys::DefaultSyscalls>::writer();
         loop {
             let io = self.pal.recv_request()?;
+            // Blocking receive means the watchdog can only be evaluated when
+            // the responder wakes; a silent session is reclaimed on the next
+            // inbound message rather than at the instant its deadline passes.
+            let _ = self.sessions.expire_due(self.pal.now().0);
             #[cfg(feature = "debug-trace")]
             {
                 let r = io.request();
@@ -407,9 +418,7 @@ impl<Pal: SpdmPal, const MAX_SESSIONS: usize, Vdm: SpdmVdmBackend>
                         &io,
                         code,
                         &self.vdm_backend,
-                    )
-                    
-                    {
+                    ) {
                         Ok(mut rsp) => {
                             #[cfg(feature = "debug-trace")]
                             {
@@ -423,8 +432,7 @@ impl<Pal: SpdmPal, const MAX_SESSIONS: usize, Vdm: SpdmVdmBackend>
                                 let _ = writeln!(&mut console);
                             }
                             self.pal
-                                .send_response(&io, SpdmPalIoKind::Message, &mut rsp)
-                                ?
+                                .send_response(&io, SpdmPalIoKind::Message, &mut rsp)?
                         }
                         Err(e) => {
                             if e.is_no_response() {
@@ -450,17 +458,14 @@ impl<Pal: SpdmPal, const MAX_SESSIONS: usize, Vdm: SpdmVdmBackend>
                         &self.pal,
                         &io,
                         &self.vdm_backend,
-                    )
-                    
-                    {
+                    ) {
                         Ok(Some(mut rsp)) => {
                             #[cfg(feature = "debug-trace")]
                             {
                                 let _ = writeln!(&mut console, "[spdm] sec rsp len={}", rsp.len());
                             }
                             self.pal
-                                .send_response(&io, SpdmPalIoKind::SecuredMessage, &mut rsp)
-                                ?
+                                .send_response(&io, SpdmPalIoKind::SecuredMessage, &mut rsp)?
                         }
                         Ok(None) => {}
                         Err(e) => {
@@ -546,7 +551,6 @@ impl<Pal: SpdmPal, const MAX_SESSIONS: usize, Vdm: SpdmVdmBackend>
 
         self.pal
             .send_response(io, SpdmPalIoKind::Message, &mut err_rsp)
-            
     }
 }
 
@@ -583,7 +587,7 @@ fn dispatch<'a, Pal: SpdmPal, Vdm: SpdmVdmBackend, const MAX_SESSIONS: usize>(
     code: ReqRespCode,
     vdm: &Vdm,
 ) -> SpdmResult<PalBytes<'a, Pal>> {
-    abort_chunk_reassembly_if_interrupted(state, code);
+    abort_chunk_reassembly_if_interrupted(state, pal, io, vdm, code);
     if code != ReqRespCode::CHUNK_GET
         && code != ReqRespCode::CHUNK_SEND
         && state.large_msg_ctx.response_in_progress()
@@ -596,9 +600,7 @@ fn dispatch<'a, Pal: SpdmPal, Vdm: SpdmVdmBackend, const MAX_SESSIONS: usize>(
             sessions.remove_all_and_destroy();
             version::handle_get_version(state, pal, io)
         }
-        ReqRespCode::GET_CAPABILITIES => {
-            capabilities::handle_get_capabilities(state, pal, io)
-        }
+        ReqRespCode::GET_CAPABILITIES => capabilities::handle_get_capabilities(state, pal, io),
         ReqRespCode::NEGOTIATE_ALGORITHMS => {
             algorithms::handle_negotiate_algorithms(state, pal, io)
         }
@@ -606,7 +608,7 @@ fn dispatch<'a, Pal: SpdmPal, Vdm: SpdmVdmBackend, const MAX_SESSIONS: usize>(
         ReqRespCode::GET_CERTIFICATE => certificate::handle_get_certificate(state, pal, io),
         ReqRespCode::CHALLENGE => challenge::handle_challenge(state, pal, io),
         ReqRespCode::CHUNK_SEND => {
-            chunk::handle_chunk_send(state, pal, io, vdm, io.request(), false)
+            chunk::handle_chunk_send(state, pal, io, vdm, io.request(), None, true)
         }
         ReqRespCode::CHUNK_GET => chunk::handle_chunk_get(state, pal, io, io.request()),
         #[cfg(feature = "set-certificate")]
@@ -628,24 +630,29 @@ fn dispatch<'a, Pal: SpdmPal, Vdm: SpdmVdmBackend, const MAX_SESSIONS: usize>(
                 io,
                 io.request(),
                 false,
-            )
-            ?;
+            )?;
             Ok(resp)
         }
-        ReqRespCode::KEY_EXCHANGE => {
-            key_exchange::handle_key_exchange(state, sessions, pal, io)
+        ReqRespCode::KEY_EXCHANGE => key_exchange::handle_key_exchange(state, sessions, pal, io),
+        ReqRespCode::FINISH | ReqRespCode::END_SESSION | ReqRespCode::HEARTBEAT => {
+            Err(SPDM_SESSION_REQUIRED)
         }
-        ReqRespCode::FINISH | ReqRespCode::END_SESSION => Err(SPDM_SESSION_REQUIRED),
         ReqRespCode(0) => Err(SPDM_INVALID_REQUEST),
         _ => Err(SPDM_UNSUPPORTED_REQUEST.with_data(code.0)),
     }
 }
 
-fn abort_chunk_reassembly_if_interrupted<S, L>(state: &mut ConnectionState<S, L>, code: ReqRespCode)
-where
-    L: core::ops::DerefMut<Target = [u8]>,
-{
+fn abort_chunk_reassembly_if_interrupted<Pal: SpdmPal, Vdm: SpdmVdmBackend>(
+    state: &mut ConnectionState<Pal::State, <Pal as SpdmPalAlloc>::LargeBuf>,
+    pal: &Pal,
+    io: &<Pal as SpdmPalIoTransport>::Io<'_>,
+    vdm: &Vdm,
+    code: ReqRespCode,
+) {
     if code != ReqRespCode::CHUNK_SEND && state.large_msg_ctx.request_in_progress() {
+        // Release any device-side transaction the abandoned stream was holding
+        // before dropping the reassembly state.
+        chunk::abort_active_streaming_request(state, pal, io, vdm);
         state.large_msg_ctx.reset();
     }
 }
@@ -657,12 +664,7 @@ where
 /// Parses the session ID, dispatches to the inner handler, and
 /// destroys the session on any error (conservative cleanup).
 #[inline(never)]
-fn handle_secured_request<
-    'a,
-    Pal: SpdmPal,
-    Vdm: SpdmVdmBackend,
-    const MAX_SESSIONS: usize,
->(
+fn handle_secured_request<'a, Pal: SpdmPal, Vdm: SpdmVdmBackend, const MAX_SESSIONS: usize>(
     state: &mut ConnectionState<Pal::State, <Pal as SpdmPalAlloc>::LargeBuf>,
     sessions: &mut Sessions<Pal, MAX_SESSIONS>,
     pal: &'a Pal,
@@ -706,7 +708,6 @@ fn handle_secured_request<
                 key_type,
                 &error_rsp,
             )
-            
             .ok();
             if e.spec_byte() == SPDM_DECRYPT_ERROR.spec_byte() {
                 sessions.remove_and_destroy(session_id);
@@ -769,7 +770,6 @@ fn handle_secured_inner<'a, Pal: SpdmPal, Vdm: SpdmVdmBackend, const MAX_SESSION
                 tag,
                 &mut plaintext[..ct_len],
             )
-            
             .map_err(|_| SPDM_DECRYPT_ERROR)?
             != ct_len
         {
@@ -790,7 +790,7 @@ fn handle_secured_inner<'a, Pal: SpdmPal, Vdm: SpdmVdmBackend, const MAX_SESSION
     // ── Dispatch on SPDM code ───────────────────────────────────────
     let (spdm_hdr, _) =
         SpdmMsgHdrPdu::ref_from_prefix(spdm_msg).map_err(|_| SPDM_INVALID_REQUEST)?;
-    abort_chunk_reassembly_if_interrupted(state, spdm_hdr.code);
+    abort_chunk_reassembly_if_interrupted(state, pal, io, vdm, spdm_hdr.code);
     let session_state = sessions.find(session_id).ok_or(SPDM_UNSPECIFIED)?.state;
     let response_key_type = validate_message_allowed_phase(spdm_hdr.code, session_state)?;
 
@@ -803,11 +803,10 @@ fn handle_secured_inner<'a, Pal: SpdmPal, Vdm: SpdmVdmBackend, const MAX_SESSION
         state.large_msg_ctx.reset();
     }
 
-    match spdm_hdr.code {
+    let result = match spdm_hdr.code {
         ReqRespCode::FINISH => {
             let session = sessions.find_mut(session_id).ok_or(SPDM_UNSPECIFIED)?;
-            let finish_rsp =
-                finish::handle_finish::<Pal>(version, session, pal, io, spdm_msg)?;
+            let finish_rsp = finish::handle_finish::<Pal>(version, session, pal, io, spdm_msg)?;
             let rsp = encrypt_secured_spdm_response(
                 pal,
                 io,
@@ -816,10 +815,10 @@ fn handle_secured_inner<'a, Pal: SpdmPal, Vdm: SpdmVdmBackend, const MAX_SESSION
                 version,
                 response_key_type,
                 &finish_rsp,
-            )
-            ?;
+            )?;
             session.key_schedule.destroy_handshake_secrets();
             session.state = SessionState::Established;
+            session.arm_heartbeat(pal.now().0);
             Ok(rsp)
         }
         ReqRespCode::END_SESSION => {
@@ -833,8 +832,7 @@ fn handle_secured_inner<'a, Pal: SpdmPal, Vdm: SpdmVdmBackend, const MAX_SESSION
                 version,
                 response_key_type,
                 &end_session_ack,
-            )
-            ?;
+            )?;
             sessions.remove_and_destroy(session_id);
             Ok(rsp)
         }
@@ -853,7 +851,6 @@ fn handle_secured_inner<'a, Pal: SpdmPal, Vdm: SpdmVdmBackend, const MAX_SESSION
                 response_key_type,
                 spdm_rsp,
             )
-            
         }
         ReqRespCode::GET_CERTIFICATE => {
             let (certificate_rsp, spdm_len) =
@@ -870,7 +867,6 @@ fn handle_secured_inner<'a, Pal: SpdmPal, Vdm: SpdmVdmBackend, const MAX_SESSION
                 response_key_type,
                 spdm_rsp,
             )
-            
         }
         ReqRespCode::GET_MEASUREMENTS => {
             let (measurements_rsp, spdm_len) =
@@ -887,12 +883,10 @@ fn handle_secured_inner<'a, Pal: SpdmPal, Vdm: SpdmVdmBackend, const MAX_SESSION
                 response_key_type,
                 spdm_rsp,
             )
-            
         }
         ReqRespCode::VENDOR_DEFINED_REQUEST => {
             let (rsp, spdm_len) =
-                vendor_defined::handle_vendor_defined_request(vdm, state, pal, io, spdm_msg, true)
-                    ?;
+                vendor_defined::handle_vendor_defined_request(vdm, state, pal, io, spdm_msg, true)?;
             let head = pal.header_size();
             let spdm_rsp = &rsp[head..head + spdm_len];
             let session = sessions.find_mut(session_id).ok_or(SPDM_UNSPECIFIED)?;
@@ -905,7 +899,6 @@ fn handle_secured_inner<'a, Pal: SpdmPal, Vdm: SpdmVdmBackend, const MAX_SESSION
                 response_key_type,
                 spdm_rsp,
             )
-            
         }
         ReqRespCode::CHUNK_GET => {
             let chunk_rsp = chunk::handle_chunk_get(state, pal, io, spdm_msg)?;
@@ -921,11 +914,17 @@ fn handle_secured_inner<'a, Pal: SpdmPal, Vdm: SpdmVdmBackend, const MAX_SESSION
                 response_key_type,
                 spdm_rsp,
             )
-            
         }
         ReqRespCode::CHUNK_SEND => {
-            let chunk_send_ack =
-                chunk::handle_chunk_send(state, pal, io, vdm, spdm_msg, true)?;
+            let chunk_send_ack = chunk::handle_chunk_send(
+                state,
+                pal,
+                io,
+                vdm,
+                spdm_msg,
+                Some(session_id),
+                session_state == SessionState::Established,
+            )?;
             let head = pal.header_size();
             let spdm_rsp = &chunk_send_ack[head..];
             let session = sessions.find_mut(session_id).ok_or(SPDM_UNSPECIFIED)?;
@@ -938,10 +937,33 @@ fn handle_secured_inner<'a, Pal: SpdmPal, Vdm: SpdmVdmBackend, const MAX_SESSION
                 response_key_type,
                 spdm_rsp,
             )
-            
+        }
+        ReqRespCode::HEARTBEAT => {
+            let heartbeat_ack = heartbeat::handle_heartbeat(version, spdm_msg)?;
+            let session = sessions.find_mut(session_id).ok_or(SPDM_UNSPECIFIED)?;
+            encrypt_secured_spdm_response(
+                pal,
+                io,
+                session,
+                session_id,
+                version,
+                response_key_type,
+                &heartbeat_ack,
+            )
         }
         _ => Err(SPDM_UNSUPPORTED_REQUEST.with_data(spdm_hdr.code.0)),
+    };
+
+    // Any successful in-session exchange counts as liveness. FINISH arms the
+    // watchdog itself and END_SESSION tears the session down, so neither
+    // refreshes here.
+    if result.is_ok() && code != ReqRespCode::FINISH && code != ReqRespCode::END_SESSION {
+        if let Some(session) = sessions.find_mut(session_id) {
+            session.touch_heartbeat(pal.now().0);
+        }
     }
+
+    result
 }
 
 fn validate_message_allowed_phase(
@@ -970,7 +992,8 @@ fn validate_message_allowed_phase(
         ReqRespCode::GET_DIGESTS
         | ReqRespCode::GET_CERTIFICATE
         | ReqRespCode::GET_MEASUREMENTS
-        | ReqRespCode::END_SESSION => application_key(),
+        | ReqRespCode::END_SESSION
+        | ReqRespCode::HEARTBEAT => application_key(),
         ReqRespCode::SET_CERTIFICATE => Err(SPDM_UNSUPPORTED_REQUEST.with_data(code.0)),
         ReqRespCode::FINISH => {
             if session_state == SessionState::HandshakeInProgress {
@@ -1026,7 +1049,6 @@ fn encrypt_secured_spdm_response<'a, Pal: SpdmPal>(
             &rsp_plaintext,
             &mut rsp_ct,
         )
-        
         .map_err(|_| SPDM_UNSPECIFIED)?;
     if rsp_written != rsp_ct_len {
         return Err(SPDM_UNSPECIFIED);
@@ -1095,6 +1117,10 @@ fn decode_header(req: &[u8]) -> (ReqRespCode, SpdmVersion) {
         Err(_) => (ReqRespCode(0), SpdmVersion::V12),
     }
 }
+
+#[cfg(test)]
+#[path = "tests/heartbeat_liveness.rs"]
+mod heartbeat_liveness_tests;
 
 #[cfg(all(test, feature = "set-certificate"))]
 #[path = "tests/stack_set_certificate.rs"]

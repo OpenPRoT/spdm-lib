@@ -38,6 +38,14 @@ pub trait SpdmPalIo {
     fn request(&self) -> &[u8];
 }
 
+/// A quantity of milliseconds used by the HEARTBEAT liveness watchdog for
+/// the monotonic clock reading. Wrapping the raw count in a newtype keeps the
+/// unit in the type signature so it can't be confused with an unrelated
+/// integer. `u64`-backed so per-session deadlines don't overflow at
+/// seconds-scale heartbeat periods.
+#[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Debug, Default)]
+pub struct Milliseconds(pub u64);
+
 /// Transport-layer abstraction for SPDM request/response exchange.
 ///
 /// Implementations of this trait handle the mechanics of receiving SPDM
@@ -71,6 +79,17 @@ pub trait SpdmPalIoTransport {
     /// DOE returns 4 (DWORD). Defaults to 1 (no padding).
     fn send_len_alignment(&self) -> usize {
         1
+    }
+
+    /// Current value of a free-running monotonic millisecond clock.
+    ///
+    /// Used by the SPDM stack's HEARTBEAT liveness watchdog to compute and
+    /// check per-session deadlines. The default returns 0; a PAL that wants
+    /// heartbeat-driven session teardown must override this with a real
+    /// monotonic source. With the default, `now` never advances so no
+    /// watchdog deadline is ever reached.
+    fn now(&self) -> Milliseconds {
+        Milliseconds(0)
     }
 
     /// Maximum SPDM payload the underlying transport will carry in a

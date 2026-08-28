@@ -4,20 +4,20 @@
 
 extern crate std;
 
+use core::marker::PhantomData;
+use core::ops::{Deref, DerefMut};
 use spdm_codec::{
     AsymAlgos, CapFlags, HashAlgos, ReqRespCode, SpdmVersion, AES_256_GCM_TAG_SIZE,
     CHUNK_ATTR_LAST_CHUNK, SECURED_MSG_HDR_SIZE,
 };
-use spdm_traits::{
-    MeasurementInfo, SpdmPalAlloc, SpdmPalAsymAlgo, SpdmPalCertStore, SpdmPalHash, SpdmPalHashAlgo,
-    SpdmPalIo, SpdmPalIoKind, SpdmPalIoTransport, SpdmPalMeasurements, SpdmPalSessionCrypto,
-    SPDM_NONCE_LEN,
-};
-use core::marker::PhantomData;
-use core::ops::{Deref, DerefMut};
 use spdm_errors::{PalErrorCode, PalResult};
+use spdm_traits::{
+    MeasurementInfo, Milliseconds, SpdmPalAlloc, SpdmPalAsymAlgo, SpdmPalCertStore, SpdmPalHash,
+    SpdmPalHashAlgo, SpdmPalIo, SpdmPalIoKind, SpdmPalIoTransport, SpdmPalMeasurements,
+    SpdmPalSessionCrypto, SPDM_NONCE_LEN,
+};
 use std::boxed::Box;
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::vec;
 use std::vec::Vec;
 
@@ -104,7 +104,20 @@ pub struct TestPal {
     pub write_error: Option<PalErrorCode>,
     pub erase_error: Option<PalErrorCode>,
     pub cert_chain: &'static [u8],
+    pub measurement_info: &'static [MeasurementInfo],
+    pub measurement_value: &'static [u8],
     pub op: RefCell<Option<StoreOp>>,
+    /// Backing store for a streaming SET_CERTIFICATE write transaction.
+    pub stream_cert: RefCell<Vec<u8>>,
+    pub stream_aborts: Cell<usize>,
+    pub now_ms: RefCell<u64>,
+}
+
+impl TestPal {
+    /// Advance / set the fake monotonic clock used by `now()`.
+    pub fn set_now_ms(&self, ms: u64) {
+        *self.now_ms.borrow_mut() = ms;
+    }
 }
 
 impl Default for TestPal {
@@ -117,7 +130,12 @@ impl Default for TestPal {
             write_error: None,
             erase_error: None,
             cert_chain: TEST_CERT_CHAIN,
+            measurement_info: &[],
+            measurement_value: &[],
             op: RefCell::new(None),
+            stream_cert: RefCell::new(Vec::new()),
+            stream_aborts: Cell::new(0),
+            now_ms: RefCell::new(0),
         }
     }
 }
@@ -164,6 +182,15 @@ impl SpdmPalAlloc for TestPal {
         Ok(vec![0u8; len])
     }
 
+    fn large_buf_into_bytes(
+        &self,
+        mut buf: Self::LargeBuf,
+        len: usize,
+    ) -> PalResult<Self::Bytes<'_>> {
+        buf.truncate(len);
+        Ok(buf)
+    }
+
     type PersistentBox<T: Sized + 'static> = Box<T>;
 
     fn alloc_persistent<T: Sized + 'static>(&self, value: T) -> PalResult<Self::PersistentBox<T>> {
@@ -191,6 +218,10 @@ impl SpdmPalIoTransport for TestPal {
 
     fn recv_request(&self) -> PalResult<Self::Io<'_>> {
         Err(spdm_errors::codes::NOT_IMPLEMENTED)
+    }
+
+    fn now(&self) -> Milliseconds {
+        Milliseconds(*self.now_ms.borrow())
     }
 
     fn send_response(
@@ -360,6 +391,85 @@ impl SpdmPalCertStore for TestPal {
         Ok(())
     }
 
+    fn begin_write_cert_chain_stream(
+        &self,
+        _io: &Self::Io<'_>,
+        slot: u8,
+        _algo: SpdmPalAsymAlgo,
+        key_pair_id: u8,
+        cert_model: u8,
+        root_hash: &[u8; SHA384_DIGEST_SIZE],
+        data_len: usize,
+    ) -> PalResult<()> {
+        if let Some(err) = self.write_error {
+            return Err(err);
+        }
+        let mut data = self.stream_cert.borrow_mut();
+        data.clear();
+        data.resize(data_len, 0);
+        let _ = (slot, key_pair_id, cert_model, root_hash);
+        Ok(())
+    }
+
+    fn write_cert_chain_stream_chunk(
+        &self,
+        _io: &Self::Io<'_>,
+        _slot: u8,
+        _algo: SpdmPalAsymAlgo,
+        offset: usize,
+        data: &[u8],
+    ) -> PalResult<()> {
+        let mut cert = self.stream_cert.borrow_mut();
+        cert[offset..offset + data.len()].copy_from_slice(data);
+        Ok(())
+    }
+
+    fn finish_write_cert_chain_stream(
+        &self,
+        _io: &Self::Io<'_>,
+        slot: u8,
+        _algo: SpdmPalAsymAlgo,
+        key_pair_id: u8,
+        cert_model: u8,
+        root_hash: &[u8; SHA384_DIGEST_SIZE],
+        _data_len: usize,
+    ) -> PalResult<()> {
+        if let Some(err) = self.validate_error {
+            return Err(err);
+        }
+        let cert_chain = self.stream_cert.borrow().clone();
+        let first_len = cert_chain
+            .get(1)
+            .copied()
+            .map(|len| len as usize + 2)
+            .unwrap_or(0);
+        if first_len == 0
+            || first_len > cert_chain.len()
+            || test_digest(&cert_chain[..first_len]) != *root_hash
+        {
+            return Err(spdm_errors::codes::INVARIANT);
+        }
+        self.op.replace(Some(StoreOp::Write {
+            slot,
+            key_pair_id,
+            cert_model,
+            root_hash: *root_hash,
+            cert_chain,
+        }));
+        Ok(())
+    }
+
+    fn abort_write_cert_chain_stream(
+        &self,
+        _io: &Self::Io<'_>,
+        _slot: u8,
+        _algo: SpdmPalAsymAlgo,
+    ) -> PalResult<()> {
+        self.stream_aborts.set(self.stream_aborts.get() + 1);
+        self.stream_cert.borrow_mut().clear();
+        Ok(())
+    }
+
     #[cfg(feature = "set-certificate")]
     fn erase_cert_chain(
         &self,
@@ -394,17 +504,27 @@ impl SpdmPalCertStore for TestPal {
 
 impl SpdmPalMeasurements for TestPal {
     fn measurement_info(&self) -> &[MeasurementInfo] {
-        &[]
+        self.measurement_info
     }
 
     fn get_measurement_value(
         &self,
         _io: &Self::Io<'_>,
-        _index: u8,
+        index: u8,
         _nonce: Option<&[u8; SPDM_NONCE_LEN]>,
-        _out: &mut [u8],
+        out: &mut [u8],
     ) -> PalResult<usize> {
-        Err(spdm_errors::codes::NOT_IMPLEMENTED)
+        if !self.measurement_info.iter().any(|info| info.index == index)
+            || self.measurement_value.len() > out.len()
+        {
+            return Err(spdm_errors::codes::NOT_IMPLEMENTED);
+        }
+
+        let dst = out
+            .get_mut(..self.measurement_value.len())
+            .ok_or(spdm_errors::codes::NOT_IMPLEMENTED)?;
+        dst.copy_from_slice(self.measurement_value);
+        Ok(self.measurement_value.len())
     }
 }
 
@@ -630,12 +750,10 @@ pub fn handshake_session(
         .unwrap();
     let session = sessions.find_mut(session_id).unwrap();
     session.key_schedule.set_dhe_secret(1);
-    session.key_schedule.generate_handshake_keys(
-        pal,
-        &empty_io,
-        &[0u8; SHA384_DIGEST_SIZE],
-    )
-    .unwrap();
+    session
+        .key_schedule
+        .generate_handshake_keys(pal, &empty_io, &[0u8; SHA384_DIGEST_SIZE])
+        .unwrap();
     (state, sessions, session_id)
 }
 
@@ -649,7 +767,7 @@ pub fn established_session(
     let empty_io = TestIo::message(Vec::new());
     let (state, mut sessions, session_id) = handshake_session(pal);
     let session = sessions.find_mut(session_id).unwrap();
-    
+
     session
         .key_schedule
         .generate_data_keys(pal, &empty_io, &[0u8; SHA384_DIGEST_SIZE])
