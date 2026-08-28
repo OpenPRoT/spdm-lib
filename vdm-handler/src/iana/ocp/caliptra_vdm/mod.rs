@@ -12,10 +12,10 @@
 mod commands;
 
 use spdm_codec::StandardsBodyId;
+use spdm_errors::codes::INVARIANT;
 use spdm_traits::{
     PalResult, SpdmPalAlloc, SpdmPalIo, SpdmVdmBackend, VdmRegistry, VdmResponse, VdmResponseBuffer,
 };
-use spdm_errors::codes::INVARIANT;
 
 pub use spdm_codec::vendor_defined::iana::ocp::caliptra::{
     CaliptraCompletionCode, CaliptraVdmCmdResult, CaliptraVdmCommand, CaliptraVdmResult,
@@ -41,18 +41,6 @@ const MAX_LARGE_VDM_PAYLOAD_LEN: usize = VDM_HEADER_LEN + 1 + 4 + MAX_LARGE_COMM
 /// `scratch` gives each device op the request-scoped scratch allocator so it can
 /// stage device interactions without owning persistent buffers.
 pub trait CaliptraVdmCommands {
-    /// Drains log bytes of `log_type` into `out`.
-    fn get_log<A: SpdmPalAlloc>(
-        &self,
-        log_type: u32,
-        scratch: &A,
-        out: &mut [u8],
-    ) -> CaliptraVdmResult<CaliptraVdmLogResult>;
-
-    /// Clears the log identified by `log_type`.
-    fn clear_log<A: SpdmPalAlloc>(&self, log_type: u32, scratch: &A)
-        -> CaliptraVdmResult<()>;
-
     /// Requests a production debug unlock challenge for `unlock_level`, writing
     /// `[unique_device_identifier, challenge]` into `out`.
     fn request_debug_unlock<A: SpdmPalAlloc>(
@@ -95,14 +83,6 @@ pub trait CaliptraVdmCommands {
         mac: &[u8; 48],
         scratch: &A,
     ) -> CaliptraVdmResult<()>;
-}
-
-/// Result metadata for log-drain commands.
-pub struct CaliptraVdmLogResult {
-    /// Number of bytes written into the caller-provided log buffer.
-    pub bytes_written: usize,
-    /// Indicates whether more log data remains to be drained.
-    pub more_data: bool,
 }
 
 /// Caliptra VDM backend, parameterized over a platform [`CaliptraVdmCommands`] hook.
@@ -174,35 +154,24 @@ impl<H: CaliptraVdmCommands> SpdmVdmBackend for CaliptraVdm<'_, H> {
         }
 
         let result = match CaliptraVdmCommand::try_from(command_code) {
-            Ok(CaliptraVdmCommand::GetDebugLog) => {
-                commands::get_debug_log::handle(self.cmds, cmd_req, scratch, payload)
-            }
-            Ok(CaliptraVdmCommand::ClearDebugLog) => {
-                commands::clear_debug_log::handle(self.cmds, cmd_req, scratch, payload)
-            }
             Ok(CaliptraVdmCommand::RequestDebugUnlock) => {
                 commands::debug_unlock::handle_request_debug_unlock(
                     self.cmds, cmd_req, scratch, payload,
                 )
-                
             }
             Ok(CaliptraVdmCommand::AuthorizeDebugUnlockToken) => {
                 commands::debug_unlock::handle_authorize_debug_unlock_token(
                     self.cmds, cmd_req, scratch, payload,
                 )
-                
             }
-            Ok(CaliptraVdmCommand::ExportAttestedCsr) => {
-                commands::export_attested_csr::handle(
-                    self.cmds,
-                    cmd_req,
-                    command_code,
-                    payload,
-                    large,
-                    scratch,
-                )
-                
-            }
+            Ok(CaliptraVdmCommand::ExportAttestedCsr) => commands::export_attested_csr::handle(
+                self.cmds,
+                cmd_req,
+                command_code,
+                payload,
+                large,
+                scratch,
+            ),
             Ok(CaliptraVdmCommand::AuthorizedCommand) => {
                 commands::authorized_command::handle(self.cmds, cmd_req, scratch, payload)
             }
@@ -231,10 +200,10 @@ mod tests {
     use core::marker::PhantomData;
     use core::ops::{Deref, DerefMut};
 
+    use spdm_errors::PalResult;
     use spdm_traits::{
         SpdmPalAlloc, SpdmPalIo, SpdmPalIoKind, SpdmVdmBackend, VdmResponse, VdmResponseBuffer,
     };
-    use spdm_errors::PalResult;
     use std::boxed::Box;
     use std::vec;
     use std::vec::Vec;
@@ -316,6 +285,15 @@ mod tests {
             Ok(vec![0; len])
         }
 
+        fn large_buf_into_bytes(
+            &self,
+            mut buf: Self::LargeBuf,
+            len: usize,
+        ) -> PalResult<Self::Bytes<'_>> {
+            buf.truncate(len);
+            Ok(buf)
+        }
+
         type PersistentBox<T: Sized + 'static> = Box<T>;
 
         fn alloc_persistent<T: Sized + 'static>(
@@ -354,23 +332,6 @@ mod tests {
     }
 
     impl CaliptraVdmCommands for TestCommands {
-        fn get_log<A: SpdmPalAlloc>(
-            &self,
-            _log_type: u32,
-            _scratch: &A,
-            _out: &mut [u8],
-        ) -> CaliptraVdmResult<CaliptraVdmLogResult> {
-            Err(CaliptraCompletionCode::UnsupportedOperation)
-        }
-
-        fn clear_log<A: SpdmPalAlloc>(
-            &self,
-            _log_type: u32,
-            _scratch: &A,
-        ) -> CaliptraVdmResult<()> {
-            Err(CaliptraCompletionCode::UnsupportedOperation)
-        }
-
         fn request_debug_unlock<A: SpdmPalAlloc>(
             &self,
             unlock_level: u8,
@@ -442,16 +403,17 @@ mod tests {
         let backend = CaliptraVdm::new(cmds);
         let mut inline = vec![0; inline_len];
         let mut large = vec![0; large_len];
-        let response = backend.handle_request(
-            req,
-            VdmResponseBuffer {
-                inline: &mut inline,
-                large: &mut large,
-                alloc: &alloc,
-                io: &io,
-            },
-        )
-        .expect("VDM dispatch should complete");
+        let response = backend
+            .handle_request(
+                req,
+                VdmResponseBuffer {
+                    inline: &mut inline,
+                    large: &mut large,
+                    alloc: &alloc,
+                    io: &io,
+                },
+            )
+            .expect("VDM dispatch should complete");
         (response, inline, large)
     }
 
@@ -483,15 +445,19 @@ mod tests {
     #[test]
     fn bad_command_version_returns_vdm_completion() {
         let cmds = TestCommands::new(0);
-        let (response, inline, _) =
-            dispatch(&cmds, &[0x7F, CaliptraVdmCommand::GetDebugLog as u8], 32, 0);
+        let (response, inline, _) = dispatch(
+            &cmds,
+            &[0x7F, CaliptraVdmCommand::RequestDebugUnlock as u8],
+            32,
+            0,
+        );
 
         assert_inline(response, 3);
         assert_eq!(
             &inline[..3],
             &[
                 CALIPTRA_VDM_COMMAND_VERSION,
-                CaliptraVdmCommand::GetDebugLog as u8,
+                CaliptraVdmCommand::RequestDebugUnlock as u8,
                 CaliptraCompletionCode::InvalidCommandVersion as u8,
             ]
         );

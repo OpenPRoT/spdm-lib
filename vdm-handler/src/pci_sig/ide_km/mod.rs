@@ -7,9 +7,7 @@ use spdm_codec::{
     IDE_KM_PROTOCOL_ID,
 };
 
-use spdm_codec::errors::{
-    SPDM_INVALID_REQUEST, SPDM_UNSPECIFIED, SPDM_UNSUPPORTED_REQUEST,
-};
+use spdm_codec::errors::{SPDM_INVALID_REQUEST, SPDM_UNSPECIFIED, SPDM_UNSUPPORTED_REQUEST};
 use spdm_errors::VDM_NO_RESPONSE;
 use spdm_traits::{
     PalResult, SpdmPalAlloc, SpdmPalIo, SpdmVdmBackend, VdmRegistry, VdmResponse, VdmResponseBuffer,
@@ -161,7 +159,6 @@ impl<D: IdeDriver> SpdmVdmBackend for PciSigIdeKmVdm<D> {
                 rsp.inline,
                 scratch,
             )
-            
             .map_err(|_| VDM_NO_RESPONSE)?;
         Ok(VdmResponse::Inline(len))
     }
@@ -216,7 +213,6 @@ where
             TDISP_PROTOCOL_ID => {
                 let VdmResponseBuffer { inline, alloc, .. } = rsp;
                 handle_tdisp_protocol_payload(&self.tdisp, protocol_id, payload, inline, alloc)
-                    
             }
             _ => Err(SPDM_UNSUPPORTED_REQUEST),
         }
@@ -815,6 +811,15 @@ mod tests {
             Ok(vec![0; len])
         }
 
+        fn large_buf_into_bytes(
+            &self,
+            mut buf: Self::LargeBuf,
+            len: usize,
+        ) -> PalResult<Self::Bytes<'_>> {
+            buf.truncate(len);
+            Ok(buf)
+        }
+
         fn alloc_persistent<T: Sized + 'static>(
             &self,
             value: T,
@@ -881,9 +886,9 @@ mod tests {
         let payload = [IDE_KM_PROTOCOL_ID, IdeKmCommand::Query as u8, 0, 0];
         let mut inline = [0u8; 256];
         let mut large = [0u8; 512];
-        let response =
-            backend.handle_request(&payload, response_buffer(&mut inline, &mut large))
-                .unwrap();
+        let response = backend
+            .handle_request(&payload, response_buffer(&mut inline, &mut large))
+            .unwrap();
 
         let VdmResponse::Inline(len) = response else {
             panic!("IDE-KM query should be inline");
@@ -902,8 +907,7 @@ mod tests {
         let payload = [IDE_KM_PROTOCOL_ID, IdeKmCommand::Query as u8, 0, 0];
         let mut inline = [0u8; 1];
         let mut large = [0u8; 256];
-        let err = match backend.handle_request(&payload, response_buffer(&mut inline, &mut large))
-        {
+        let err = match backend.handle_request(&payload, response_buffer(&mut inline, &mut large)) {
             Ok(_) => panic!("IDE-KM query should fail when inline storage is too small"),
             Err(err) => err,
         };
@@ -926,9 +930,9 @@ mod tests {
         payload[1] = IdeKmCommand::KeyProg as u8;
         let mut inline = [0u8; 16];
         let mut large = [0u8; 256];
-        let response =
-            backend.handle_request(&payload, response_buffer(&mut inline, &mut large))
-                .unwrap();
+        let response = backend
+            .handle_request(&payload, response_buffer(&mut inline, &mut large))
+            .unwrap();
 
         let VdmResponse::Inline(len) = response else {
             panic!("IDE-KM KEY_PROG ACK should stay inline");
@@ -960,10 +964,7 @@ mod tests {
         let mut rsp = [0u8; 16];
         let len = responder.handle_request(&req, &mut rsp, scratch()).unwrap();
 
-        assert_eq!(
-            len,
-            IdeKmHdr::SIZE + spdm_codec::KeySetGoStop::SIZE
-        );
+        assert_eq!(len, IdeKmHdr::SIZE + spdm_codec::KeySetGoStop::SIZE);
         assert_eq!(rsp[0], IdeKmCommand::KeyGoStopAck as u8);
         assert_eq!(rsp[5], request_key_info.raw());
     }
@@ -985,10 +986,7 @@ mod tests {
         let mut rsp = [0u8; 16];
         let len = responder.handle_request(&req, &mut rsp, scratch()).unwrap();
 
-        assert_eq!(
-            len,
-            IdeKmHdr::SIZE + spdm_codec::KeySetGoStop::SIZE
-        );
+        assert_eq!(len, IdeKmHdr::SIZE + spdm_codec::KeySetGoStop::SIZE);
         assert_eq!(rsp[0], IdeKmCommand::KeyGoStopAck as u8);
         assert_eq!(rsp[5], request_key_info.raw());
     }
@@ -1016,9 +1014,7 @@ mod tests {
             status: 0xaa,
         };
         let responder = IdeKmResponder::new(driver);
-        let mut req = [0u8; IdeKmHdr::SIZE
-            + spdm_codec::KeyProg::SIZE
-            + spdm_codec::KeyData::SIZE];
+        let mut req = [0u8; IdeKmHdr::SIZE + spdm_codec::KeyProg::SIZE + spdm_codec::KeyData::SIZE];
         req[0] = IdeKmCommand::KeyProg as u8;
         req[3] = driver.expected_stream_id;
         req[5] = expected_key_info.raw();
@@ -1043,14 +1039,14 @@ mod tests {
     #[test]
     fn ide_driver_errors_drop_vdm_response() {
         let responder = IdeKmResponder::new(StopOnlyDriver);
-        let mut req = [0u8; IdeKmHdr::SIZE
-            + spdm_codec::KeyProg::SIZE
-            + spdm_codec::KeyData::SIZE];
+        let mut req = [0u8; IdeKmHdr::SIZE + spdm_codec::KeyProg::SIZE + spdm_codec::KeyData::SIZE];
         req[0] = IdeKmCommand::KeyProg as u8;
         let mut rsp = [0u8; 16];
 
         assert_eq!(
-            responder.handle_request(&req, &mut rsp, scratch()).unwrap_err(),
+            responder
+                .handle_request(&req, &mut rsp, scratch())
+                .unwrap_err(),
             VDM_NO_RESPONSE
         );
     }
@@ -1073,16 +1069,15 @@ mod tests {
         let mut rsp = [0u8; 16];
 
         assert_eq!(
-            responder.handle_request(&[0xff], &mut rsp, scratch()).unwrap_err(),
+            responder
+                .handle_request(&[0xff], &mut rsp, scratch())
+                .unwrap_err(),
             SPDM_INVALID_REQUEST
         );
         assert_eq!(
-            responder.handle_request(
-                &[IdeKmCommand::QueryResp as u8],
-                &mut rsp,
-                scratch()
-            )
-            .unwrap_err(),
+            responder
+                .handle_request(&[IdeKmCommand::QueryResp as u8], &mut rsp, scratch())
+                .unwrap_err(),
             SPDM_INVALID_REQUEST
         );
     }
@@ -1096,8 +1091,7 @@ mod tests {
             [IDE_KM_PROTOCOL_ID, 0xff],
             [IDE_KM_PROTOCOL_ID, IdeKmCommand::QueryResp as u8],
         ] {
-            let result =
-                backend.handle_request(&payload, response_buffer(&mut rsp, &mut []));
+            let result = backend.handle_request(&payload, response_buffer(&mut rsp, &mut []));
             let Err(err) = result else {
                 panic!("invalid IDE-KM object should fail without response");
             };
@@ -1111,21 +1105,15 @@ mod tests {
         let mut rsp = [0u8; 16];
 
         assert_eq!(
-            responder.handle_request(
-                &[IdeKmCommand::Query as u8, 0],
-                &mut rsp,
-                scratch()
-            )
-            .unwrap_err(),
+            responder
+                .handle_request(&[IdeKmCommand::Query as u8, 0], &mut rsp, scratch())
+                .unwrap_err(),
             SPDM_INVALID_REQUEST
         );
         assert_eq!(
-            responder.handle_request(
-                &[IdeKmCommand::Query as u8, 0, 0, 0],
-                &mut rsp,
-                scratch()
-            )
-            .unwrap_err(),
+            responder
+                .handle_request(&[IdeKmCommand::Query as u8, 0, 0, 0], &mut rsp, scratch())
+                .unwrap_err(),
             SPDM_INVALID_REQUEST
         );
     }
@@ -1137,7 +1125,9 @@ mod tests {
         let mut rsp = [0u8; 1];
 
         assert_eq!(
-            responder.handle_request(&req, &mut rsp, scratch()).unwrap_err(),
+            responder
+                .handle_request(&req, &mut rsp, scratch())
+                .unwrap_err(),
             SPDM_INVALID_REQUEST
         );
     }

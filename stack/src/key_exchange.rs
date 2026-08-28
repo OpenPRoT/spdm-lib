@@ -14,10 +14,10 @@
 //! 8. Build final response with signature + verify_data
 
 use spdm_codec::{
-    encode_version_selection, parse_supported_versions, select_version, KeyExchangeReqBody,
-    KeyExchangeRsp, ResponseBody, SpdmMsgHdrPdu, SpdmVersion, ECC_P384_SIGNATURE_SIZE,
-    ECDH_P384_EXCHANGE_DATA_SIZE, KEY_EXCHANGE_RANDOM_DATA_LEN, OPAQUE_VERSION_SELECTION_SIZE,
-    SHA384_HASH_SIZE, SPDM_PREFIX_LEN, SPDM_SIGNING_CONTEXT_LEN,
+    encode_version_selection, parse_supported_versions, select_version, HeartBeatPeriod,
+    KeyExchangeReqBody, KeyExchangeRsp, ResponseBody, SpdmMsgHdrPdu, SpdmVersion,
+    ECC_P384_SIGNATURE_SIZE, ECDH_P384_EXCHANGE_DATA_SIZE, KEY_EXCHANGE_RANDOM_DATA_LEN,
+    OPAQUE_VERSION_SELECTION_SIZE, SHA384_HASH_SIZE, SPDM_PREFIX_LEN, SPDM_SIGNING_CONTEXT_LEN,
 };
 use spdm_traits::*;
 use zerocopy::FromBytes;
@@ -107,13 +107,11 @@ pub(crate) fn handle_key_exchange<'a, Pal: SpdmPal, const N: usize>(
     let mut ecdh_context = pal.alloc_bytes(io, ECDH_P384_ENCRYPTED_CONTEXT_SIZE)?;
     let mut our_exchange_data = pal.alloc_bytes(io, ECDH_P384_EXCHANGE_DATA_SIZE)?;
     pal.ecdh_generate(io, &mut ecdh_context, &mut our_exchange_data)
-        
         .map_err(|_| SPDM_UNSPECIFIED)?;
 
     // Complete ECDH with peer's exchange data → DHE shared secret.
     let dhe_secret = pal
         .ecdh_finish(io, &ecdh_context, &ke_req.exchange_data)
-        
         .map_err(|_| SPDM_UNSPECIFIED)?;
 
     // ── Create session ──────────────────────────────────────────────
@@ -144,8 +142,7 @@ pub(crate) fn handle_key_exchange<'a, Pal: SpdmPal, const N: usize>(
         dhe_secret,
         &our_exchange_data,
         &selected_version,
-    )
-    ;
+    );
 
     if result.is_err() {
         sessions.remove_and_destroy(session_id);
@@ -172,7 +169,12 @@ fn key_exchange_inner<'a, Pal: SpdmPal, const N: usize>(
     our_exchange_data: &[u8],
     selected_version: &[u8; 2],
 ) -> SpdmResult<PalBytes<'a, Pal>> {
+    // The same HeartbeatPeriod byte must feed both the partial and the full
+    // build, since the partial response is folded into the transcript hash.
+    let heartbeat_period = heartbeat_period_for::<Pal>(state);
+
     let session = sessions.find_mut(session_id).ok_or(SPDM_UNSPECIFIED)?;
+    session.heartbeat_period = heartbeat_period;
     let mut workspace = pal.alloc_bytes(io, KEY_EXCHANGE_WORKSPACE_SIZE)?;
     workspace.fill(0);
     let mut rest = &mut workspace[..];
@@ -230,7 +232,6 @@ fn key_exchange_inner<'a, Pal: SpdmPal, const N: usize>(
             SpdmPalHashAlgo::Sha384,
             cert_chain_hash,
         )
-        
         .map_err(|_| SPDM_UNSPECIFIED)?;
         pal.cache_chain_digest(slot_id, SpdmPalHashAlgo::Sha384, cert_chain_hash);
     }
@@ -254,12 +255,10 @@ fn key_exchange_inner<'a, Pal: SpdmPal, const N: usize>(
 
     // ── Generate random + summary hash ──────────────────────────────
     pal.generate_nonce(io, nonce)
-        
         .map_err(|_| SPDM_UNSPECIFIED)?;
 
     let meas_hash_ref: Option<&[u8; SHA384_HASH_SIZE]> = if meas_hash_type != 0 {
-        crate::measurements::measurement_summary_hash(pal, io, meas_hash_type, meas_summary_hash)
-            ?;
+        crate::measurements::measurement_summary_hash(pal, io, meas_hash_type, meas_summary_hash)?;
         Some(&*meas_summary_hash)
     } else {
         None
@@ -270,6 +269,7 @@ fn key_exchange_inner<'a, Pal: SpdmPal, const N: usize>(
 
     // ── Build partial response (no signature, no verify_data) ───────
     let partial_body = KeyExchangeRsp {
+        heartbeat_period,
         rsp_session_id,
         random_data: nonce,
         exchange_data: our_exchange_data.try_into().map_err(|_| SPDM_UNSPECIFIED)?,
@@ -297,14 +297,11 @@ fn key_exchange_inner<'a, Pal: SpdmPal, const N: usize>(
 
     // ── Sign TH1 ────────────────────────────────────────────────────
     build_signing_context(state.version, signing_ctx);
-    compute_tbs_hash(pal, io, signing_ctx, th1)
-        
-        .map_err(|_| SPDM_UNSPECIFIED)?;
+    compute_tbs_hash(pal, io, signing_ctx, th1).map_err(|_| SPDM_UNSPECIFIED)?;
     let tbs_hash = &signing_ctx[..SHA384_HASH_SIZE];
 
     let sig_len = pal
         .sign_hash(io, slot_id, asym_algo, tbs_hash, signature)
-        
         .map_err(|_| SPDM_UNSPECIFIED)?;
     if sig_len != ECC_P384_SIGNATURE_SIZE {
         return Err(SPDM_UNSPECIFIED);
@@ -315,28 +312,21 @@ fn key_exchange_inner<'a, Pal: SpdmPal, const N: usize>(
 
     // ── TH1' = clone-and-finalize (for HMAC + key derivation) ──────
     let th1_prime = &mut *hash_scratch;
-    session
-        .transcript
-        .clone_and_finalize(pal, io, th1_prime)
-        ?;
+    session.transcript.clone_and_finalize(pal, io, th1_prime)?;
 
     // ── Derive handshake keys ───────────────────────────────────────
     session
         .key_schedule
-        .generate_handshake_keys(pal, io, th1_prime)
-        ?;
+        .generate_handshake_keys(pal, io, th1_prime)?;
 
     // ── Compute responder verify_data ───────────────────────────────
-    let vd_len = session
-        .key_schedule
-        .hmac_finished(
-            pal,
-            io,
-            SessionKeyType::ResponseFinishedKey,
-            th1_prime,
-            verify_data,
-        )
-        ?;
+    let vd_len = session.key_schedule.hmac_finished(
+        pal,
+        io,
+        SessionKeyType::ResponseFinishedKey,
+        th1_prime,
+        verify_data,
+    )?;
     if vd_len != SHA384_HASH_SIZE {
         return Err(SPDM_UNSPECIFIED);
     }
@@ -346,6 +336,7 @@ fn key_exchange_inner<'a, Pal: SpdmPal, const N: usize>(
 
     // ── Build full response ─────────────────────────────────────────
     let full_body = KeyExchangeRsp {
+        heartbeat_period,
         rsp_session_id,
         random_data: nonce,
         exchange_data: our_exchange_data.try_into().map_err(|_| SPDM_UNSPECIFIED)?,
@@ -359,6 +350,22 @@ fn key_exchange_inner<'a, Pal: SpdmPal, const N: usize>(
         build_response(pal, io, state.version, &full_body).map_err(|_| SPDM_UNSPECIFIED)?;
 
     Ok(full_resp)
+}
+
+/// HeartbeatPeriod to advertise in KEY_EXCHANGE_RSP for this connection.
+/// Enabled only when both the responder and the peer set HBEAT_CAP; otherwise
+/// `DISABLED` (per DSP0274, zero when either endpoint lacks Heartbeat support).
+/// Always `DISABLED` when the `spdm-set-heartbeat` feature is off.
+fn heartbeat_period_for<Pal: SpdmPal>(state: &ConnState<'_, Pal>) -> HeartBeatPeriod {
+    use spdm_codec::CapFlags;
+    if cfg!(feature = "spdm-set-heartbeat")
+        && state.cap_flags.contains(CapFlags::HBEAT)
+        && state.peer_cap_flags.contains(CapFlags::HBEAT)
+    {
+        HeartBeatPeriod(crate::heartbeat::DEFAULT_HEARTBEAT_PERIOD_SECS)
+    } else {
+        HeartBeatPeriod::DISABLED
+    }
 }
 
 // ── Signing helpers ─────────────────────────────────────────────────
@@ -386,11 +393,8 @@ fn compute_tbs_hash<Pal: SpdmPal>(
     signing_ctx: &mut [u8; SPDM_SIGNING_CONTEXT_LEN],
     th_hash: &[u8; SHA384_HASH_SIZE],
 ) -> spdm_errors::PalResult<()> {
-    let mut state = pal
-        .hash_init(io, SpdmPalHashAlgo::Sha384, &*signing_ctx)
-        ?;
+    let mut state = pal.hash_init(io, SpdmPalHashAlgo::Sha384, &*signing_ctx)?;
     pal.hash_update(io, &mut state, th_hash)?;
-    pal.hash_finish(io, &mut state, &mut signing_ctx[..SHA384_HASH_SIZE])
-        ?;
+    pal.hash_finish(io, &mut state, &mut signing_ctx[..SHA384_HASH_SIZE])?;
     Ok(())
 }
