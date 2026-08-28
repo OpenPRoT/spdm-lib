@@ -205,6 +205,9 @@ pub fn spdm_aes_gcm_encrypt<A: ApiAlloc>(
     unimplemented!("spdm-crypto placeholder: spdm_aes_gcm_encrypt")
 }
 
+// Mirrors the SPDM AEAD call shape (key, version, sequence number, AAD,
+// ciphertext, tag, output); bundling them would obscure it.
+#[allow(clippy::too_many_arguments)]
 pub fn spdm_aes_gcm_decrypt<A: ApiAlloc>(
     _alloc: &A,
     _cmk: &Cmk,
