@@ -56,8 +56,8 @@
 //! This implementation operates on raw byte buffers as required by the
 //! SPDM-Lite PAL trait.
 
-use spdm_transport_sys::mctp::{driver_num, Mctp, MessageInfo};
 use spdm_traits::{PalResult, SpdmPalIoKind, SpdmPalTransport};
+use spdm_transport_sys::mctp::{driver_num, Mctp, MessageInfo};
 
 /// MCTP transport message header size in bytes.
 const MCTP_MSG_HEADER_SIZE: usize = 1;
@@ -72,8 +72,8 @@ pub const MCTP_MSG_TYPE_SECURED_SPDM: u8 = 0x06;
 
 // Error codes for this transport live in [`crate::errors::mctp`];
 // internally we alias the module so existing call sites keep working.
-use crate::errors::mctp as error_code;
 use crate::errors::from_syscall;
+use crate::errors::mctp as error_code;
 
 /// MCTP-based SPDM PAL transport.
 ///
@@ -208,7 +208,9 @@ impl SpdmPalTransport for SpdmMctpTransport {
             *first = self.msg_type & MCTP_MSG_TYPE_MASK;
         }
 
-        self.mctp.send_response(msg, msg_info).map_err(from_syscall)?;
+        self.mctp
+            .send_response(msg, msg_info)
+            .map_err(from_syscall)?;
         Ok(())
     }
 }

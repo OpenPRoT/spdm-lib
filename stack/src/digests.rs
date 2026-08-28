@@ -81,7 +81,6 @@ pub(crate) fn handle_get_digests_req<'a, Pal: SpdmPal>(
             *dst = cached;
         } else {
             cert_chain_hash(pal, io, slot, asym_algo, SpdmPalHashAlgo::Sha384, dst)
-                
                 .map_err(|_| SPDM_UNSPECIFIED)?;
             pal.cache_chain_digest(slot, SpdmPalHashAlgo::Sha384, dst);
         }
@@ -104,8 +103,7 @@ pub(crate) fn handle_get_digests_req<'a, Pal: SpdmPal>(
     state.transcript.append_m1(pal, io, spdm_msg)?;
     state
         .transcript
-        .append_m1(pal, io, &resp[head..head + spdm_len])
-        ?;
+        .append_m1(pal, io, &resp[head..head + spdm_len])?;
 
     state.phase = Phase::AfterDigests;
     Ok((resp, spdm_len))
@@ -163,17 +161,14 @@ pub(crate) fn cert_chain_hash<Pal: SpdmPal>(
     let total = (hdr.len() + der_len) as u16;
     write_fixed(&mut hdr, 0, &total.to_le_bytes());
     // bytes 2..4 (Reserved) already zero
-    pal.root_cert_hash(io, slot, asym_algo, algo, &mut hdr[4..4 + digest_size])
-        ?;
+    pal.root_cert_hash(io, slot, asym_algo, algo, &mut hdr[4..4 + digest_size])?;
 
     let mut state = pal.hash_init(io, algo, &hdr)?;
 
     let mut offset = 0;
     loop {
         let mut buf = pal.alloc_bytes(io, CERT_CHUNK_SIZE)?;
-        let n = pal
-            .read_cert_chain(io, slot, asym_algo, offset, &mut buf)
-            ?;
+        let n = pal.read_cert_chain(io, slot, asym_algo, offset, &mut buf)?;
         if n == 0 {
             break;
         }

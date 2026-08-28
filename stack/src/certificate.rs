@@ -104,7 +104,9 @@ impl CertificateLargeResponse {
             let src = hdr
                 .get(offset..hdr_end)
                 .ok_or(spdm_errors::codes::INVARIANT)?;
-            let dst_head = dst.get_mut(..copy_len).ok_or(spdm_errors::codes::INVARIANT)?;
+            let dst_head = dst
+                .get_mut(..copy_len)
+                .ok_or(spdm_errors::codes::INVARIANT)?;
             for (d, s) in dst_head.iter_mut().zip(src) {
                 *d = *s;
             }
@@ -121,8 +123,7 @@ impl CertificateLargeResponse {
                 self.asym_algo,
                 cert_offset,
                 &mut dst[written..],
-            )
-            ?;
+            )?;
         }
         Ok(())
     }
@@ -274,8 +275,7 @@ pub(crate) fn handle_get_certificate_req<'a, Pal: SpdmPal>(
         state.transcript.append_m1(pal, io, spdm_msg)?;
         state
             .transcript
-            .append_m1(pal, io, &resp[head..head + spdm_len])
-            ?;
+            .append_m1(pal, io, &resp[head..head + spdm_len])?;
 
         state.phase = Phase::AfterCertificate;
         return Ok((resp, spdm_len));
@@ -302,8 +302,7 @@ pub(crate) fn handle_get_certificate_req<'a, Pal: SpdmPal>(
     state.transcript.append_m1(pal, io, spdm_msg)?;
     state
         .transcript
-        .append_m1(pal, io, &resp[head..head + spdm_len])
-        ?;
+        .append_m1(pal, io, &resp[head..head + spdm_len])?;
 
     state.phase = Phase::AfterCertificate;
     Ok((resp, spdm_len))
@@ -352,14 +351,15 @@ pub(crate) fn fill_cert_chain_portion<Pal: SpdmPal>(
             asym_algo,
             spdm_traits::SpdmPalHashAlgo::Sha384,
             root_hash,
-        )
-        ?;
+        )?;
         let hdr_end = SPDM_CERT_CHAIN_HDR_LEN.min(end);
         let copy_len = hdr_end - offset;
         let src = hdr
             .get(offset..hdr_end)
             .ok_or(spdm_errors::codes::INVARIANT)?;
-        let dst_head = dst.get_mut(..copy_len).ok_or(spdm_errors::codes::INVARIANT)?;
+        let dst_head = dst
+            .get_mut(..copy_len)
+            .ok_or(spdm_errors::codes::INVARIANT)?;
         for (d, s) in dst_head.iter_mut().zip(src) {
             *d = *s;
         }
@@ -369,9 +369,7 @@ pub(crate) fn fill_cert_chain_portion<Pal: SpdmPal>(
     // Remaining bytes (if any) come from the raw DER chain.
     if written < dst.len() {
         let der_offset = (offset + written) - SPDM_CERT_CHAIN_HDR_LEN;
-        let n = pal
-            .read_cert_chain(io, slot, asym_algo, der_offset, &mut dst[written..])
-            ?;
+        let n = pal.read_cert_chain(io, slot, asym_algo, der_offset, &mut dst[written..])?;
         if n != dst.len() - written {
             return Err(spdm_errors::codes::INVARIANT);
         }

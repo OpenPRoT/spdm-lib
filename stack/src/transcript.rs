@@ -72,60 +72,35 @@ impl<S> Transcript<S> {
         self.l1 = None;
     }
 
-    pub fn append_vca<H>(
-        &mut self,
-        hash: &H,
-        io: &impl SpdmPalIo,
-        bytes: &[u8],
-    ) -> PalResult<()>
+    pub fn append_vca<H>(&mut self, hash: &H, io: &impl SpdmPalIo, bytes: &[u8]) -> PalResult<()>
     where
         H: SpdmPalHash<State = S>,
     {
         self.append(Slot::Vca, hash, io, bytes)
     }
 
-    pub fn append_m1<H>(
-        &mut self,
-        hash: &H,
-        io: &impl SpdmPalIo,
-        bytes: &[u8],
-    ) -> PalResult<()>
+    pub fn append_m1<H>(&mut self, hash: &H, io: &impl SpdmPalIo, bytes: &[u8]) -> PalResult<()>
     where
         H: SpdmPalHash<State = S>,
     {
         self.append(Slot::M1, hash, io, bytes)
     }
 
-    pub fn append_l1<H>(
-        &mut self,
-        hash: &H,
-        io: &impl SpdmPalIo,
-        bytes: &[u8],
-    ) -> PalResult<()>
+    pub fn append_l1<H>(&mut self, hash: &H, io: &impl SpdmPalIo, bytes: &[u8]) -> PalResult<()>
     where
         H: SpdmPalHash<State = S>,
     {
         self.append(Slot::L1, hash, io, bytes)
     }
 
-    pub fn finalize_m1<H>(
-        &mut self,
-        hash: &H,
-        io: &impl SpdmPalIo,
-        out: &mut [u8],
-    ) -> PalResult<()>
+    pub fn finalize_m1<H>(&mut self, hash: &H, io: &impl SpdmPalIo, out: &mut [u8]) -> PalResult<()>
     where
         H: SpdmPalHash<State = S>,
     {
         self.finalize(Slot::M1, hash, io, out)
     }
 
-    pub fn finalize_l1<H>(
-        &mut self,
-        hash: &H,
-        io: &impl SpdmPalIo,
-        out: &mut [u8],
-    ) -> PalResult<()>
+    pub fn finalize_l1<H>(&mut self, hash: &H, io: &impl SpdmPalIo, out: &mut [u8]) -> PalResult<()>
     where
         H: SpdmPalHash<State = S>,
     {
@@ -206,12 +181,7 @@ impl<S> Transcript<S> {
     /// This is used to seed per-session TH transcripts: TH starts
     /// with `hash(VCA)` (the 48-byte SHA-384 digest), not a fork of
     /// the running VCA hash state.
-    pub fn vca_digest<H>(
-        &self,
-        hash: &H,
-        io: &impl SpdmPalIo,
-        out: &mut [u8],
-    ) -> PalResult<()>
+    pub fn vca_digest<H>(&self, hash: &H, io: &impl SpdmPalIo, out: &mut [u8]) -> PalResult<()>
     where
         H: SpdmPalHash<State = S>,
     {

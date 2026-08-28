@@ -11,11 +11,10 @@ mod driver;
 mod state;
 
 use spdm_codec::errors::{SPDM_INVALID_REQUEST, SPDM_VERSION_MISMATCH};
-use spdm_codec::vendor_defined::pci_sig::tdisp::{
-    TdispMessageHeader, TDISP_HEADER_LEN,
-};
+use spdm_codec::vendor_defined::pci_sig::tdisp::{TdispMessageHeader, TDISP_HEADER_LEN};
 use spdm_traits::{PalResult, SpdmPalAlloc, VdmResponse};
 
+pub use driver::{TdispDriver, TdispDriverError, TdispDriverResult};
 pub use spdm_codec::vendor_defined::pci_sig::tdisp::{
     FunctionId, InterfaceId, TdiStatus, TdispCommand, TdispErrorCode, TdispLockInterfaceFlags,
     TdispLockInterfaceParam, TdispReqCapabilities, TdispRespCapabilities, TdispVersion,
@@ -25,7 +24,6 @@ pub use spdm_codec::vendor_defined::pci_sig::tdisp::{
     TDISP_ERROR_UNSPECIFIED, TDISP_ERROR_UNSUPPORTED_REQUEST, TDISP_ERROR_VENDOR_SPECIFIC_ERROR,
     TDISP_ERROR_VERSION_MISMATCH, TDISP_VERSION_1_0,
 };
-pub use driver::{TdispDriver, TdispDriverError, TdispDriverResult};
 pub use state::MAX_TDISP_INTERFACES;
 
 use state::TdispState;
@@ -106,14 +104,12 @@ where
             }
             TdispCommand::GetTdispCapabilities => {
                 commands::get_tdisp_capabilities::handle(self, req_hdr, req_payload, scratch, out)
-                    
             }
             TdispCommand::LockInterface => {
                 commands::lock_interface::handle(self, req_hdr, req_payload, scratch, out)
             }
             TdispCommand::GetDeviceInterfaceReport => {
                 commands::device_interface_report::handle(self, req_hdr, req_payload, scratch, out)
-                    
             }
             TdispCommand::GetDeviceInterfaceState => {
                 commands::device_interface_state::handle(self, req_hdr, scratch, out)

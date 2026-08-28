@@ -107,8 +107,7 @@ pub(crate) fn handle_get_capabilities<'a, Pal: SpdmPal>(
     state.transcript.append_vca(pal, io, io.request())?;
     state
         .transcript
-        .append_vca(pal, io, &resp[head..head + spdm_len])
-        ?;
+        .append_vca(pal, io, &resp[head..head + spdm_len])?;
 
     state.phase = Phase::AfterCapabilities;
     Ok(resp)

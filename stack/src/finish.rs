@@ -75,27 +75,22 @@ pub(crate) fn handle_finish<Pal: SpdmPal>(
     let finish_hdr_len = SpdmMsgHdrPdu::SIZE + core::mem::size_of::<FinishReqBody>();
     session
         .transcript
-        .append(pal, io, &spdm_msg[..finish_hdr_len])
-        ?;
+        .append(pal, io, &spdm_msg[..finish_hdr_len])?;
 
     // ── Verify requester HMAC ───────────────────────────────────────
     let mut th_hash = [0u8; SHA384_HASH_SIZE];
     session
         .transcript
-        .clone_and_finalize(pal, io, &mut th_hash)
-        ?;
+        .clone_and_finalize(pal, io, &mut th_hash)?;
 
     let mut expected_vd = [0u8; SHA384_HASH_SIZE];
-    let vd_len = session
-        .key_schedule
-        .hmac_finished(
-            pal,
-            io,
-            SessionKeyType::RequestFinishedKey,
-            &th_hash,
-            &mut expected_vd,
-        )
-        ?;
+    let vd_len = session.key_schedule.hmac_finished(
+        pal,
+        io,
+        SessionKeyType::RequestFinishedKey,
+        &th_hash,
+        &mut expected_vd,
+    )?;
     if vd_len != SHA384_HASH_SIZE {
         return Err(SPDM_UNSPECIFIED);
     }
@@ -126,10 +121,7 @@ pub(crate) fn handle_finish<Pal: SpdmPal>(
     session.transcript.finalize(pal, io, &mut th2)?;
 
     // ── Derive data keys ───────────────────────────────────────────
-    session
-        .key_schedule
-        .generate_data_keys(pal, io, &th2)
-        ?;
+    session.key_schedule.generate_data_keys(pal, io, &th2)?;
 
     Ok(rsp_buf)
 }

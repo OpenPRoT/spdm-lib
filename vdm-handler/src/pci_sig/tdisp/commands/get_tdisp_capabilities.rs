@@ -27,7 +27,6 @@ where
     match tdisp
         .driver
         .get_capabilities(req_caps, scratch, &mut rsp_caps)
-        
     {
         Ok(0) => {
             rsp_caps.encode(

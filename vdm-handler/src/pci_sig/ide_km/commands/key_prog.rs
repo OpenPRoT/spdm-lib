@@ -27,7 +27,6 @@ where
             &key_data.iv,
             scratch,
         )
-        
         .map_err(map_ide_error)?;
 
     key_prog.status = status;

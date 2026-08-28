@@ -58,18 +58,11 @@ pub mod mctp {
             }
         }
 
-        pub fn receive_request(
-            &self,
-            _req: &mut [u8],
-        ) -> Result<(u32, MessageInfo), ErrorCode> {
+        pub fn receive_request(&self, _req: &mut [u8]) -> Result<(u32, MessageInfo), ErrorCode> {
             unimplemented!("spdm-transport-sys placeholder: mctp::receive_request")
         }
 
-        pub fn send_response(
-            &self,
-            _resp: &[u8],
-            _info: MessageInfo,
-        ) -> Result<(), ErrorCode> {
+        pub fn send_response(&self, _resp: &[u8], _info: MessageInfo) -> Result<(), ErrorCode> {
             unimplemented!("spdm-transport-sys placeholder: mctp::send_response")
         }
 
@@ -161,21 +154,11 @@ pub mod flash {
             unimplemented!("spdm-transport-sys placeholder: flash::get_chunk_size")
         }
 
-        pub fn read(
-            &self,
-            _address: usize,
-            _len: usize,
-            _buf: &mut [u8],
-        ) -> Result<(), ErrorCode> {
+        pub fn read(&self, _address: usize, _len: usize, _buf: &mut [u8]) -> Result<(), ErrorCode> {
             unimplemented!("spdm-transport-sys placeholder: flash::read")
         }
 
-        pub fn write(
-            &self,
-            _address: usize,
-            _len: usize,
-            _buf: &[u8],
-        ) -> Result<(), ErrorCode> {
+        pub fn write(&self, _address: usize, _len: usize, _buf: &[u8]) -> Result<(), ErrorCode> {
             unimplemented!("spdm-transport-sys placeholder: flash::write")
         }
 

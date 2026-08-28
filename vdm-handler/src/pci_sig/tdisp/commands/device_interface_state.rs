@@ -22,11 +22,11 @@ where
     Alloc: SpdmPalAlloc,
 {
     let mut tdi_status = TdiStatus::Reserved;
-    match tdisp
-        .driver
-        .get_device_interface_state(req_hdr.interface_id.function_id, scratch, &mut tdi_status)
-        
-    {
+    match tdisp.driver.get_device_interface_state(
+        req_hdr.interface_id.function_id,
+        scratch,
+        &mut tdi_status,
+    ) {
         Ok(0) if tdi_status != TdiStatus::Reserved => {
             *out.get_mut(TDISP_HEADER_LEN).ok_or(SPDM_UNSPECIFIED)? = tdi_status as u8;
             Ok(TdispHandlerResult::Response(1))

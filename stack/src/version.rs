@@ -80,8 +80,7 @@ pub(crate) fn handle_get_version<'a, Pal: SpdmPal>(
     state.transcript.append_vca(pal, io, io.request())?;
     state
         .transcript
-        .append_vca(pal, io, &resp[head..head + spdm_len])
-        ?;
+        .append_vca(pal, io, &resp[head..head + spdm_len])?;
 
     state.phase = Phase::AfterVersion;
     Ok(resp)

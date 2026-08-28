@@ -65,12 +65,7 @@ where
     }
 }
 
-fn handle_fe_prog<H, A>(
-    cmds: &H,
-    req: &[u8],
-    scratch: &A,
-    out: &mut [u8],
-) -> CaliptraVdmCmdResult
+fn handle_fe_prog<H, A>(cmds: &H, req: &[u8], scratch: &A, out: &mut [u8]) -> CaliptraVdmCmdResult
 where
     H: CaliptraVdmCommands,
     A: SpdmPalAlloc,

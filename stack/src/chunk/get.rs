@@ -92,9 +92,7 @@ pub(crate) fn handle_chunk_get<'a, Pal: SpdmPal>(
         let chunk = w.reserve(chunk_size)?;
         match active_rsp.kind {
             LargeResponse::Certificate(cert_rsp) => {
-                cert_rsp
-                    .fill_chunk(pal, io, state.version, bytes_sent, chunk)
-                    ?;
+                cert_rsp.fill_chunk(pal, io, state.version, bytes_sent, chunk)?;
                 state.transcript.append_m1(pal, io, chunk)?;
             }
             LargeResponse::Buffered => {
