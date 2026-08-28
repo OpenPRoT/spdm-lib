@@ -512,10 +512,38 @@ struct ManagedRecord {
     root_hash: [u8; 48],
 }
 
+/// Byte offsets of each field in the managed-record header.
+///
+/// `encode` writes through these and `decode` walks the same layout
+/// sequentially; the `managed_record_round_trips` test fails if the two ever
+/// disagree. Offsets are constants so every write below is a fixed window into
+/// a fixed-size array — there is no index that can be out of range at runtime.
+#[cfg(feature = "set-certificate")]
+mod offset {
+    pub(super) const MAGIC: usize = 0;
+    pub(super) const VERSION: usize = 4;
+    pub(super) const HEADER_SIZE: usize = 6;
+    pub(super) const SLOT: usize = 8;
+    pub(super) const ALGO: usize = 9;
+    pub(super) const KEY_PAIR_ID: usize = 10;
+    pub(super) const CERT_INFO: usize = 11;
+    pub(super) const KEY_USAGE_MASK: usize = 12;
+    /// [14..16] reserved — left at the erased byte pattern.
+    pub(super) const CERT_LEN: usize = 16;
+    pub(super) const DATA_CHECKSUM: usize = 20;
+    pub(super) const ROOT_HASH: usize = 24;
+    /// First byte past the last field; [END..MANAGED_HEADER_SIZE] is reserved.
+    pub(super) const END: usize = 72;
+}
+
+/// The declared header must be large enough for the layout above.
+#[cfg(feature = "set-certificate")]
+const _: () = assert!(MANAGED_HEADER_SIZE >= offset::END);
+
 #[cfg(feature = "set-certificate")]
 impl ManagedRecord {
     fn encode(&self, out: &mut [u8; MANAGED_HEADER_SIZE]) {
-        // Layout (matches decode below):
+        // Layout (matches `offset` above and `decode` below):
         //   [0..4]   magic
         //   [4..6]   version (LE)
         //   [6..8]   header_size (LE)
@@ -524,32 +552,27 @@ impl ManagedRecord {
         //   [10]     key_pair_id
         //   [11]     cert_info
         //   [12..14] key_usage_mask (LE)
-        //   [14..16] reserved (zero)
+        //   [14..16] reserved (left erased)
         //   [16..20] cert_len (LE u32)
         //   [20..24] data_checksum (LE)
         //   [24..72] root_hash
-        //   [72..80] reserved (zero)
-        let (magic, rest) = out.split_first_chunk_mut::<4>().unwrap();
-        *magic = MANAGED_MAGIC;
-        let (version, rest) = rest.split_first_chunk_mut::<2>().unwrap();
-        *version = self.version.to_le_bytes();
-        let (hdr_size, rest) = rest.split_first_chunk_mut::<2>().unwrap();
-        *hdr_size = self.header_size.to_le_bytes();
-        rest[0] = self.slot;
-        rest[1] = self.algo;
-        rest[2] = self.key_pair_id;
-        rest[3] = self.cert_info;
-        let rest = &mut rest[4..];
-        let (kum, rest) = rest.split_first_chunk_mut::<2>().unwrap();
-        *kum = self.key_usage_mask.to_le_bytes();
-        // skip [14..16] reserved (already MANAGED_ERASED_BYTE-filled)
-        let rest = &mut rest[2..];
-        let (len, rest) = rest.split_first_chunk_mut::<4>().unwrap();
-        *len = (self.cert_len as u32).to_le_bytes();
-        let (chk, rest) = rest.split_first_chunk_mut::<4>().unwrap();
-        *chk = self.data_checksum.to_le_bytes();
-        let (rh, _) = rest.split_first_chunk_mut::<48>().unwrap();
-        *rh = self.root_hash;
+        //   [72..80] reserved (left erased)
+        use offset as o;
+
+        out[o::MAGIC..o::VERSION].copy_from_slice(&MANAGED_MAGIC);
+        out[o::VERSION..o::HEADER_SIZE].copy_from_slice(&self.version.to_le_bytes());
+        out[o::HEADER_SIZE..o::SLOT].copy_from_slice(&self.header_size.to_le_bytes());
+        out[o::SLOT] = self.slot;
+        out[o::ALGO] = self.algo;
+        out[o::KEY_PAIR_ID] = self.key_pair_id;
+        out[o::CERT_INFO] = self.cert_info;
+        out[o::KEY_USAGE_MASK..o::KEY_USAGE_MASK + 2]
+            .copy_from_slice(&self.key_usage_mask.to_le_bytes());
+        // [14..16] reserved: left as-is.
+        out[o::CERT_LEN..o::DATA_CHECKSUM].copy_from_slice(&(self.cert_len as u32).to_le_bytes());
+        out[o::DATA_CHECKSUM..o::ROOT_HASH].copy_from_slice(&self.data_checksum.to_le_bytes());
+        out[o::ROOT_HASH..o::END].copy_from_slice(&self.root_hash);
+        // [72..80] reserved: left as-is.
     }
 
     fn decode(input: &[u8; MANAGED_HEADER_SIZE]) -> Option<Self> {
