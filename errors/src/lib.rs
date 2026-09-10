@@ -193,8 +193,6 @@ pub const SUBDOMAIN_LOCAL: u8 = 0x00;
 pub const SUBDOMAIN_WIRE: u8 = 0x01;
 
 /// MCTP transport (used by SPDM).
-///
-/// Used by `spdm-transports::mctp`.
 pub const SUBDOMAIN_MCTP: u8 = 0x10;
 
 /// PCIe DOE transport (used by SPDM) — reserved for future use.
