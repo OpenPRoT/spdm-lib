@@ -119,9 +119,6 @@ fn build_chunk_send_ack<'a, Pal: SpdmPal>(
 
 /// Maximum bytes carried as `ResponseToLargeRequest` inside CHUNK_SEND_ACK.
 const LARGE_REQUEST_RESPONSE_BUF_SIZE: usize = 512;
-const DEBUG_UNLOCK_STANDARD_ID: u16 = 0x0004;
-const DEBUG_UNLOCK_VENDOR_ID: [u8; 4] =
-    spdm_codec::vendor_defined::iana::ocp::caliptra::CALIPTRA_VENDOR_ID.to_le_bytes();
 
 enum ChunkProcessError {
     Spdm(SpdmError),
@@ -474,8 +471,8 @@ fn process_next_chunk<Pal: SpdmPal, Vdm: SpdmVdmBackend>(
                     chunk_seq_num,
                 })?;
         }
-        Some(ActiveLargeRequest::AuthorizeDebugUnlockToken) => {
-            vdm.continue_authorize_debug_unlock_token_stream(chunk, pal, io)
+        Some(ActiveLargeRequest::VdmStream { .. }) => {
+            vdm.continue_vdm_stream(chunk, pal, io)
                 .map_err(|_| ChunkProcessError::Early {
                     handle,
                     chunk_seq_num,
@@ -580,8 +577,8 @@ pub(crate) fn abort_active_streaming_request<Pal: SpdmPal, Vdm: SpdmVdmBackend>(
         Some(ActiveLargeRequest::SetCertificate(stream)) => {
             set_certificate::abort_set_certificate_stream(state, pal, io, stream);
         }
-        Some(ActiveLargeRequest::AuthorizeDebugUnlockToken) => {
-            vdm.abort_authorize_debug_unlock_token_stream(pal, io);
+        Some(ActiveLargeRequest::VdmStream { .. }) => {
+            vdm.abort_vdm_stream(pal, io);
         }
         _ => {}
     }
@@ -660,14 +657,23 @@ fn try_start_streaming_request<Pal: SpdmPal, Vdm: SpdmVdmBackend>(
             if !vdm.match_id(&registry) {
                 return Ok(false);
             }
-            if !vdm.start_authorize_debug_unlock_token_stream(req_len, payload, pal, io)? {
+            if !vdm.start_vdm_stream(req_len, payload, pal, io)? {
                 return Ok(false);
             }
+            let mut vendor_id_buf = [0u8; 4];
+            vendor_id_buf
+                .get_mut(..vendor_id_len)
+                .ok_or(SPDM_INVALID_REQUEST)?
+                .copy_from_slice(vendor_id);
             state.large_msg_ctx.init_streaming_request(
                 handle,
                 large_msg_size,
                 first.len(),
-                ActiveLargeRequest::AuthorizeDebugUnlockToken,
+                ActiveLargeRequest::VdmStream {
+                    standard_id: vdm_hdr.standard_id.get(),
+                    vendor_id: vendor_id_buf,
+                    vendor_id_len: vendor_id_len as u8,
+                },
                 session_id,
             )?;
             Ok(true)
@@ -732,8 +738,12 @@ fn build_final_chunk_send_ack<'a, Pal: SpdmPal, Vdm: SpdmVdmBackend>(
                 }
             }
         }
-        Some(ActiveLargeRequest::AuthorizeDebugUnlockToken) => {
-            let vendor_id = &DEBUG_UNLOCK_VENDOR_ID;
+        Some(ActiveLargeRequest::VdmStream {
+            standard_id,
+            vendor_id,
+            vendor_id_len,
+        }) => {
+            let vendor_id = vendor_id.get(..vendor_id_len as usize).unwrap_or(&[]);
             let envelope_len = SpdmMsgHdrPdu::SIZE + 2 + 2 + 1 + vendor_id.len() + 2;
             if envelope_len > response_to_large_request.len() {
                 (
@@ -748,7 +758,7 @@ fn build_final_chunk_send_ack<'a, Pal: SpdmPal, Vdm: SpdmVdmBackend>(
                 // The large buffer was never rented for a streamed request, so
                 // the backend only gets the inline area.
                 let mut empty_large = [];
-                let outcome = vdm.finish_authorize_debug_unlock_token_stream(VdmResponseBuffer {
+                let outcome = vdm.finish_vdm_stream(VdmResponseBuffer {
                     inline: &mut response_to_large_request[envelope_len..],
                     large: &mut empty_large,
                     alloc: pal,
@@ -760,7 +770,7 @@ fn build_final_chunk_send_ack<'a, Pal: SpdmPal, Vdm: SpdmVdmBackend>(
                             > response_to_large_request.len()
                             || vendor_defined::write_vendor_defined_envelope(
                                 state.version,
-                                DEBUG_UNLOCK_STANDARD_ID,
+                                standard_id,
                                 vendor_id,
                                 payload_len,
                                 &mut response_to_large_request[..envelope_len],
@@ -946,9 +956,6 @@ mod tests {
 
     use core::cell::RefCell;
 
-    use spdm_codec::vendor_defined::iana::ocp::caliptra::{
-        CaliptraVdmCommand, CALIPTRA_VDM_COMMAND_VERSION, CALIPTRA_VENDOR_ID,
-    };
     use spdm_errors::PalResult;
     use spdm_traits::{
         SpdmPalAlloc, SpdmPalIo, SpdmVdmBackend, VdmRegistry, VdmResponse, VdmResponseBuffer,
@@ -960,7 +967,13 @@ mod tests {
 
     use super::support::{chunk_send_request, chunking_state, TestIo, TestPal};
 
-    const CALIPTRA_VENDOR_ID_BYTES: [u8; 4] = CALIPTRA_VENDOR_ID.to_le_bytes();
+    // A fictional vendor used only to drive the generic VDM streaming path. The
+    // 2-byte ID (PCI-SIG registry) also covers a vendor_id_len other than the
+    // maximum, which the stack must echo back from the request.
+    const TEST_STANDARD_ID: u16 = 0x0003;
+    const TEST_VENDOR_ID_BYTES: [u8; 2] = [0xEF, 0xBE];
+    const TEST_VDM_COMMAND_VERSION: u8 = 1;
+    const TEST_VDM_COMMAND: u8 = 0x42;
 
     struct CaptureVdmBackend {
         captured_token_payload: RefCell<Option<Vec<u8>>>,
@@ -976,10 +989,10 @@ mod tests {
 
     impl SpdmVdmBackend for CaptureVdmBackend {
         fn match_id(&self, registry: &VdmRegistry<'_>) -> bool {
-            registry.standard_id == 0x0004 && registry.vendor_id == CALIPTRA_VENDOR_ID_BYTES
+            registry.standard_id == TEST_STANDARD_ID && registry.vendor_id == TEST_VENDOR_ID_BYTES
         }
 
-        fn start_authorize_debug_unlock_token_stream<Alloc, Io>(
+        fn start_vdm_stream<Alloc, Io>(
             &self,
             _req_len: usize,
             first: &[u8],
@@ -990,17 +1003,14 @@ mod tests {
             Alloc: SpdmPalAlloc,
             Io: SpdmPalIo,
         {
-            assert_eq!(first.first().copied(), Some(CALIPTRA_VDM_COMMAND_VERSION));
-            assert_eq!(
-                first.get(1).copied(),
-                Some(CaliptraVdmCommand::AuthorizeDebugUnlockToken as u8)
-            );
+            assert_eq!(first.first().copied(), Some(TEST_VDM_COMMAND_VERSION));
+            assert_eq!(first.get(1).copied(), Some(TEST_VDM_COMMAND));
             self.captured_token_payload
                 .replace(Some(first[2..].to_vec()));
             Ok(true)
         }
 
-        fn continue_authorize_debug_unlock_token_stream<Alloc, Io>(
+        fn continue_vdm_stream<Alloc, Io>(
             &self,
             chunk: &[u8],
             _alloc: &Alloc,
@@ -1018,7 +1028,7 @@ mod tests {
             Ok(())
         }
 
-        fn finish_authorize_debug_unlock_token_stream<Alloc, Io>(
+        fn finish_vdm_stream<Alloc, Io>(
             &self,
             rsp: VdmResponseBuffer<'_, Alloc, Io>,
         ) -> PalResult<VdmResponse>
@@ -1026,11 +1036,7 @@ mod tests {
             Alloc: SpdmPalAlloc,
             Io: SpdmPalIo,
         {
-            rsp.inline[..3].copy_from_slice(&[
-                CALIPTRA_VDM_COMMAND_VERSION,
-                CaliptraVdmCommand::AuthorizeDebugUnlockToken as u8,
-                0,
-            ]);
+            rsp.inline[..3].copy_from_slice(&[TEST_VDM_COMMAND_VERSION, TEST_VDM_COMMAND, 0]);
             Ok(VdmResponse::Inline(3))
         }
 
@@ -1043,55 +1049,47 @@ mod tests {
             Alloc: SpdmPalAlloc,
             Io: SpdmPalIo,
         {
-            assert_eq!(req.first().copied(), Some(CALIPTRA_VDM_COMMAND_VERSION));
-            assert_eq!(
-                req.get(1).copied(),
-                Some(CaliptraVdmCommand::AuthorizeDebugUnlockToken as u8)
-            );
+            assert_eq!(req.first().copied(), Some(TEST_VDM_COMMAND_VERSION));
+            assert_eq!(req.get(1).copied(), Some(TEST_VDM_COMMAND));
             self.captured_token_payload.replace(Some(req[2..].to_vec()));
-            rsp.inline[..3].copy_from_slice(&[
-                CALIPTRA_VDM_COMMAND_VERSION,
-                CaliptraVdmCommand::AuthorizeDebugUnlockToken as u8,
-                0,
-            ]);
+            rsp.inline[..3].copy_from_slice(&[TEST_VDM_COMMAND_VERSION, TEST_VDM_COMMAND, 0]);
             Ok(VdmResponse::Inline(3))
         }
     }
 
-    fn vendor_defined_authorize_debug_unlock_request(token_payload: &[u8]) -> Vec<u8> {
+    fn vendor_defined_stream_request(token_payload: &[u8]) -> Vec<u8> {
         let vdm_payload_len = 2 + token_payload.len();
         let mut req = vec![
             SpdmVersion::V12.to_u8(),
             ReqRespCode::VENDOR_DEFINED_REQUEST.0,
             0,
             0,
-            0x04,
-            0x00,
-            CALIPTRA_VENDOR_ID_BYTES.len() as u8,
+            TEST_STANDARD_ID.to_le_bytes()[0],
+            TEST_STANDARD_ID.to_le_bytes()[1],
+            TEST_VENDOR_ID_BYTES.len() as u8,
         ];
-        req.extend_from_slice(&CALIPTRA_VENDOR_ID_BYTES);
+        req.extend_from_slice(&TEST_VENDOR_ID_BYTES);
         req.extend_from_slice(&(vdm_payload_len as u16).to_le_bytes());
-        req.push(CALIPTRA_VDM_COMMAND_VERSION);
-        req.push(CaliptraVdmCommand::AuthorizeDebugUnlockToken as u8);
+        req.push(TEST_VDM_COMMAND_VERSION);
+        req.push(TEST_VDM_COMMAND);
         req.extend_from_slice(token_payload);
         req
     }
 
     #[test]
-    fn chunked_vendor_defined_debug_unlock_token_preserves_host_mailbox_payload() {
+    fn chunked_vendor_defined_stream_preserves_request_payload() {
         let pal = TestPal::default();
         let mut state = chunking_state();
         let vdm = CaptureVdmBackend::new();
 
-        // Host SPDM-VDM transport sends AuthorizeDebugUnlockToken as Caliptra RT
-        // mailbox bytes: MailboxReqHeader/checksum followed by the token body.
-        // The stack/backend must not strip, rewrite, or prepend this payload.
+        // The backend receives the vendor payload byte-for-byte: the stack must
+        // not strip, rewrite, or prepend anything while streaming it.
         let mut host_mailbox_payload = vec![0u8; 4 + 96];
         host_mailbox_payload[..4].copy_from_slice(&0xAABB_CCDDu32.to_le_bytes());
         for (i, b) in host_mailbox_payload[4..].iter_mut().enumerate() {
             *b = i as u8;
         }
-        let large_req = vendor_defined_authorize_debug_unlock_request(&host_mailbox_payload);
+        let large_req = vendor_defined_stream_request(&host_mailbox_payload);
         let (first, second) = large_req.split_at(64);
         let first_chunk = chunk_send_request(9, 0, false, Some(large_req.len()), first);
         let second_chunk = chunk_send_request(9, 1, true, None, second);
@@ -1143,17 +1141,15 @@ mod tests {
                 ReqRespCode::VENDOR_DEFINED_RESPONSE.0,
                 0,
                 0,
-                0x04,
-                0x00,
-                CALIPTRA_VENDOR_ID_BYTES.len() as u8,
-                CALIPTRA_VENDOR_ID_BYTES[0],
-                CALIPTRA_VENDOR_ID_BYTES[1],
-                CALIPTRA_VENDOR_ID_BYTES[2],
-                CALIPTRA_VENDOR_ID_BYTES[3],
+                TEST_STANDARD_ID.to_le_bytes()[0],
+                TEST_STANDARD_ID.to_le_bytes()[1],
+                TEST_VENDOR_ID_BYTES.len() as u8,
+                TEST_VENDOR_ID_BYTES[0],
+                TEST_VENDOR_ID_BYTES[1],
                 3,
                 0,
-                CALIPTRA_VDM_COMMAND_VERSION,
-                CaliptraVdmCommand::AuthorizeDebugUnlockToken as u8,
+                TEST_VDM_COMMAND_VERSION,
+                TEST_VDM_COMMAND,
                 0,
             ]
         );
@@ -1173,10 +1169,10 @@ mod tests {
 
     impl SpdmVdmBackend for BufferedOnlyVdmBackend {
         fn match_id(&self, registry: &VdmRegistry<'_>) -> bool {
-            registry.standard_id == 0x0004 && registry.vendor_id == CALIPTRA_VENDOR_ID_BYTES
+            registry.standard_id == TEST_STANDARD_ID && registry.vendor_id == TEST_VENDOR_ID_BYTES
         }
 
-        fn start_authorize_debug_unlock_token_stream<Alloc, Io>(
+        fn start_vdm_stream<Alloc, Io>(
             &self,
             _req_len: usize,
             _first: &[u8],
@@ -1199,29 +1195,22 @@ mod tests {
             Alloc: SpdmPalAlloc,
             Io: SpdmPalIo,
         {
-            assert_eq!(req.first().copied(), Some(CALIPTRA_VDM_COMMAND_VERSION));
-            assert_eq!(
-                req.get(1).copied(),
-                Some(CaliptraVdmCommand::AuthorizeDebugUnlockToken as u8)
-            );
+            assert_eq!(req.first().copied(), Some(TEST_VDM_COMMAND_VERSION));
+            assert_eq!(req.get(1).copied(), Some(TEST_VDM_COMMAND));
             self.captured_token_payload.replace(Some(req[2..].to_vec()));
-            rsp.inline[..3].copy_from_slice(&[
-                CALIPTRA_VDM_COMMAND_VERSION,
-                CaliptraVdmCommand::AuthorizeDebugUnlockToken as u8,
-                0,
-            ]);
+            rsp.inline[..3].copy_from_slice(&[TEST_VDM_COMMAND_VERSION, TEST_VDM_COMMAND, 0]);
             Ok(VdmResponse::Inline(3))
         }
     }
 
     #[test]
-    fn chunked_vendor_defined_debug_unlock_falls_back_when_streaming_declines() {
+    fn chunked_vendor_defined_falls_back_when_streaming_declines() {
         let pal = TestPal::default();
         let mut state = chunking_state();
         let vdm = BufferedOnlyVdmBackend::new();
 
         let host_mailbox_payload = vec![0x5au8; 4 + 96];
-        let large_req = vendor_defined_authorize_debug_unlock_request(&host_mailbox_payload);
+        let large_req = vendor_defined_stream_request(&host_mailbox_payload);
         let (first, second) = large_req.split_at(64);
         let first_chunk = chunk_send_request(10, 0, false, Some(large_req.len()), first);
         let second_chunk = chunk_send_request(10, 1, true, None, second);

@@ -81,14 +81,15 @@ pub trait SpdmVdmBackend {
     /// Returns true when this backend owns the decoded VDM registry ID.
     fn match_id(&self, registry: &VdmRegistry<'_>) -> bool;
 
-    /// Attempts to start streaming an AuthorizeDebugUnlockToken request.
+    /// Attempts to consume a chunked VENDOR_DEFINED request incrementally rather
+    /// than having the stack reassemble it.
     ///
     /// `req_len` is the total VDM payload length (excluding the SPDM
     /// VENDOR_DEFINED envelope). `first` is the VDM payload bytes carried in the
     /// first CHUNK_SEND fragment. Backends return `Ok(true)` only when they own
     /// and have started streaming this request; `Ok(false)` lets the stack fall
     /// back to buffered large-request handling.
-    fn start_authorize_debug_unlock_token_stream<Alloc, Io>(
+    fn start_vdm_stream<Alloc, Io>(
         &self,
         _req_len: usize,
         _first: &[u8],
@@ -102,8 +103,8 @@ pub trait SpdmVdmBackend {
         Ok(false)
     }
 
-    /// Streams additional AuthorizeDebugUnlockToken payload bytes.
-    fn continue_authorize_debug_unlock_token_stream<Alloc, Io>(
+    /// Streams additional VDM payload bytes for the in-progress request.
+    fn continue_vdm_stream<Alloc, Io>(
         &self,
         _chunk: &[u8],
         _alloc: &Alloc,
@@ -116,8 +117,8 @@ pub trait SpdmVdmBackend {
         Err(spdm_errors::codes::NOT_IMPLEMENTED)
     }
 
-    /// Finishes a streaming AuthorizeDebugUnlockToken request.
-    fn finish_authorize_debug_unlock_token_stream<Alloc, Io>(
+    /// Finishes a streamed VDM request and writes the response payload.
+    fn finish_vdm_stream<Alloc, Io>(
         &self,
         _rsp: VdmResponseBuffer<'_, Alloc, Io>,
     ) -> PalResult<VdmResponse>
@@ -128,8 +129,9 @@ pub trait SpdmVdmBackend {
         Err(spdm_errors::codes::NOT_IMPLEMENTED)
     }
 
-    /// Aborts an in-progress AuthorizeDebugUnlockToken request.
-    fn abort_authorize_debug_unlock_token_stream<Alloc, Io>(&self, _alloc: &Alloc, _io: &Io)
+    /// Aborts an in-progress streamed VDM request, releasing any device-side
+    /// transaction it holds.
+    fn abort_vdm_stream<Alloc, Io>(&self, _alloc: &Alloc, _io: &Io)
     where
         Alloc: SpdmPalAlloc,
         Io: SpdmPalIo,
