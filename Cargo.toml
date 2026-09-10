@@ -7,7 +7,6 @@ members = [
     "codec",
     "traits",
     "stack",
-    "transports",
     "vdm-handler",
     "placeholders/spdm-crypto",
     "placeholders/spdm-transport-sys",
@@ -56,5 +55,4 @@ spdm-traits = { path = "traits" }
 # the path resolves if pal/ is re-added later.
 spdm-pal = { path = "pal" }
 spdm-stack = { path = "stack" }
-spdm-transports = { path = "transports" }
 spdm-vdm-handler = { path = "vdm-handler" }
