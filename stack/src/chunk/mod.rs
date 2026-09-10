@@ -99,8 +99,14 @@ pub(crate) enum ActiveLargeRequest {
     /// Streaming straight into a cert-store write transaction.
     #[cfg(feature = "set-certificate")]
     SetCertificate(crate::set_certificate::SetCertificateStreamState),
-    /// Streaming straight into the VDM backend's debug-unlock token sink.
-    AuthorizeDebugUnlockToken,
+    /// Streaming straight into the VDM backend. Carries the request's registry
+    /// identity so the response envelope can be rebuilt without the stack
+    /// knowing which vendor claimed the request.
+    VdmStream {
+        standard_id: u16,
+        vendor_id: [u8; 4],
+        vendor_id_len: u8,
+    },
 }
 
 #[derive(Copy, Clone)]
