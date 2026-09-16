@@ -1,7 +1,7 @@
 # Licensed under the Apache-2.0 license
 
 [package]
-name = "spdm-pal"
+name = "spdm-mcu-pal"
 version.workspace = true
 authors.workspace = true
 edition.workspace = true
