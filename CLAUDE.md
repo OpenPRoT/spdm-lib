@@ -52,9 +52,11 @@ directories excluded from the build.
 - `legacy/`
     - The preserved host-crypto reference monolith. Excluded from the workspace build. Reference
       only; do not modify unless explicitly instructed.
-- `pal/`
-    - The MCU-specific concrete implementation of the `SpdmPal` trait family. Excluded from the
-      workspace build and kept as a reference for the future platform-impl redesign.
+- `mcu-pal/`
+    - `spdm-mcu-pal`. The Caliptra-MCU-specific implementation of the `SpdmPal` trait family — DPE,
+      Caliptra Core cert chains, mailbox crypto, Tock syscalls. Excluded from the workspace build
+      and kept as a reference for the future platform-impl redesign; it is still async and does not
+      compile as-is.
 
 ## Coding Constraints
 

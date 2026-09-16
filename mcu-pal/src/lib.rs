@@ -1,6 +1,6 @@
 // Licensed under the Apache-2.0 license
 
-//! `spdm-pal` — MCU-side Platform Abstraction Layer for the
+//! `spdm-mcu-pal` — Caliptra-MCU Platform Abstraction Layer for the
 //! SPDM-Lite stack.
 //!
 //! This crate provides the concrete implementations of the
@@ -25,7 +25,7 @@
 //! # Re-exports
 //!
 //! * The whole [`alloc`] / [`pal`] surface is re-exported at the
-//!   crate root so consumers write `use spdm_pal::*`.
+//!   crate root so consumers write `use spdm_mcu_pal::*`.
 //! * [`spdm_codec`] is re-exported as [`codec`] so the stack
 //!   and downstream code share one wire-codec version.
 
