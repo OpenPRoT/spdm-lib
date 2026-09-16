@@ -6,8 +6,7 @@
 //! the [`SpdmPal`](spdm_traits::SpdmPal) super-trait by
 //! wrapping a boxed
 //! [`SpdmPalTransport`](spdm_traits::SpdmPalTransport)
-//! implementation (e.g.,
-//! [`SpdmMctpTransport`](../../../transports/src/mctp.rs)) and re-exposing
+//! implementation (e.g. an MCTP transport) and re-exposing
 //! it as a framed
 //! [`SpdmIoTransport`](spdm_traits::SpdmIoTransport) via the
 //! companion [`io`](super::io) module.

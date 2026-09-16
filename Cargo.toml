@@ -18,12 +18,12 @@ members = [
 # rustc than the pinned 1.85 (uses `is_multiple_of`), so it is excluded from the
 # workspace build. Build it separately with a newer toolchain when needed.
 #
-# pal/ is the MCU-specific concrete implementation of the SpdmPal trait family
-# (the "MCU-side Platform Abstraction Layer"). It is a leaf crate — nothing in
-# the workspace depends on it; the stack binds to the SpdmPal *traits* in
-# spdm-traits, not this impl. Kept on disk as a reference for the future
-# platform-impl redesign (see PLAN.md), but excluded from the build.
-exclude = ["legacy", "pal"]
+# mcu-pal/ is the Caliptra-MCU-specific concrete implementation of the SpdmPal
+# trait family. It is a leaf crate — nothing in the workspace depends on it; the
+# stack binds to the SpdmPal *traits* in spdm-traits, not this impl. Kept on disk
+# as a reference for the future platform-impl redesign (see PLAN.md), but
+# excluded from the build; it is also still async and does not compile as-is.
+exclude = ["legacy", "mcu-pal"]
 
 [workspace.package]
 version = "0.1.0"
@@ -50,7 +50,7 @@ spdm-platform = { path = "placeholders/spdm-platform" }
 spdm-errors = { path = "errors" }
 spdm-codec = { path = "codec" }
 spdm-traits = { path = "traits" }
-# spdm-pal is excluded from the workspace build (see exclude above); kept here so
-# the path resolves if pal/ is re-added later.
-spdm-pal = { path = "pal" }
+# spdm-mcu-pal is excluded from the workspace build (see exclude above); kept
+# here so the path resolves if mcu-pal/ is re-added later.
+spdm-mcu-pal = { path = "mcu-pal" }
 spdm-stack = { path = "stack" }
