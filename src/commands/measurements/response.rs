@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::cert_store::SpdmCertStore;
+use crate::cert_store::{SpdmCertStore, MAX_CERT_SLOTS_SUPPORTED};
 use crate::chunk_ctx::{ChunkError, LargeResponse};
 use crate::commands::algorithms::selected_measurement_specification;
 use crate::commands::measurements::*;
@@ -59,7 +59,23 @@ fn process_get_measurements<'a>(
             GetMeasurementsReqSignature::decode(req_payload).map_err(|_| {
                 ctx.generate_error_response(req_payload, ErrorCode::InvalidRequest, 0, None)
             })?;
-        Some(req_signature_fields.slot_id)
+        let slot_id = req_signature_fields.slot_id;
+        if slot_id >= MAX_CERT_SLOTS_SUPPORTED || !ctx.device_certs_store.is_provisioned(slot_id) {
+            Err(ctx.generate_error_response(req_payload, ErrorCode::InvalidRequest, 0, None))?;
+        }
+        if connection_version >= SpdmVersion::V13 && ctx.state.connection_info.multi_key_conn_rsp()
+        {
+            match ctx.device_certs_store.key_usage_mask(slot_id) {
+                Some(key_usage_mask) if key_usage_mask.measurement_usage() != 0 => {}
+                _ => Err(ctx.generate_error_response(
+                    req_payload,
+                    ErrorCode::InvalidRequest,
+                    0,
+                    None,
+                ))?,
+            }
+        }
+        Some(slot_id)
     };
 
     // Decode the requester context if version is >= 1.3
