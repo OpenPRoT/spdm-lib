@@ -69,13 +69,10 @@ fn generate_certificate_response<'a>(
 
     let mut remainder_len = total_cert_chain_len.saturating_sub(offset);
 
-    let portion_len = if length > SPDM_MAX_CERT_CHAIN_PORTION_LEN
-    // && ctx.local_capabilities.flags.chunk_cap() == 1
-    {
-        SPDM_MAX_CERT_CHAIN_PORTION_LEN.min(remainder_len)
-    } else {
-        length.min(remainder_len)
-    };
+    let max_portion =
+        (rsp.capacity()
+            .saturating_sub(payload_len + size_of::<CertificateRespCommon>())) as u16;
+    let portion_len = length.min(remainder_len).min(max_portion);
 
     remainder_len = remainder_len.saturating_sub(portion_len);
     let slot_id_struct = SlotId(slot_id);
