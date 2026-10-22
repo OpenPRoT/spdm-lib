@@ -1,3 +1,32 @@
+commit 1e49fc7534070280822bc039ff55187cfdb472e4
+Author: Arthur Heymans <arthur@aheymans.xyz>
+Date:   Tue Jul 28 16:53:24 2026 +0200
+
+    spdm: add SPDM 1.4 VERSION support
+    
+    Advertise SPDM 1.4 from VERSION and add the version-specific signing and
+    key-schedule context strings needed once V1.4 is selected.
+    
+    Validate GET_VERSION before resetting connection state so malformed requests
+    preserve existing connections and sessions. Abort active streaming resources
+    before a valid reset and ignore reserved requester parameters.
+    
+    Encode and parse the SPDM 1.4 OpaqueData field in FINISH messages so existing
+    requester session flows remain interoperable after negotiating V1.4. Add focused
+    tests for V1.4 advertisement, invalid-request state preservation, stream cleanup,
+    and FINISH payload parsing.
+    
+    Temporarily use the corresponding unmerged spdm-emu PR for pull-request
+    validation while retaining the full MCTP and DOE validator suites and existing
+    requester regression coverage.
+    
+    Refs #1785
+    Refs #1786
+    Refs #1787
+    Refs #2039
+    
+    (cherry picked from commit 94af13b0e6c417e618f3bb0e54b6937ec9249ad0)
+
 commit e88afa2afc4913596d27bcfbe34a1186c14acae6
 Author: mlvisaya <38512415+mlvisaya@users.noreply.github.com>
 Date:   Thu Aug 27 11:42:53 2026 -0700

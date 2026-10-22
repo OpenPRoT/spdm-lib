@@ -25,8 +25,9 @@ use crate::error::{SpdmResult, SPDM_DECRYPT_ERROR, SPDM_INVALID_REQUEST, SPDM_UN
 use crate::key_schedule::SessionKeyType;
 use crate::session::{SessionInfo, SessionState};
 
-/// Size of the FINISH_RSP SPDM message (common header + 2 reserved).
-pub(crate) const FINISH_RSP_SPDM_SIZE: usize = SpdmMsgHdrPdu::SIZE + 2;
+/// Maximum FINISH_RSP SPDM message size (common header, 2 reserved bytes,
+/// and the V1.4 empty OpaqueData length).
+pub(crate) const FINISH_RSP_MAX_SPDM_SIZE: usize = SpdmMsgHdrPdu::SIZE + 4;
 
 /// Handle a decrypted FINISH request.
 ///
@@ -45,7 +46,7 @@ pub(crate) fn handle_finish<Pal: SpdmPal>(
     pal: &Pal,
     io: &<Pal as SpdmPalIoTransport>::Io<'_>,
     spdm_msg: &[u8],
-) -> SpdmResult<[u8; FINISH_RSP_SPDM_SIZE]> {
+) -> SpdmResult<([u8; FINISH_RSP_MAX_SPDM_SIZE], usize)> {
     // ── Validate session state ──────────────────────────────────────
     if session.state != SessionState::HandshakeInProgress {
         return Err(SPDM_INVALID_REQUEST);
@@ -57,25 +58,22 @@ pub(crate) fn handle_finish<Pal: SpdmPal>(
         return Err(crate::error::SPDM_VERSION_MISMATCH);
     }
 
-    let (finish_req, after) =
-        FinishReqBody::ref_from_prefix(rest).map_err(|_| SPDM_INVALID_REQUEST)?;
+    let (finish_req, req_verify_data, request_prefix_len) =
+        split_finish_request_payload(version, rest)?;
 
     // No mutual auth — reject if requester signature present.
     if finish_req.signature_present() {
         return Err(SPDM_INVALID_REQUEST);
     }
 
-    // Requester verify_data (SHA-384 HMAC).
-    if after.len() != SHA384_HASH_SIZE {
-        return Err(SPDM_INVALID_REQUEST);
-    }
-    let req_verify_data = &after[..SHA384_HASH_SIZE];
-
-    // ── Feed FINISH header + params (without verify_data) to TH ────
-    let finish_hdr_len = SpdmMsgHdrPdu::SIZE + core::mem::size_of::<FinishReqBody>();
-    session
-        .transcript
-        .append(pal, io, &spdm_msg[..finish_hdr_len])?;
+    // ── Feed FINISH header + params + V1.4 OpaqueData (without verify_data) to TH ──
+    let finish_prefix_len = SpdmMsgHdrPdu::SIZE
+        .checked_add(request_prefix_len)
+        .ok_or(SPDM_INVALID_REQUEST)?;
+    let finish_prefix = spdm_msg
+        .get(..finish_prefix_len)
+        .ok_or(SPDM_INVALID_REQUEST)?;
+    session.transcript.append(pal, io, finish_prefix)?;
 
     // ── Verify requester HMAC ───────────────────────────────────────
     let mut th_hash = [0u8; SHA384_HASH_SIZE];
@@ -108,13 +106,18 @@ pub(crate) fn handle_finish<Pal: SpdmPal>(
     session.transcript.append(pal, io, req_verify_data)?;
 
     // ── Build FINISH_RSP SPDM message ──────────────────────────────
-    let mut rsp_buf = [0u8; FINISH_RSP_SPDM_SIZE];
-    FinishRsp
+    let mut rsp_buf = [0u8; FINISH_RSP_MAX_SPDM_SIZE];
+    let rsp_body = FinishRsp {
+        include_opaque: version >= SpdmVersion::V14,
+    };
+    let rsp_len = rsp_body.encoded_size();
+    rsp_body
         .encode_with_header(version, &mut WireWriter::new(&mut rsp_buf))
         .map_err(|_| SPDM_UNSPECIFIED)?;
+    let rsp = rsp_buf.get(..rsp_len).ok_or(SPDM_UNSPECIFIED)?;
 
     // ── Feed FINISH_RSP to TH ──────────────────────────────────────
-    session.transcript.append(pal, io, &rsp_buf)?;
+    session.transcript.append(pal, io, rsp)?;
 
     // ── Finalize TH → TH2 ─────────────────────────────────────────
     let mut th2 = [0u8; SHA384_HASH_SIZE];
@@ -123,5 +126,107 @@ pub(crate) fn handle_finish<Pal: SpdmPal>(
     // ── Derive data keys ───────────────────────────────────────────
     session.key_schedule.generate_data_keys(pal, io, &th2)?;
 
-    Ok(rsp_buf)
+    Ok((rsp_buf, rsp_len))
+}
+
+fn split_finish_request_payload(
+    version: SpdmVersion,
+    rest: &[u8],
+) -> SpdmResult<(&FinishReqBody, &[u8], usize)> {
+    let (finish_req, after_fixed) =
+        FinishReqBody::ref_from_prefix(rest).map_err(|_| SPDM_INVALID_REQUEST)?;
+
+    let after_opaque = if version >= SpdmVersion::V14 {
+        let (opaque_len_bytes, opaque_and_rest) = after_fixed
+            .split_first_chunk::<2>()
+            .ok_or(SPDM_INVALID_REQUEST)?;
+        let opaque_len = usize::from(u16::from_le_bytes(*opaque_len_bytes));
+        opaque_and_rest
+            .get(opaque_len..)
+            .ok_or(SPDM_INVALID_REQUEST)?
+    } else {
+        after_fixed
+    };
+
+    if after_opaque.len() != SHA384_HASH_SIZE {
+        return Err(SPDM_INVALID_REQUEST);
+    }
+
+    // `after_opaque` is a suffix of `rest`, so this cannot underflow.
+    let request_prefix_len = rest.len().saturating_sub(after_opaque.len());
+    Ok((finish_req, after_opaque, request_prefix_len))
+}
+#[cfg(test)]
+mod tests {
+    extern crate std;
+
+    use super::*;
+    use std::vec::Vec;
+    use zerocopy::IntoBytes;
+
+    fn finish_payload(version: SpdmVersion, opaque: &[u8]) -> Vec<u8> {
+        let mut payload = FinishReqBody {
+            req_signature_present: 0,
+            req_slot_id: 0,
+        }
+        .as_bytes()
+        .to_vec();
+        if version >= SpdmVersion::V14 {
+            payload.extend_from_slice(&(opaque.len() as u16).to_le_bytes());
+            payload.extend_from_slice(opaque);
+        }
+        payload.extend_from_slice(&[0xa5; SHA384_HASH_SIZE]);
+        payload
+    }
+
+    #[test]
+    fn v14_finish_request_skips_opaque_data_before_verify_data() {
+        let payload = finish_payload(SpdmVersion::V14, &[1, 2, 3]);
+        let (_, verify_data, prefix_len) =
+            split_finish_request_payload(SpdmVersion::V14, &payload).unwrap();
+
+        assert_eq!(prefix_len, core::mem::size_of::<FinishReqBody>() + 2 + 3);
+        assert_eq!(verify_data, &[0xa5; SHA384_HASH_SIZE]);
+    }
+
+    #[test]
+    fn pre_v14_finish_request_has_no_opaque_data() {
+        let payload = finish_payload(SpdmVersion::V13, &[]);
+        let (_, verify_data, prefix_len) =
+            split_finish_request_payload(SpdmVersion::V13, &payload).unwrap();
+
+        assert_eq!(prefix_len, core::mem::size_of::<FinishReqBody>());
+        assert_eq!(verify_data, &[0xa5; SHA384_HASH_SIZE]);
+    }
+
+    #[test]
+    fn v14_finish_request_rejects_truncated_opaque_data() {
+        let mut payload = finish_payload(SpdmVersion::V14, &[]);
+        payload[2..4].copy_from_slice(&1u16.to_le_bytes());
+
+        assert!(split_finish_request_payload(SpdmVersion::V14, &payload).is_err());
+    }
+
+    #[test]
+    fn v14_finish_response_encodes_empty_opaque_data() {
+        let rsp = FinishRsp {
+            include_opaque: true,
+        };
+        let mut encoded = [0u8; FINISH_RSP_MAX_SPDM_SIZE];
+        rsp.encode_with_header(SpdmVersion::V14, &mut WireWriter::new(&mut encoded))
+            .unwrap();
+
+        assert_eq!(rsp.encoded_size(), FINISH_RSP_MAX_SPDM_SIZE);
+        assert_eq!(
+            encoded,
+            [
+                SpdmVersion::V14.to_u8(),
+                spdm_codec::ReqRespCode::FINISH_RSP.0,
+                0,
+                0,
+                0,
+                0,
+            ]
+        );
+    }
 }

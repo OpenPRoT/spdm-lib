@@ -587,6 +587,15 @@ fn dispatch<'a, Pal: SpdmPal, Vdm: SpdmVdmBackend, const MAX_SESSIONS: usize>(
     code: ReqRespCode,
     vdm: &Vdm,
 ) -> SpdmResult<PalBytes<'a, Pal>> {
+    // GET_VERSION resets the connection, but malformed requests must not alter
+    // existing connection, session, or large-message state.
+    if code == ReqRespCode::GET_VERSION {
+        version::validate_get_version(io.request())?;
+        abort_chunk_reassembly_if_interrupted(state, pal, io, vdm, code);
+        state.reset_negotiation();
+        sessions.remove_all_and_destroy();
+        return version::handle_get_version(state, pal, io);
+    }
     abort_chunk_reassembly_if_interrupted(state, pal, io, vdm, code);
     if code != ReqRespCode::CHUNK_GET
         && code != ReqRespCode::CHUNK_SEND
@@ -595,11 +604,6 @@ fn dispatch<'a, Pal: SpdmPal, Vdm: SpdmVdmBackend, const MAX_SESSIONS: usize>(
         state.large_msg_ctx.reset();
     }
     match code {
-        ReqRespCode::GET_VERSION => {
-            state.reset_negotiation();
-            sessions.remove_all_and_destroy();
-            version::handle_get_version(state, pal, io)
-        }
         ReqRespCode::GET_CAPABILITIES => capabilities::handle_get_capabilities(state, pal, io),
         ReqRespCode::NEGOTIATE_ALGORITHMS => {
             algorithms::handle_negotiate_algorithms(state, pal, io)
@@ -806,7 +810,9 @@ fn handle_secured_inner<'a, Pal: SpdmPal, Vdm: SpdmVdmBackend, const MAX_SESSION
     let result = match spdm_hdr.code {
         ReqRespCode::FINISH => {
             let session = sessions.find_mut(session_id).ok_or(SPDM_UNSPECIFIED)?;
-            let finish_rsp = finish::handle_finish::<Pal>(version, session, pal, io, spdm_msg)?;
+            let (finish_rsp, finish_rsp_len) =
+                finish::handle_finish::<Pal>(version, session, pal, io, spdm_msg)?;
+            let finish_rsp = finish_rsp.get(..finish_rsp_len).ok_or(SPDM_UNSPECIFIED)?;
             let rsp = encrypt_secured_spdm_response(
                 pal,
                 io,
@@ -814,7 +820,7 @@ fn handle_secured_inner<'a, Pal: SpdmPal, Vdm: SpdmVdmBackend, const MAX_SESSION
                 session_id,
                 version,
                 response_key_type,
-                &finish_rsp,
+                finish_rsp,
             )?;
             session.key_schedule.destroy_handshake_secrets();
             session.state = SessionState::Established;
@@ -1121,6 +1127,10 @@ fn decode_header(req: &[u8]) -> (ReqRespCode, SpdmVersion) {
 #[cfg(test)]
 #[path = "tests/heartbeat_liveness.rs"]
 mod heartbeat_liveness_tests;
+
+#[cfg(test)]
+#[path = "tests/version.rs"]
+mod version_tests;
 
 #[cfg(all(test, feature = "set-certificate"))]
 #[path = "tests/stack_set_certificate.rs"]
