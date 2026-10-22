@@ -33,7 +33,9 @@ pub use algorithms::{
     MAX_ALG_STRUCT_ENTRIES,
 };
 pub use builder::{RequestBody, ResponseBody};
-pub use capabilities::{CapFlags, CapabilitiesBody, CapabilitiesRsp, GetCapabilitiesReq};
+pub use capabilities::{
+    CapFlags, CapabilitiesBody, CapabilitiesRsp, ExtCapFlags, GetCapabilitiesReq,
+};
 pub use certificate::{
     CertificateRsp, CertificateRspBody, GetCertificateReq, GetCertificateReqBody,
     ParsedCertificateRsp, ATTR_SLOT_SIZE_REQUESTED,
