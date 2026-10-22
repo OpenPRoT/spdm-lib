@@ -1136,6 +1136,10 @@ mod version_tests;
 #[path = "tests/capabilities.rs"]
 mod capabilities_tests;
 
+#[cfg(test)]
+#[path = "tests/certificate.rs"]
+mod certificate_tests;
+
 #[cfg(all(test, feature = "set-certificate"))]
 #[path = "tests/stack_set_certificate.rs"]
 mod tests;

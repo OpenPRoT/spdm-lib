@@ -1,3 +1,13 @@
+commit 40f14da7db309015b13067efeebf28cdb647b8c0
+Author: Amit Kumar-Hermosillo <amitkh@google.com>
+Date:   Mon Aug 31 18:12:20 2026 -0700
+
+    [spdm] update spdm-lib CERTIFICATE to support large offset/length (#2019)
+    
+    New parameters in the GET_CERTIFICATE/CERTIFICATE commands in SPDM 1.4
+    
+    (cherry picked from commit adc9ce872f9e52800ba4d0a2d8d862f737a80c67)
+
 commit 6e8f64eec785b25693568bcd4d36970b1876157f
 Author: Arthur Heymans <arthur@aheymans.xyz>
 Date:   Tue Aug 25 12:53:18 2026 +0200
