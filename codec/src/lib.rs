@@ -37,8 +37,9 @@ pub use capabilities::{
     CapFlags, CapabilitiesBody, CapabilitiesRsp, ExtCapFlags, GetCapabilitiesReq,
 };
 pub use certificate::{
-    CertificateRsp, CertificateRspBody, GetCertificateReq, GetCertificateReqBody,
-    ParsedCertificateRsp, ATTR_SLOT_SIZE_REQUESTED,
+    CertificateLargeRsp, CertificateLargeRspBody, CertificateRsp, CertificateRspBody,
+    GetCertificateLargeReqBody, GetCertificateParam1, GetCertificateReq, GetCertificateReqBody,
+    GetCertificateReqBuilder, ParsedCertificateRsp, ATTR_SLOT_SIZE_REQUESTED,
 };
 pub use challenge::{ChallengeAuthRsp, ChallengeReq, ChallengeReqBody, ParsedChallengeAuth};
 pub use chunk::{

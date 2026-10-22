@@ -12,10 +12,11 @@
 //! finalized hash matches the responder's.
 
 use spdm_codec::{
-    ChallengeReq, GetCertificateReq, GetDigestsReqBody, GetMeasurementsReq, ParsedCertificateRsp,
-    ParsedChallengeAuth, ParsedDigestsRsp, ParsedMeasurementsRsp, ReqRespCode, RequestBody,
-    SpdmMsgHdrPdu, SpdmVersion, WireWriter, ECC_P384_SIGNATURE_SIZE, MEAS_ATTR_SIGNATURE_REQUESTED,
-    MEAS_OP_ALL, REQUESTER_CONTEXT_LEN, SHA384_HASH_SIZE, SPDM_NONCE_LEN,
+    ChallengeReq, GetCertificateReqBuilder, GetDigestsReqBody, GetMeasurementsReq,
+    ParsedCertificateRsp, ParsedChallengeAuth, ParsedDigestsRsp, ParsedMeasurementsRsp,
+    ReqRespCode, RequestBody, SpdmMsgHdrPdu, SpdmVersion, WireWriter, ECC_P384_SIGNATURE_SIZE,
+    MEAS_ATTR_SIGNATURE_REQUESTED, MEAS_OP_ALL, REQUESTER_CONTEXT_LEN, SHA384_HASH_SIZE,
+    SPDM_NONCE_LEN,
 };
 use spdm_errors::{codes::INVARIANT, PalResult};
 use spdm_traits::SpdmPalHash;
@@ -75,7 +76,7 @@ impl<T: RequesterTransport, H: SpdmPalHash, V: PeerVerifier> SpdmRequester<T, H,
         let version = self.version;
 
         loop {
-            let req = GetCertificateReq {
+            let req = GetCertificateReqBuilder {
                 slot_id,
                 attributes: 0,
                 offset,
