@@ -1,3 +1,21 @@
+commit 5e63ab5e0fa2e942a0541662a6c814bbb208d1cb
+Author: Arthur Heymans <arthur@aheymans.xyz>
+Date:   Tue Aug 18 19:14:01 2026 +0200
+
+    spdm: add SPDM 1.4 CAPABILITIES support
+    
+    Decode the SPDM 1.4 extended capability flags and mask responder capabilities
+    according to the negotiated version. Ignore reserved requester values while
+    retaining validation for fields used by the responder.
+    
+    Accept Supported Algorithms requests when the requester advertises CHUNK and
+    commit negotiated state only after request validation succeeds. Add focused
+    SPDM 1.4 negotiation and version-masking tests.
+    
+    Refs #1788
+    
+    (cherry picked from commit 39ab395c5047351ad44901c0bf4ae09faae69bbe)
+
 commit 1e49fc7534070280822bc039ff55187cfdb472e4
 Author: Arthur Heymans <arthur@aheymans.xyz>
 Date:   Tue Jul 28 16:53:24 2026 +0200

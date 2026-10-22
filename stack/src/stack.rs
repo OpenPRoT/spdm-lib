@@ -1132,6 +1132,10 @@ mod heartbeat_liveness_tests;
 #[path = "tests/version.rs"]
 mod version_tests;
 
+#[cfg(test)]
+#[path = "tests/capabilities.rs"]
+mod capabilities_tests;
+
 #[cfg(all(test, feature = "set-certificate"))]
 #[path = "tests/stack_set_certificate.rs"]
 mod tests;
