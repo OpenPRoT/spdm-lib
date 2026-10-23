@@ -26,8 +26,8 @@ use zerocopy::FromBytes;
 use crate::build::{alloc_padded, build_error_response, encode_error_response};
 use crate::error::{
     SpdmError, SpdmResult, CALIPTRA_EXTENDED_ERROR_SIZE, SPDM_DECRYPT_ERROR, SPDM_INVALID_REQUEST,
-    SPDM_SESSION_REQUIRED, SPDM_UNEXPECTED_REQUEST, SPDM_UNSPECIFIED, SPDM_UNSUPPORTED_REQUEST,
-    SPDM_VERSION_MISMATCH,
+    SPDM_LARGE_RESPONSE, SPDM_RESPONSE_NOT_READY, SPDM_SESSION_REQUIRED, SPDM_UNEXPECTED_REQUEST,
+    SPDM_UNSPECIFIED, SPDM_UNSUPPORTED_REQUEST, SPDM_VERSION_MISMATCH,
 };
 use crate::key_schedule::SessionKeyType;
 use crate::session::{SessionInfo, SessionManager, SessionState};
@@ -620,6 +620,7 @@ fn dispatch<'a, Pal: SpdmPal, Vdm: SpdmVdmBackend, const MAX_SESSIONS: usize>(
         return version::handle_get_version(state, pal, io);
     }
     abort_chunk_reassembly_if_interrupted(state, pal, io, vdm, code);
+    reset_l1_unless_measurement(state, code);
     if code != ReqRespCode::CHUNK_GET
         && code != ReqRespCode::CHUNK_SEND
         && state.large_msg_ctx.response_in_progress()
@@ -651,8 +652,7 @@ fn dispatch<'a, Pal: SpdmPal, Vdm: SpdmVdmBackend, const MAX_SESSIONS: usize>(
         #[cfg(not(feature = "set-certificate"))]
         ReqRespCode::SET_CERTIFICATE => Err(SPDM_UNSUPPORTED_REQUEST.with_data(code.0)),
         ReqRespCode::GET_MEASUREMENTS => {
-            let (resp, _) =
-                measurements::handle_get_measurements_req(state, pal, io, io.request())?;
+            let (resp, _) = handle_get_measurements(state, pal, io, io.request(), None)?;
             Ok(resp)
         }
         ReqRespCode::VENDOR_DEFINED_REQUEST => {
@@ -673,6 +673,40 @@ fn dispatch<'a, Pal: SpdmPal, Vdm: SpdmVdmBackend, const MAX_SESSIONS: usize>(
         ReqRespCode(0) => Err(SPDM_INVALID_REQUEST),
         _ => Err(SPDM_UNSUPPORTED_REQUEST.with_data(code.0)),
     }
+}
+
+/// Re-initializes L1/L2 for any request other than GET_MEASUREMENTS.
+///
+/// DSP0274 1.4 §10.12.2: any communication other than GET_MEASUREMENTS /
+/// MEASUREMENTS resets the log. CHUNK_GET is exempt because it only retrieves
+/// the rest of a MEASUREMENTS response that ERROR(LargeResponse) deferred, and
+/// LargeResponse is defined not to reset L1/L2.
+fn reset_l1_unless_measurement<S, L>(state: &mut ConnectionState<S, L>, code: ReqRespCode) {
+    if code != ReqRespCode::GET_MEASUREMENTS && code != ReqRespCode::CHUNK_GET {
+        state.transcript.reset_l1();
+    }
+}
+
+/// Runs GET_MEASUREMENTS with the L1/L2 rules applied: the log is bound to
+/// `session_id` (`None` outside a session), and an error other than
+/// ResponseNotReady or LargeResponse re-initializes it (DSP0274 1.4 §10.12.2).
+fn handle_get_measurements<'a, Pal: SpdmPal>(
+    state: &mut ConnectionState<Pal::State, <Pal as SpdmPalAlloc>::LargeBuf>,
+    pal: &'a Pal,
+    io: &<Pal as SpdmPalIoTransport>::Io<'_>,
+    req: &[u8],
+    session_id: Option<u32>,
+) -> SpdmResult<(PalBytes<'a, Pal>, usize)> {
+    state.transcript.select_l1_session(session_id);
+    let result = measurements::handle_get_measurements_req(state, pal, io, req);
+    if let Err(e) = &result {
+        let keeps_l1 = e.spec_byte() == SPDM_RESPONSE_NOT_READY.spec_byte()
+            || e.spec_byte() == SPDM_LARGE_RESPONSE.spec_byte();
+        if !keeps_l1 {
+            state.transcript.reset_l1();
+        }
+    }
+    result
 }
 
 fn abort_chunk_reassembly_if_interrupted<Pal: SpdmPal, Vdm: SpdmVdmBackend>(
@@ -825,8 +859,16 @@ fn handle_secured_inner<'a, Pal: SpdmPal, Vdm: SpdmVdmBackend, const MAX_SESSION
     let (spdm_hdr, _) =
         SpdmMsgHdrPdu::ref_from_prefix(spdm_msg).map_err(|_| SPDM_INVALID_REQUEST)?;
     abort_chunk_reassembly_if_interrupted(state, pal, io, vdm, spdm_hdr.code);
+    reset_l1_unless_measurement(state, spdm_hdr.code);
     let session_state = sessions.find(session_id).ok_or(SPDM_UNSPECIFIED)?.state;
-    let response_key_type = validate_message_allowed_phase(spdm_hdr.code, session_state)?;
+    let response_key_type = match validate_message_allowed_phase(spdm_hdr.code, session_state) {
+        Ok(key_type) => key_type,
+        Err(e) => {
+            // An ERROR response re-initializes L1/L2 (DSP0274 1.4 §10.12.2).
+            state.transcript.reset_l1();
+            return Err(e);
+        }
+    };
 
     // After decoding secure inner SPDM code, ensure stale large-message reassembly/response state is cleared.
     let code = spdm_hdr.code;
@@ -896,7 +938,7 @@ fn handle_secured_inner<'a, Pal: SpdmPal, Vdm: SpdmVdmBackend, const MAX_SESSION
             certificate::handle_get_certificate(state, pal, io, spdm_msg)?
         }
         ReqRespCode::GET_MEASUREMENTS => {
-            measurements::handle_get_measurements_req(state, pal, io, spdm_msg)?
+            handle_get_measurements(state, pal, io, spdm_msg, Some(session_id))?
         }
         ReqRespCode::VENDOR_DEFINED_REQUEST => {
             vendor_defined::handle_vendor_defined_request(vdm, state, pal, io, spdm_msg, true)?
@@ -1097,3 +1139,7 @@ mod tests;
 #[cfg(test)]
 #[path = "tests/vendor_defined.rs"]
 mod vendor_defined_tests;
+
+#[cfg(test)]
+#[path = "tests/measurements_l1.rs"]
+mod measurements_l1_tests;
