@@ -16,7 +16,7 @@ use spdm_codec::{
     WireWriter,
 };
 use spdm_traits::{
-    PalBytes, SpdmPal, SpdmPalAlloc, SpdmPalAsymAlgo, SpdmPalIo, SpdmPalIoTransport, MAX_SLOTS,
+    PalBytes, SpdmPal, SpdmPalAlloc, SpdmPalAsymAlgo, SpdmPalIoTransport, MAX_SLOTS,
 };
 use zerocopy::{little_endian::U16, FromBytes};
 
@@ -211,15 +211,6 @@ impl CertificateLargeResponse {
 }
 
 pub(crate) fn handle_get_certificate<'a, Pal: SpdmPal>(
-    state: &mut ConnectionState<Pal::State, <Pal as SpdmPalAlloc>::LargeBuf>,
-    pal: &'a Pal,
-    io: &<Pal as SpdmPalIoTransport>::Io<'_>,
-) -> SpdmResult<PalBytes<'a, Pal>> {
-    let (resp, _) = handle_get_certificate_req(state, pal, io, io.request())?;
-    Ok(resp)
-}
-
-pub(crate) fn handle_get_certificate_req<'a, Pal: SpdmPal>(
     state: &mut ConnectionState<Pal::State, <Pal as SpdmPalAlloc>::LargeBuf>,
     pal: &'a Pal,
     io: &<Pal as SpdmPalIoTransport>::Io<'_>,
