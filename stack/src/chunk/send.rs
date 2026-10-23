@@ -3,8 +3,9 @@
 //! CHUNK_SEND large-request reassembly.
 
 use spdm_codec::{
-    CapabilitiesBody, ChunkSendAckBody, ChunkSendReqBody, ReqRespCode, SpdmMsgHdrPdu, SpdmVersion,
-    VendorDefinedReqPdu, WireWriter, CHUNK_ACK_ATTR_EARLY_ERROR, CHUNK_ATTR_LAST_CHUNK,
+    CapFlags, CapabilitiesBody, ChunkSendAckBody, ChunkSendReqBody, ReqRespCode, SpdmMsgHdrPdu,
+    SpdmVersion, VendorDefinedReqPdu, WireWriter, CHUNK_ACK_ATTR_EARLY_ERROR,
+    CHUNK_ATTR_LAST_CHUNK,
 };
 use spdm_traits::{
     PalBytes, SpdmPal, SpdmPalAlloc, SpdmPalIoTransport, SpdmVdmBackend, VdmRegistry, VdmResponse,
@@ -17,7 +18,7 @@ use super::ActiveLargeRequest;
 use super::StreamPrefixState;
 #[cfg(any(test, feature = "generic-large-request"))]
 use super::WipeOnDrop;
-use crate::build::alloc_padded;
+use crate::build::{alloc_padded, encode_error_response};
 use crate::error::*;
 #[cfg(feature = "set-certificate")]
 use crate::set_certificate;
@@ -82,9 +83,17 @@ pub(crate) fn handle_chunk_send<'a, Pal: SpdmPal, Vdm: SpdmVdmBackend>(
         }) => {
             abort_active_streaming_request(state, pal, io, vdm);
             let mut error = [0u8; 4];
-            encode_error_pdu(state.version, SPDM_INVALID_REQUEST, &mut error);
+            let error_len = encode_error_response(&mut error, state.version, SPDM_INVALID_REQUEST)?;
             state.reset_chunk_assembly();
-            build_chunk_send_ack(pal, io, state.version, true, handle, chunk_seq_num, &error)
+            build_chunk_send_ack(
+                pal,
+                io,
+                state.version,
+                true,
+                handle,
+                chunk_seq_num,
+                error.get(..error_len).ok_or(SPDM_UNSPECIFIED)?,
+            )
         }
     }
 }
@@ -149,8 +158,8 @@ fn process_chunk_send<Pal: SpdmPal, Vdm: SpdmVdmBackend>(
         return Err(ChunkProcessError::Spdm(SPDM_UNEXPECTED_REQUEST));
     }
 
-    // Ensure the incoming request message fits our standard effective bounds, not raw MTU.
-    if req.len() > state.effective_data_transfer_size(pal) {
+    // Incoming chunks use our DataTransferSize; the peer's limit is outbound.
+    if req.len() > pal.mtu() {
         return Err(ChunkProcessError::Spdm(SPDM_INVALID_REQUEST));
     }
 
@@ -251,12 +260,14 @@ fn process_first_chunk<Pal: SpdmPal, Vdm: SpdmVdmBackend>(
         - ChunkSendReqBody::SIZE
         - 4;
 
+    // CHUNK_SEND is valid only above our single-frame limit and within our
+    // endpoint-wide logical request limit.
     let invalid = chunk_seq_num != 0
         || last_chunk
         || chunk_size < min_chunk_size
         || chunk_size >= large_msg_size
-        || large_msg_size <= CapabilitiesBody::MIN_DATA_TRANSFER_SIZE as usize
-        || large_msg_size > pal.large_capacity();
+        || large_msg_size <= pal.mtu()
+        || large_msg_size > pal.max_inbound_spdm_request_size();
     if invalid {
         return Err(ChunkProcessError::Early {
             handle,
@@ -321,6 +332,13 @@ fn process_first_chunk<Pal: SpdmPal, Vdm: SpdmVdmBackend>(
     }
     #[cfg(any(test, feature = "generic-large-request"))]
     {
+        // Only non-streamed requests consume the persistent scratch buffer.
+        if large_msg_size > pal.large_buffered_msg_capacity() {
+            return Err(ChunkProcessError::Early {
+                handle,
+                chunk_seq_num,
+            });
+        }
         let rent_buf = match pal.alloc_large_buf(large_msg_size) {
             Ok(buf) => buf,
             Err(_) => {
@@ -628,22 +646,52 @@ fn try_start_streaming_request<Pal: SpdmPal, Vdm: SpdmVdmBackend>(
         ReqRespCode::VENDOR_DEFINED_REQUEST => {
             let (vdm_hdr, rest) =
                 VendorDefinedReqPdu::ref_from_prefix(body).map_err(|_| SPDM_INVALID_REQUEST)?;
+            let is_large = vdm_hdr.param1.large();
+            if is_large
+                && (state.version < SpdmVersion::V14
+                    || !state.advertised_cap_flags.contains(CapFlags::LARGE_RESP)
+                    || !state.peer_cap_flags.contains(CapFlags::LARGE_RESP))
+            {
+                return Err(SPDM_INVALID_REQUEST);
+            }
+            if vdm_hdr.param1.reserved() != 0 || vdm_hdr.param2 != 0 {
+                return Err(SPDM_INVALID_REQUEST);
+            }
             let vendor_id_len = vdm_hdr.vendor_id_len as usize;
             if vendor_id_len > 4 {
                 return Ok(false);
             }
             let vendor_id = rest.get(..vendor_id_len).ok_or(SPDM_INVALID_REQUEST)?;
             let req_len_offset = vendor_id_len;
-            let req_len_bytes = rest
-                .get(req_len_offset..req_len_offset + 2)
-                .ok_or(SPDM_INVALID_REQUEST)?;
-            let req_len = u16::from_le_bytes([req_len_bytes[0], req_len_bytes[1]]) as usize;
-            let payload_start = req_len_offset + 2;
+            let (req_len, payload_start) = if is_large {
+                let rsvd_bytes = rest
+                    .get(req_len_offset..req_len_offset + 2)
+                    .ok_or(SPDM_INVALID_REQUEST)?;
+                if u16::from_le_bytes([rsvd_bytes[0], rsvd_bytes[1]]) != 0 {
+                    return Err(SPDM_INVALID_REQUEST);
+                }
+                let req_len_bytes = rest
+                    .get(req_len_offset + 2..req_len_offset + 6)
+                    .ok_or(SPDM_INVALID_REQUEST)?;
+                let req_len = u32::from_le_bytes([
+                    req_len_bytes[0],
+                    req_len_bytes[1],
+                    req_len_bytes[2],
+                    req_len_bytes[3],
+                ]) as usize;
+                (req_len, req_len_offset + 6)
+            } else {
+                let req_len_bytes = rest
+                    .get(req_len_offset..req_len_offset + 2)
+                    .ok_or(SPDM_INVALID_REQUEST)?;
+                let req_len = u16::from_le_bytes([req_len_bytes[0], req_len_bytes[1]]) as usize;
+                (req_len, req_len_offset + 2)
+            };
             let payload = rest.get(payload_start..).ok_or(SPDM_INVALID_REQUEST)?;
             let expected = SpdmMsgHdrPdu::SIZE
                 .checked_add(VendorDefinedReqPdu::SIZE)
                 .and_then(|n| n.checked_add(vendor_id_len))
-                .and_then(|n| n.checked_add(2))
+                .and_then(|n| n.checked_add(if is_large { 6 } else { 2 }))
                 .and_then(|n| n.checked_add(req_len))
                 .ok_or(SPDM_INVALID_REQUEST)?;
             if expected != large_msg_size || payload.len() > req_len {
@@ -673,6 +721,7 @@ fn try_start_streaming_request<Pal: SpdmPal, Vdm: SpdmVdmBackend>(
                     standard_id: vdm_hdr.standard_id.get(),
                     vendor_id: vendor_id_buf,
                     vendor_id_len: vendor_id_len as u8,
+                    is_large,
                 },
                 session_id,
             )?;
@@ -707,7 +756,26 @@ fn build_final_chunk_send_ack<'a, Pal: SpdmPal, Vdm: SpdmVdmBackend>(
     chunk_seq_num: u16,
 ) -> SpdmResult<PalBytes<'a, Pal>> {
     let len = state.large_msg_ctx.state.large_msg_size as usize;
-    let mut response_to_large_request = [0u8; LARGE_REQUEST_RESPONSE_BUF_SIZE];
+    let mut response_to_large_request =
+        match SpdmPalAlloc::alloc(pal, io, [0u8; LARGE_REQUEST_RESPONSE_BUF_SIZE]) {
+            Ok(response) => response,
+            Err(_) => {
+                abort_active_streaming_request(state, pal, io, vdm);
+                state.reset_chunk_assembly();
+                let mut error = [0u8; 4];
+                let error_len = encode_error_response(&mut error, state.version, SPDM_UNSPECIFIED)?;
+                return build_chunk_send_ack(
+                    pal,
+                    io,
+                    state.version,
+                    false,
+                    handle,
+                    chunk_seq_num,
+                    error.get(..error_len).ok_or(SPDM_UNSPECIFIED)?,
+                )
+                .map_err(|_| SPDM_UNSPECIFIED);
+            }
+        };
     let active = state.large_msg_ctx.active_request().copied();
     let (mut response_len, early_error) = match active {
         // Streamed SET_CERTIFICATE: the chain is already in the cert store, so
@@ -728,11 +796,11 @@ fn build_final_chunk_send_ack<'a, Pal: SpdmPal, Vdm: SpdmVdmBackend>(
                 Err(spdm) => {
                     set_certificate::abort_set_certificate_stream(state, pal, io, &stream);
                     (
-                        write_error_response_to_large_request(
-                            &mut response_to_large_request,
+                        encode_error_response(
+                            &mut response_to_large_request[..],
                             state.version,
                             spdm,
-                        ),
+                        )?,
                         false,
                     )
                 }
@@ -742,16 +810,18 @@ fn build_final_chunk_send_ack<'a, Pal: SpdmPal, Vdm: SpdmVdmBackend>(
             standard_id,
             vendor_id,
             vendor_id_len,
+            is_large,
         }) => {
             let vendor_id = vendor_id.get(..vendor_id_len as usize).unwrap_or(&[]);
-            let envelope_len = SpdmMsgHdrPdu::SIZE + 2 + 2 + 1 + vendor_id.len() + 2;
+            let envelope_len =
+                SpdmMsgHdrPdu::SIZE + (if is_large { 11 } else { 7 }) + vendor_id.len();
             if envelope_len > response_to_large_request.len() {
                 (
-                    write_error_response_to_large_request(
-                        &mut response_to_large_request,
+                    encode_error_response(
+                        &mut response_to_large_request[..],
                         state.version,
                         SPDM_UNSPECIFIED,
-                    ),
+                    )?,
                     false,
                 )
             } else {
@@ -773,16 +843,17 @@ fn build_final_chunk_send_ack<'a, Pal: SpdmPal, Vdm: SpdmVdmBackend>(
                                 standard_id,
                                 vendor_id,
                                 payload_len,
+                                is_large,
                                 &mut response_to_large_request[..envelope_len],
                             )
                             .is_err();
                         if invalid_response {
                             (
-                                write_error_response_to_large_request(
-                                    &mut response_to_large_request,
+                                encode_error_response(
+                                    &mut response_to_large_request[..],
                                     state.version,
                                     SPDM_UNSPECIFIED,
-                                ),
+                                )?,
                                 false,
                             )
                         } else {
@@ -790,22 +861,22 @@ fn build_final_chunk_send_ack<'a, Pal: SpdmPal, Vdm: SpdmVdmBackend>(
                         }
                     }
                     _ => (
-                        write_error_response_to_large_request(
-                            &mut response_to_large_request,
+                        encode_error_response(
+                            &mut response_to_large_request[..],
                             state.version,
                             SPDM_UNSPECIFIED,
-                        ),
+                        )?,
                         false,
                     ),
                 }
             }
         }
         _ if len < SpdmMsgHdrPdu::SIZE => (
-            write_error_response_to_large_request(
-                &mut response_to_large_request,
+            encode_error_response(
+                &mut response_to_large_request[..],
                 state.version,
                 SPDM_INVALID_REQUEST,
-            ),
+            )?,
             false,
         ),
         #[cfg(any(test, feature = "generic-large-request"))]
@@ -816,25 +887,21 @@ fn build_final_chunk_send_ack<'a, Pal: SpdmPal, Vdm: SpdmVdmBackend>(
             vdm,
             len,
             state.large_msg_ctx.state.session_id.is_some(),
-            &mut response_to_large_request,
+            &mut response_to_large_request[..],
         ) {
             Ok(response_len) => (response_len, false),
             Err(err) => (
-                write_error_response_to_large_request(
-                    &mut response_to_large_request,
-                    state.version,
-                    err.spdm,
-                ),
+                encode_error_response(&mut response_to_large_request[..], state.version, err.spdm)?,
                 err.early_error,
             ),
         },
         #[cfg(not(any(test, feature = "generic-large-request")))]
         _ => (
-            write_error_response_to_large_request(
-                &mut response_to_large_request,
+            encode_error_response(
+                &mut response_to_large_request[..],
                 state.version,
                 SPDM_UNSUPPORTED_REQUEST,
-            ),
+            )?,
             false,
         ),
     };
@@ -843,11 +910,11 @@ fn build_final_chunk_send_ack<'a, Pal: SpdmPal, Vdm: SpdmVdmBackend>(
         .effective_data_transfer_size(pal)
         .saturating_sub(SpdmMsgHdrPdu::SIZE + ChunkSendAckBody::SIZE);
     if response_len > max_response_len {
-        response_len = write_error_response_to_large_request(
-            &mut response_to_large_request,
+        response_len = encode_error_response(
+            &mut response_to_large_request[..],
             state.version,
             SPDM_LARGE_RESPONSE,
-        );
+        )?;
     }
 
     build_chunk_send_ack(
@@ -917,34 +984,6 @@ fn dispatch_large_request<Pal: SpdmPal, Vdm: SpdmVdmBackend>(
         .map_err(Into::into),
         _ => Err(SPDM_UNSUPPORTED_REQUEST.into()),
     }
-}
-
-fn write_error_response_to_large_request(
-    out: &mut [u8],
-    version: SpdmVersion,
-    err: SpdmError,
-) -> usize {
-    let bytes = encode_error_response_to_large_request(version, err);
-    let len = bytes.len();
-    if let Some(dst) = out.get_mut(..len) {
-        dst.copy_from_slice(&bytes);
-        len
-    } else {
-        0
-    }
-}
-
-fn encode_error_response_to_large_request(version: SpdmVersion, err: SpdmError) -> [u8; 4] {
-    let mut out = [0u8; 4];
-    encode_error_pdu(version, err, &mut out);
-    out
-}
-
-fn encode_error_pdu(version: SpdmVersion, err: SpdmError, out: &mut [u8; 4]) {
-    out[0] = version.to_u8();
-    out[1] = ReqRespCode::ERROR.0;
-    out[2] = err.spec_byte();
-    out[3] = err.error_data();
 }
 
 #[cfg(test)]
@@ -1078,7 +1117,10 @@ mod tests {
 
     #[test]
     fn chunked_vendor_defined_stream_preserves_request_payload() {
-        let pal = TestPal::default();
+        let pal = TestPal {
+            mtu: 96,
+            ..TestPal::default()
+        };
         let mut state = chunking_state();
         let vdm = CaptureVdmBackend::new();
 
@@ -1204,8 +1246,156 @@ mod tests {
     }
 
     #[test]
+    fn final_response_allocation_failure_returns_ack_and_resets_request() {
+        let pal = TestPal {
+            mtu: 96,
+            typed_alloc_error: Some(spdm_errors::codes::OUT_OF_MEMORY),
+            ..TestPal::default()
+        };
+        let mut state = chunking_state();
+        let vdm = CaptureVdmBackend::new();
+        let large_req = vendor_defined_stream_request(&[0x5a; 96]);
+        let (first, second) = large_req.split_at(64);
+        let first_chunk = chunk_send_request(14, 0, false, Some(large_req.len()), first);
+        let second_chunk = chunk_send_request(14, 1, true, None, second);
+
+        let first_io = TestIo::message(first_chunk.clone());
+        handle_chunk_send(&mut state, &pal, &first_io, &vdm, &first_chunk, None, true).unwrap();
+        assert!(state.large_msg_ctx.request_in_progress());
+
+        let second_io = TestIo::message(second_chunk.clone());
+        let rsp = handle_chunk_send(
+            &mut state,
+            &pal,
+            &second_io,
+            &vdm,
+            &second_chunk,
+            None,
+            true,
+        )
+        .unwrap();
+
+        assert!(!state.large_msg_ctx.request_in_progress());
+        assert_eq!(
+            &rsp[..],
+            &[
+                SpdmVersion::V12.to_u8(),
+                ReqRespCode::CHUNK_SEND_ACK.0,
+                0,
+                14,
+                1,
+                0,
+                SpdmVersion::V12.to_u8(),
+                ReqRespCode::ERROR.0,
+                SPDM_UNSPECIFIED.spec_byte(),
+                0,
+            ]
+        );
+    }
+
+    #[test]
+    fn incoming_chunk_uses_local_data_transfer_size() {
+        let pal = TestPal {
+            mtu: 96,
+            max_inbound_spdm_request_size: 256,
+            ..TestPal::default()
+        };
+        let mut state = chunking_state();
+        state.peer_data_transfer_size = CapabilitiesBody::MIN_DATA_TRANSFER_SIZE;
+        let vdm = CaptureVdmBackend::new();
+
+        let host_mailbox_payload = vec![0x5au8; 4 + 96];
+        let large_req = vendor_defined_stream_request(&host_mailbox_payload);
+        assert!(large_req.len() > pal.mtu());
+
+        let first_chunk = chunk_send_request(10, 0, false, Some(large_req.len()), &large_req[..64]);
+        assert!(first_chunk.len() > state.peer_data_transfer_size as usize);
+        assert!(first_chunk.len() <= pal.mtu());
+
+        let first_io = TestIo::message(first_chunk.clone());
+        let rsp =
+            handle_chunk_send(&mut state, &pal, &first_io, &vdm, &first_chunk, None, true).unwrap();
+
+        assert_eq!(rsp[1], ReqRespCode::CHUNK_SEND_ACK.0);
+        assert_eq!(rsp[2] & CHUNK_ACK_ATTR_EARLY_ERROR, 0);
+        assert!(state.large_msg_ctx.request_in_progress());
+    }
+
+    #[test]
+    fn incoming_chunk_rejects_frame_over_local_data_transfer_size() {
+        let pal = TestPal {
+            mtu: 79,
+            max_inbound_spdm_request_size: 256,
+            ..TestPal::default()
+        };
+        let mut state = chunking_state();
+        let vdm = CaptureVdmBackend::new();
+        let host_mailbox_payload = vec![0x5au8; 4 + 96];
+        let large_req = vendor_defined_stream_request(&host_mailbox_payload);
+        let first_chunk = chunk_send_request(11, 0, false, Some(large_req.len()), &large_req[..64]);
+        assert!(first_chunk.len() > pal.mtu());
+
+        let first_io = TestIo::message(first_chunk.clone());
+        let err = handle_chunk_send(&mut state, &pal, &first_io, &vdm, &first_chunk, None, true)
+            .unwrap_err();
+
+        assert_eq!(err, SPDM_INVALID_REQUEST);
+        assert!(!state.large_msg_ctx.request_in_progress());
+    }
+
+    #[test]
+    fn incoming_chunk_rejects_non_large_logical_message() {
+        let pal = TestPal {
+            mtu: 128,
+            max_inbound_spdm_request_size: 256,
+            ..TestPal::default()
+        };
+        let mut state = chunking_state();
+        let vdm = CaptureVdmBackend::new();
+        let host_mailbox_payload = vec![0x5au8; 4 + 96];
+        let large_req = vendor_defined_stream_request(&host_mailbox_payload);
+        assert!(large_req.len() <= pal.mtu());
+        let first_chunk = chunk_send_request(12, 0, false, Some(large_req.len()), &large_req[..64]);
+
+        let first_io = TestIo::message(first_chunk.clone());
+        let rsp =
+            handle_chunk_send(&mut state, &pal, &first_io, &vdm, &first_chunk, None, true).unwrap();
+
+        assert_eq!(rsp[1], ReqRespCode::CHUNK_SEND_ACK.0);
+        assert_ne!(rsp[2] & CHUNK_ACK_ATTR_EARLY_ERROR, 0);
+        assert!(!state.large_msg_ctx.request_in_progress());
+    }
+
+    #[test]
+    fn incoming_chunk_rejects_logical_message_over_receive_limit() {
+        let pal = TestPal {
+            mtu: 96,
+            max_inbound_spdm_request_size: 100,
+            ..TestPal::default()
+        };
+        let mut state = chunking_state();
+        let vdm = CaptureVdmBackend::new();
+        let host_mailbox_payload = vec![0x5au8; 4 + 96];
+        let large_req = vendor_defined_stream_request(&host_mailbox_payload);
+        assert!(large_req.len() > pal.max_inbound_spdm_request_size());
+        let first_chunk = chunk_send_request(13, 0, false, Some(large_req.len()), &large_req[..64]);
+
+        let first_io = TestIo::message(first_chunk.clone());
+        let rsp =
+            handle_chunk_send(&mut state, &pal, &first_io, &vdm, &first_chunk, None, true).unwrap();
+
+        assert_eq!(rsp[1], ReqRespCode::CHUNK_SEND_ACK.0);
+        assert_ne!(rsp[2] & CHUNK_ACK_ATTR_EARLY_ERROR, 0);
+        assert!(!state.large_msg_ctx.request_in_progress());
+    }
+
+    #[test]
     fn chunked_vendor_defined_falls_back_when_streaming_declines() {
-        let pal = TestPal::default();
+        let pal = TestPal {
+            mtu: 96,
+            large_buffered_msg_capacity: 256,
+            ..TestPal::default()
+        };
         let mut state = chunking_state();
         let vdm = BufferedOnlyVdmBackend::new();
 
