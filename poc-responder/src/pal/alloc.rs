@@ -132,7 +132,7 @@ impl SpdmPalAlloc for HostPal {
         Ok(vec![0u8; len])
     }
 
-    fn large_capacity(&self) -> usize {
+    fn large_buffered_msg_capacity(&self) -> usize {
         LARGE_CAPACITY
     }
 

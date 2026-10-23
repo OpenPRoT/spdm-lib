@@ -65,10 +65,12 @@ pub trait SpdmPalAlloc: spdm_crypto::ApiAlloc {
     // then parked on `ConnectionState::large_buf` so it can survive across later
     // exchanges until chunking completes.
 
-    /// Maximum size, in bytes, of a single in-flight large SPDM message this
-    /// responder can hold. Drives the `CHUNK` capability advertisement
-    /// (`MaxSPDMmsgSize`) and buffered large-response/request validation.
-    fn large_capacity(&self) -> usize;
+    /// Scratch-backed capacity for retaining one complete large request or
+    /// response.
+    ///
+    /// This is not advertised as `MaxSPDMmsgSize`; streamed messages may exceed
+    /// it.
+    fn large_buffered_msg_capacity(&self) -> usize;
 
     /// RAII guard type returned by [`Self::alloc_large_buf`].
     type LargeBuf: DerefMut<Target = [u8]>;
