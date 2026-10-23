@@ -72,37 +72,62 @@ impl<S> Transcript<S> {
         self.l1 = None;
     }
 
-    pub fn append_vca<H>(&mut self, hash: &H, io: &impl SpdmPalIo, bytes: &[u8]) -> PalResult<()>
+    pub fn append_vca<'a, H>(
+        &'a mut self,
+        hash: &'a H,
+        io: &'a impl SpdmPalIo,
+        bytes: &'a [u8],
+    ) -> PalResult<()>
     where
-        H: SpdmPalHash<State = S>,
+        H: SpdmPalHash<State = S> + 'a,
     {
         self.append(Slot::Vca, hash, io, bytes)
     }
 
-    pub fn append_m1<H>(&mut self, hash: &H, io: &impl SpdmPalIo, bytes: &[u8]) -> PalResult<()>
+    pub fn append_m1<'a, H>(
+        &'a mut self,
+        hash: &'a H,
+        io: &'a impl SpdmPalIo,
+        bytes: &'a [u8],
+    ) -> PalResult<()>
     where
-        H: SpdmPalHash<State = S>,
+        H: SpdmPalHash<State = S> + 'a,
     {
         self.append(Slot::M1, hash, io, bytes)
     }
 
-    pub fn append_l1<H>(&mut self, hash: &H, io: &impl SpdmPalIo, bytes: &[u8]) -> PalResult<()>
+    pub fn append_l1<'a, H>(
+        &'a mut self,
+        hash: &'a H,
+        io: &'a impl SpdmPalIo,
+        bytes: &'a [u8],
+    ) -> PalResult<()>
     where
-        H: SpdmPalHash<State = S>,
+        H: SpdmPalHash<State = S> + 'a,
     {
         self.append(Slot::L1, hash, io, bytes)
     }
 
-    pub fn finalize_m1<H>(&mut self, hash: &H, io: &impl SpdmPalIo, out: &mut [u8]) -> PalResult<()>
+    pub fn finalize_m1<'a, H>(
+        &'a mut self,
+        hash: &'a H,
+        io: &'a impl SpdmPalIo,
+        out: &'a mut [u8],
+    ) -> PalResult<()>
     where
-        H: SpdmPalHash<State = S>,
+        H: SpdmPalHash<State = S> + 'a,
     {
         self.finalize(Slot::M1, hash, io, out)
     }
 
-    pub fn finalize_l1<H>(&mut self, hash: &H, io: &impl SpdmPalIo, out: &mut [u8]) -> PalResult<()>
+    pub fn finalize_l1<'a, H>(
+        &'a mut self,
+        hash: &'a H,
+        io: &'a impl SpdmPalIo,
+        out: &'a mut [u8],
+    ) -> PalResult<()>
     where
-        H: SpdmPalHash<State = S>,
+        H: SpdmPalHash<State = S> + 'a,
     {
         self.finalize(Slot::L1, hash, io, out)
     }

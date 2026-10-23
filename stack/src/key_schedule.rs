@@ -25,6 +25,10 @@ use spdm_traits::{PalResult, SpdmPalAlloc, SpdmPalIo, SpdmPalSessionCrypto};
 /// SHA-384 digest size in bytes.
 pub const SHA384_HASH_SIZE: usize = 48;
 
+/// All-zero input reused as `Salt_0` for Handshake-Secret extraction and
+/// `zero_filled` for Master-Secret extraction.
+static ZERO_HASH: [u8; SHA384_HASH_SIZE] = [0; SHA384_HASH_SIZE];
+
 /// Maximum length of the HKDF info field built by [`bin_concat`].
 const MAX_BIN_STR_LABEL_LEN: usize = 12;
 const MAX_BIN_STR_LEN: usize = 2 + 8 + MAX_BIN_STR_LABEL_LEN + SHA384_HASH_SIZE;
@@ -141,9 +145,7 @@ impl<K: Clone> KeySchedule<K> {
             .dhe_secret
             .take()
             .ok_or(spdm_errors::codes::INVARIANT)?;
-        let mut salt_0 = pal.alloc_bytes(io, SHA384_HASH_SIZE)?;
-        salt_0.fill(0);
-        let hs = pal.hkdf_extract_bytes(io, &salt_0, &dhe)?;
+        let hs = pal.hkdf_extract_bytes(io, &ZERO_HASH, &dhe)?;
         self.master_ctx.handshake_secret = Some(hs);
 
         let hs_ref = self
@@ -224,9 +226,7 @@ impl<K: Clone> KeySchedule<K> {
         let salt_1 = hkdf_expand_bin_str(pal, io, self.version_str, hs_ref, BinStr::Str0, None)?;
 
         // Master-Secret = HKDF-Extract(Salt_1, zero_filled)
-        let mut zero_filled = pal.alloc_bytes(io, SHA384_HASH_SIZE)?;
-        zero_filled.fill(0);
-        let zero_cmk = pal.import_key(io, &zero_filled)?;
+        let zero_cmk = pal.import_key(io, &ZERO_HASH)?;
         self.master_ctx.master_secret = Some(pal.hkdf_extract_key(io, &salt_1, &zero_cmk)?);
 
         let ms_ref = self
@@ -261,16 +261,16 @@ impl<K: Clone> KeySchedule<K> {
     // ── Crypto operations ───────────────────────────────────────────
 
     /// Compute HMAC with the specified finished key.
-    pub fn hmac_finished<P: SpdmPalSessionCrypto<Key = K>>(
-        &self,
-        pal: &P,
-        io: &impl SpdmPalIo,
+    pub fn hmac_finished<'a, P: SpdmPalSessionCrypto<Key = K>>(
+        &'a self,
+        pal: &'a P,
+        io: &'a impl SpdmPalIo,
         key_type: SessionKeyType,
-        data: &[u8],
-        out: &mut [u8],
-    ) -> PalResult<usize> {
+        data: &'a [u8],
+        out: &'a mut [u8],
+    ) -> PalResult<PalResult<usize>> {
         let key = self.finished_key(key_type)?;
-        pal.hmac(io, key, data, out)
+        Ok(pal.hmac(io, key, data, out))
     }
 
     /// Encrypt with the appropriate session key.
@@ -286,8 +286,9 @@ impl<K: Clone> KeySchedule<K> {
         ciphertext: &mut [u8],
     ) -> PalResult<(usize, [u8; 16])> {
         let (key, seq) = self.aead_key_and_seq(key_type)?;
-        let result = pal.aead_encrypt(io, key, spdm_version, seq, aad, plaintext, ciphertext)?;
-        self.increment_seq(key_type);
+        let result = pal.aead_encrypt(io, key, spdm_version, *seq, aad, plaintext, ciphertext)?;
+        // Increment the seq number after successful encryption.
+        *seq += 1;
         Ok(result)
     }
 
@@ -306,8 +307,9 @@ impl<K: Clone> KeySchedule<K> {
     ) -> PalResult<usize> {
         let (key, seq) = self.aead_key_and_seq(key_type)?;
         let result =
-            pal.aead_decrypt(io, key, spdm_version, seq, aad, ciphertext, tag, plaintext)?;
-        self.increment_seq(key_type);
+            pal.aead_decrypt(io, key, spdm_version, *seq, aad, ciphertext, tag, plaintext)?;
+        // Increment the seq number after successful authentication and decryption.
+        *seq += 1;
         Ok(result)
     }
 
@@ -350,47 +352,37 @@ impl<K: Clone> KeySchedule<K> {
         }
     }
 
-    fn aead_key_and_seq(&self, key_type: SessionKeyType) -> PalResult<(&K, u64)> {
+    fn aead_key_and_seq(&mut self, key_type: SessionKeyType) -> PalResult<(&K, &mut u64)> {
         match key_type {
             SessionKeyType::RequestHandshakeKey => Ok((
                 self.handshake_ctx
                     .request_handshake_secret
                     .as_ref()
                     .ok_or(spdm_errors::codes::INVARIANT)?,
-                self.handshake_ctx.request_seq,
+                &mut self.handshake_ctx.request_seq,
             )),
             SessionKeyType::ResponseHandshakeKey => Ok((
                 self.handshake_ctx
                     .response_handshake_secret
                     .as_ref()
                     .ok_or(spdm_errors::codes::INVARIANT)?,
-                self.handshake_ctx.response_seq,
+                &mut self.handshake_ctx.response_seq,
             )),
             SessionKeyType::RequestDataKey => Ok((
                 self.data_ctx
                     .request_data_secret
                     .as_ref()
                     .ok_or(spdm_errors::codes::INVARIANT)?,
-                self.data_ctx.request_seq,
+                &mut self.data_ctx.request_seq,
             )),
             SessionKeyType::ResponseDataKey => Ok((
                 self.data_ctx
                     .response_data_secret
                     .as_ref()
                     .ok_or(spdm_errors::codes::INVARIANT)?,
-                self.data_ctx.response_seq,
+                &mut self.data_ctx.response_seq,
             )),
             _ => Err(spdm_errors::codes::INVARIANT),
-        }
-    }
-
-    fn increment_seq(&mut self, key_type: SessionKeyType) {
-        match key_type {
-            SessionKeyType::RequestHandshakeKey => self.handshake_ctx.request_seq += 1,
-            SessionKeyType::ResponseHandshakeKey => self.handshake_ctx.response_seq += 1,
-            SessionKeyType::RequestDataKey => self.data_ctx.request_seq += 1,
-            SessionKeyType::ResponseDataKey => self.data_ctx.response_seq += 1,
-            _ => {}
         }
     }
 }

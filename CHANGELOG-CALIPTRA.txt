@@ -1,3 +1,177 @@
+commit e37dd9d86037c3e819f31783bddb3350c1f29b41
+Author: parvathib <bhogaraju.parvathi@gmail.com>
+Date:   Thu Oct 8 16:54:55 2026 -0700
+
+    spdm: defer ML-DSA signing on Caliptra 2.0
+
+commit dd29f9f02ea9e6620a930d724121ea45305deea1
+Author: Marvin Gudel <marvin.gudel@9elements.com>
+Date:   Thu Oct 8 10:03:24 2026 +0200
+
+    Update MAX_SM_VERSION_COUNT from 4 to 8
+    
+    Since there are 5 (major.minor) versions of the secured message
+    specification published at this point, we need to be able
+    to process supported version lists with atleast
+    those five versions.
+    
+    Signed-off-by: Marvin Gudel <marvin.gudel@9elements.com>
+    (cherry picked from commit b2c6a07c0db3af1f731874c262157159f1686fdc)
+
+commit b7f23f49279d66b24cf40e78e11348f335206f54
+Author: Marvin Gudel <marvin.gudel@9elements.com>
+Date:   Wed Oct 7 11:34:01 2026 +0200
+
+    Check that opaque elements that are not version lists get skipped
+    
+    Signed-off-by: Marvin Gudel <marvin.gudel@9elements.com>
+    (cherry picked from commit cc3e4862f3cde8566d4d7f519d37985d7bada501)
+
+commit d79acc0b7a3d6af535c12ae46470e17bbb1b72cb
+Author: Marvin Gudel <marvin.gudel@9elements.com>
+Date:   Wed Oct 7 11:13:23 2026 +0200
+
+    Add tests for OpaqueDataReader and parse_supported_versions
+    
+    Adds tests for error cases for both the `OpaqueDataReader`
+    and the `parse_supported_versions()`.
+    
+    Signed-off-by: Marvin Gudel <marvin.gudel@9elements.com>
+    Assisted-by: opencode:claude-opus-5.5
+    (cherry picked from commit 5f51f31ab1f30bffb805a34939fc0aef9bc64779)
+
+commit f4e0d52fa6b552d21cbfcd3bd905449c7d2e5d92
+Author: Marvin Gudel <marvin.gudel@9elements.com>
+Date:   Wed Oct 7 10:33:26 2026 +0200
+
+    Use OpaqueDataReader in parse_supported_versions
+    
+    Signed-off-by: Marvin Gudel <marvin.gudel@9elements.com>
+    (cherry picked from commit f6282e740173a927c4a6353e35bd206d5ece53fc)
+
+commit e14b20f573cd4c9e6afc97cdd8d438b4c9ca118c
+Author: Marvin Gudel <marvin.gudel@9elements.com>
+Date:   Tue Oct 6 16:26:23 2026 +0200
+
+    Add reader for opaque data list
+    
+    Adds a reader that can read lists with multiple
+    opaque elements in the general opaque data format.
+    
+    Signed-off-by: Marvin Gudel <marvin.gudel@9elements.com>
+    (cherry picked from commit 87cd122c6c2d582bad7a3819d116bfdf727437b0)
+
+commit 62479aa89f3f52742db828e91c3606a511856274
+Author: Parvathi Bhogaraju <bhogaraju.parvathi@gmail.com>
+Date:   Thu Oct 1 03:35:45 2026 +0000
+
+    userspace: rename ApiAlloc to ScratchAlloc
+    
+    Name the allocation traits for what they are, not their consumer:
+    ApiAlloc -> ScratchAlloc, ApiAllocPool -> ScratchAllocProvider,
+    pool() -> allocator(). Matches the existing scratch vocabulary.
+    
+    Rewrite both trait docs as a contract plus extension guide.
+    
+    (cherry picked from commit f9e4e6f02d7a6b7d6c8b1262d6d4774f31e8b033)
+
+commit ae8b22db1fc742e0f057e12ec6333f7313d6efc5
+Author: Parvathi Bhogaraju <bhogaraju.parvathi@gmail.com>
+Date:   Thu Oct 1 21:44:38 2026 +0000
+
+    spdm: reduce responder code size
+    
+    - Reuse transcript and finished-HMAC futures.
+    - Remove DIGESTS and CERTIFICATE forwarding handlers.
+    - Reuse the static zero key-schedule input.
+    - Share response construction through object-safe ResponseBody.
+    - Narrow internal chunk-worker errors.
+    - Reuse KEY_EXCHANGE response storage for the ECDH context.
+    
+    Reduce the user app by 2,016 bytes without changing .bss or stack usage.
+    
+    (cherry picked from commit 58aacebf1921cdfdb84e776635dae8661cdf744a)
+
+commit fd7db562905651ada84dc8de34f4f221a1c372d6
+Author: parvathib <bhogaraju.parvathi@gmail.com>
+Date:   Thu Oct 1 11:33:26 2026 -0700
+
+    Fix SPDM 1.4 chunking and KEY_EXCHANGE handling
+    
+    Correct chunked response and sequence handling, validate KEY_EXCHANGE opaque data, and restore the 18 KiB DOE scratch pool.
+    
+    (cherry picked from commit ea03a9bd1ea1f1f1200179dcb434529741b7a249)
+
+commit d6c1dfd5449f9ee6eddc06a1eeb9fcd48609d7b9
+Author: Zach Halvorsen <zhalvorsen@google.com>
+Date:   Thu Oct 1 09:18:53 2026 -0700
+
+    Reduce memory usage (#2174)
+    
+    * firmware-bundler: reduce FPGA user-app stack from 0xB780 to 0x4780
+    
+    The large temporary buffers in user-app (MCU mailbox request/response
+    buffers, DPE signing/derivation payloads, SPDM message buffers, and OTP
+    IDevID certificates) are allocated from .bss scratch pools rather than
+    the call stack, leaving the 45.9 KiB (0xB780) FPGA user-app stack
+    heavily over-provisioned.
+    
+    Reduce the FPGA user-app stack to 0x4780 (18,304 bytes), saving 28 KiB
+    of SRAM while preserving margin above peak async task call depth.
+    
+    * runtime: reduce user-app .bss scratch allocations by 34 KiB
+    
+    Reduce static .bss allocations in user-app so the FPGA release bundle
+    fits within the 512 KiB SRAM budget:
+    
+    - common/mcu-mbox, mcu-mbox-lib: Exclude oversized
+      ExportAttestedCsrResp, DpeSignerContextCertResp,
+      GetOcpLockEndorsementCertResp, and GetOcpLockEpochKeyReportResp from
+      the McuMailboxResp enum (keeping size_of::<McuMailboxResp>() at 4,636
+      B) and size their response buffers explicitly per command/subcommand
+      in response_buffer_size().
+    - caliptra-api: Reduce DPE_MAX_LEAF_CERT_SIZE from 12 KiB to 10 KiB and
+      stage the InvokeDpe DeriveContext EXPORT_CDI response in-place in
+      cert_dst (requiring 4-byte alignment and 92 + 10,240 bytes) before
+      shifting the emitted leaf certificate to offset 0, eliminating the
+      separate 24 KiB scratch buffer during MC_DPE_SIGNER_CONTEXT_CERT.
+    - syscall, caliptra-libapi: Add Mailbox::execute_in_place and stage
+      SignWithExportedMldsaReq/Resp in-place in the output buffer during
+      ML-DSA-87 OCP LOCK certificate and epoch key report signing, avoiding
+      an extra 7,228 B scratch allocation.
+    - user-app (mcu_mbox): Reduce MCU_MBOX_SCRATCH_SIZE from 44 KiB to 12
+      KiB (-32 KiB).
+    - user-app (spdm), spdm-pal: Reduce non-provisioning
+      MCTP_SPDM_SCRATCH_SIZE and DOE_SPDM_SCRATCH_SIZE from 18 KiB to 17 KiB
+      (-2 KiB total), retaining 512 B headroom above the 16,896 B worst-case
+      allocation.
+    
+    * Explicitly set `no-fail-fast` for more test targets
+    
+    * pldm: reject stale RequestFirmwareData retries during firmware download
+    
+    On the Firmware Device (FD) side in `download_firmware_chunk`, filter
+    incoming responses by `instance_id` and `RequestFirmwareData` command
+    code so any stale retried response from an earlier chunk is rejected
+    instead of corrupting the transfer.
+    
+    (cherry picked from commit 375aead03386e5e7171268f7beec2407ac86a9eb)
+
+commit 978849a1d57025f8680290e53085f9e647050d00
+Author: Parvathi Bhogaraju <bhogaraju.parvathi@gmail.com>
+Date:   Sat Sep 26 21:52:26 2026 +0000
+
+    spdm: reduce attestation and secured-session footprint
+    
+    Reuse measurement-block serialization and select each AEAD key together with its sequence counter. Consolidate secured-response dispatch and construct authenticated framing and ciphertext directly in the final wire buffer.
+    
+    Authenticate the exact received and transmitted secured-message headers while preserving request/response and handshake/data key separation, post-success sequence increments, and FINISH/END_SESSION secret-lifecycle ordering.
+    
+    The combined changes reduce the release user application by 1,536 bytes and .bss by 16 bytes.
+    
+    Signed-off-by: Parvathi Bhogaraju <bhogaraju.parvathi@gmail.com>
+    (cherry picked from commit 8f2f2a32c9158eb889e4be4dd57f7d4580fa0915)
+
 commit eb8981acfabc38183ff7f1c2d1fa8390c0204251
 Author: Amit Kumar-Hermosillo <amitkh@google.com>
 Date:   Mon Sep 21 07:45:02 2026 -0700

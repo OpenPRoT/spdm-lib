@@ -15,7 +15,7 @@
 use spdm_codec::{ReqRespCode, ResponseBody, SpdmMsgHdrPdu, SpdmVersion, WireWriter};
 use spdm_traits::{PalBytes, SpdmPal};
 
-use crate::error::{SpdmError, SpdmResult};
+use crate::error::{SpdmError, SpdmResult, SPDM_UNSPECIFIED};
 
 /// Copy a fixed-size array `src` into `buf` at `pos`, returning the advanced
 /// cursor.
@@ -47,6 +47,17 @@ pub(crate) fn alloc_padded<'a, Pal: SpdmPal>(
         *b = 0;
     }
     Ok(buf)
+}
+
+/// Round `len` up to the transport's send-length alignment.
+pub(crate) fn align_send_len<Pal: SpdmPal>(pal: &Pal, len: usize) -> SpdmResult<usize> {
+    let align = pal.send_len_alignment();
+    if align == 0 {
+        return Err(SPDM_UNSPECIFIED);
+    }
+    len.checked_add(align - 1)
+        .map(|n| (n / align) * align)
+        .ok_or(SPDM_UNSPECIFIED)
 }
 
 /// Allocates and encodes an SPDM response.
@@ -87,24 +98,24 @@ pub(crate) fn alloc_padded<'a, Pal: SpdmPal>(
 ///   Allocates and encodes an SPDM response.
 ///
 /// Marked `#[inline(never)]` to keep handler-level code out of the
-/// dispatcher's async state machine. Each `B` still produces its own
-/// monomorphisation, but they're emitted as separate functions rather
-/// than inlined four times into one giant `poll`.
+/// dispatcher's async state machine. Dynamic body dispatch keeps the
+/// allocation and common-header path in one shared implementation.
 #[inline(never)]
-pub(crate) fn build_response<'a, Pal, B>(
+pub(crate) fn build_response<'a, Pal>(
     pal: &'a Pal,
     io: &Pal::Io<'_>,
     version: SpdmVersion,
-    body: &B,
+    body: &dyn ResponseBody,
 ) -> SpdmResult<PalBytes<'a, Pal>>
 where
     Pal: SpdmPal,
-    B: ResponseBody,
 {
     let head = pal.header_size();
-    let raw_len = head + body.encoded_size();
+    let raw_len = head + SpdmMsgHdrPdu::SIZE + body.body_size();
     let mut buf = alloc_padded(pal, io, raw_len)?;
-    body.encode_with_header(version, &mut WireWriter::new(&mut buf[head..]))?;
+    let mut writer = WireWriter::new(buf.get_mut(head..).ok_or(SPDM_UNSPECIFIED)?);
+    writer.write(&SpdmMsgHdrPdu::new(version, body.response_code()))?;
+    body.encode_body(&mut writer)?;
     Ok(buf)
 }
 
