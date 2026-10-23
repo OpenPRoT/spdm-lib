@@ -45,6 +45,8 @@ pub struct Transcript<S> {
     pub(crate) vca: Option<S>,
     pub(crate) m1: Option<S>,
     pub(crate) l1: Option<S>,
+    /// Session the running L1 belongs to (`None` = outside any session).
+    l1_session: Option<u32>,
 }
 
 impl<S> Default for Transcript<S> {
@@ -59,6 +61,7 @@ impl<S> Transcript<S> {
             vca: None,
             m1: None,
             l1: None,
+            l1_session: None,
         }
     }
 
@@ -70,6 +73,29 @@ impl<S> Transcript<S> {
         self.vca = None;
         self.m1 = None;
         self.l1 = None;
+        self.l1_session = None;
+    }
+
+    /// Re-initializes the L1/L2 measurement log to null (DSP0274 1.4,
+    /// §10.12.2 "MEASUREMENTS signature generation").
+    pub fn reset_l1(&mut self) {
+        self.l1 = None;
+    }
+
+    /// Binds L1 to the context of the GET_MEASUREMENTS about to be handled.
+    ///
+    /// L1 only accumulates consecutive exchanges from one context, so a log
+    /// built outside a session (or in a different session) is dropped first.
+    pub fn select_l1_session(&mut self, session_id: Option<u32>) {
+        if self.l1_session != session_id {
+            self.l1 = None;
+            self.l1_session = session_id;
+        }
+    }
+
+    /// Whether an L1/L2 measurement log is currently being accumulated.
+    pub fn l1_active(&self) -> bool {
+        self.l1.is_some()
     }
 
     pub fn append_vca<'a, H>(
