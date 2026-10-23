@@ -15,13 +15,17 @@ use std::vec;
 use std::vec::Vec;
 use zerocopy::{little_endian::U16, little_endian::U32, FromBytes};
 
-use crate::error::SPDM_LARGE_RESPONSE;
+use crate::error::{SPDM_DATA_TOO_LARGE, SPDM_LARGE_RESPONSE, SPDM_UNSPECIFIED};
 
 use crate::test_support as support;
 use support::{
     drain_chunked_response, negotiated_state, TestHashState, TestIo, TestPal,
     SPDM_CERT_CHAIN_HDR_LEN, TEST_CERT_CHAIN,
 };
+
+const STREAMED_CERT_CHAIN: &[u8] = &[0xA5; 2048];
+const OVERSIZED_COMPOSED_CERT_CHAIN: &[u8] =
+    &[0xA5; u16::MAX as usize - SPDM_CERT_CHAIN_HDR_LEN + 1];
 
 fn init_cert_test_state(
     version: SpdmVersion,
@@ -216,6 +220,34 @@ fn test_get_certificate_v14_large_size_req() {
 }
 
 #[test]
+fn test_get_certificate_composed_chain_length_limits() {
+    let pal = TestPal {
+        cert_chain: OVERSIZED_COMPOSED_CERT_CHAIN,
+        ..TestPal::default()
+    };
+    let actual_size =
+        u32::try_from(SPDM_CERT_CHAIN_HDR_LEN + OVERSIZED_COMPOSED_CERT_CHAIN.len()).unwrap();
+
+    let mut state = init_cert_test_state(SpdmVersion::V13, &pal);
+    let mut sessions = SessionManager::new();
+    let req = standard_cert_request(SpdmVersion::V13, 0, 0, 0, u16::MAX);
+    let err = dispatch_cert_request(&mut state, &mut sessions, &pal, req).unwrap_err();
+    assert_eq!(err.spec_byte(), SPDM_UNSPECIFIED.spec_byte());
+
+    let mut state = init_cert_test_state(SpdmVersion::V14, &pal);
+    state.advertised_cap_flags |= CapFlags::LARGE_RESP;
+    let mut sessions = SessionManager::new();
+    let req = standard_cert_request(SpdmVersion::V14, 0, 0, 0, u16::MAX);
+    let err = dispatch_cert_request(&mut state, &mut sessions, &pal, req).unwrap_err();
+    assert_eq!(err.spec_byte(), SPDM_DATA_TOO_LARGE.spec_byte());
+    assert_eq!(err.extended_data(), actual_size.to_le_bytes());
+
+    let req = large_cert_request(SpdmVersion::V14, 0, 0, 0, u32::MAX);
+    let err = dispatch_cert_request(&mut state, &mut sessions, &pal, req).unwrap_err();
+    assert_eq!(err.spec_byte(), SPDM_UNSPECIFIED.spec_byte());
+}
+
+#[test]
 fn test_get_certificate_large_on_v13_returns_invalid_request() {
     let pal = TestPal::default();
     let mut state = init_cert_test_state(SpdmVersion::V13, &pal);
@@ -225,6 +257,21 @@ fn test_get_certificate_large_on_v13_returns_invalid_request() {
     let req = large_cert_request(SpdmVersion::V13, 0, 0, 0, 1024);
     let err = dispatch_cert_request(&mut state, &mut sessions, &pal, req).unwrap_err();
     assert_eq!(err.spec_byte(), SPDM_INVALID_REQUEST.spec_byte());
+}
+
+#[test]
+fn test_get_certificate_v14_large_without_large_resp_cap_returns_unsupported() {
+    let pal = TestPal::default();
+    let mut state = init_cert_test_state(SpdmVersion::V14, &pal);
+    // Responder did NOT advertise LARGE_RESP_CAP.
+    state.advertised_cap_flags = CapFlags::from_bits(
+        state.advertised_cap_flags.into_bits() & !CapFlags::LARGE_RESP.into_bits(),
+    );
+    let mut sessions = SessionManager::new();
+
+    let req = large_cert_request(SpdmVersion::V14, 0, 0, 0, 1024);
+    let err = dispatch_cert_request(&mut state, &mut sessions, &pal, req).unwrap_err();
+    assert_eq!(err.spec_byte(), SPDM_UNSUPPORTED_REQUEST.spec_byte());
 }
 
 #[test]
@@ -248,18 +295,24 @@ fn test_get_certificate_v14_large_invalid_slot_or_offset() {
 
 #[test]
 fn test_get_certificate_chunked_full_fetch() {
-    let pal = TestPal::default();
+    let pal = TestPal {
+        cert_chain: STREAMED_CERT_CHAIN,
+        ..TestPal::default()
+    };
+    assert!(
+        SPDM_CERT_CHAIN_HDR_LEN + STREAMED_CERT_CHAIN.len() > pal.large_buffered_msg_capacity()
+    );
 
     let mut state = init_cert_test_state(SpdmVersion::V14, &pal);
     state.cap_flags |= CapFlags::CHUNK | CapFlags::LARGE_RESP;
     state.peer_cap_flags |= CapFlags::CHUNK;
     state.advertised_cap_flags |= CapFlags::CHUNK | CapFlags::LARGE_RESP;
     state.peer_data_transfer_size = 42; // Constrained DataTransferSize to force chunking
-    state.peer_max_spdm_msg_size = 1024;
+    state.peer_max_spdm_msg_size = 4096;
     let mut sessions = SessionManager::new();
 
-    let total_len = SPDM_CERT_CHAIN_HDR_LEN + TEST_CERT_CHAIN.len(); // 60 bytes
-    let total_spdm_msg_len = SpdmMsgHdrPdu::SIZE + CertificateLargeRspBody::SIZE + total_len; // 76 bytes
+    let total_len = SPDM_CERT_CHAIN_HDR_LEN + STREAMED_CERT_CHAIN.len();
+    let total_spdm_msg_len = SpdmMsgHdrPdu::SIZE + CertificateLargeRspBody::SIZE + total_len;
 
     // Request full large cert
     let req = large_cert_request(SpdmVersion::V14, 0, 0, 0, 0xFFFFFFFF);
@@ -296,7 +349,7 @@ fn test_get_certificate_chunked_full_fetch() {
     assert_eq!(body, &wanted_body);
 
     // Followed by SPDM cert chain header + DER certs
-    assert_eq!(&payload[SPDM_CERT_CHAIN_HDR_LEN..], TEST_CERT_CHAIN);
+    assert_eq!(&payload[SPDM_CERT_CHAIN_HDR_LEN..], STREAMED_CERT_CHAIN);
 }
 
 #[test]

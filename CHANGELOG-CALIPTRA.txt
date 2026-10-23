@@ -1,3 +1,78 @@
+commit 7f531340a454f9043edd1b089e1990dfa67eb000
+Author: Amit Kumar-Hermosillo <amitkh@google.com>
+Date:   Fri Sep 11 17:12:11 2026 +0000
+
+    [spdm] update spdm-lib stack for SPDM 1.4 VDM and LARGE_RESP
+    
+    Update spdm-lib stack to support SPDM 1.4 large Vendor-Defined
+    Messages and advertise the LARGE_RESP capability flag.
+    
+    - Advertise CapFlags::LARGE_RESP in ConnectionState::caliptra().
+    - Enforce SPDM 1.4 LargeReq validation and protocol symmetry in
+      handle_vendor_defined_request and handle_large_vendor_defined_request.
+    - Return SPDM_DATA_TOO_LARGE (0x12) when non-large requests overflow.
+    - Update CHUNK_SEND reassembly to track is_large across multi-chunk
+      requests and frame responses with the appropriate envelope.
+    - Tighten GET_CERTIFICATE large check to verify LARGE_RESP capability.
+    - Add comprehensive unit test suite in tests/vendor_defined.rs.
+    
+    Signed-off-by: Amit Kumar-Hermosillo <amitkh@google.com>
+    (cherry picked from commit 964e3d4b9b0d1a6ea6a2844d1ca0f41e1c02ac6e)
+
+commit 6248d8bda44abd21441ae0262410d883bdf138eb
+Author: Amit Kumar-Hermosillo <amitkh@google.com>
+Date:   Fri Sep 11 17:12:11 2026 +0000
+
+    [spdm] update spdm-lib codec to support large VDM fields
+    
+    Update VENDOR_DEFINED request and response codec in spdm-lib to
+    support DMTF SPDM 1.4 LargeReq and LargeResp fields.
+    
+    - Define VendorDefinedParam1 bitfield for Param1 (bit 7: large).
+    - Update VendorDefinedReqPdu and VendorDefinedRspPdu with
+      VendorDefinedParam1.
+    - Update decode_vendor_defined_req to support 32-bit LargeReqLength
+      preceded by a 2-byte reserved field.
+    - Update VendorDefinedRspBody to dynamically size and encode large
+      response envelopes when is_large is set.
+    - Add unit tests for standard and large VDM encoding/decoding.
+    
+    Signed-off-by: Amit Kumar-Hermosillo <amitkh@google.com>
+    (cherry picked from commit 4e120298da12c4a97fc8db8465b93abd40f7c58a)
+
+commit 25798ddb4e3d6c4ba49883fa16b7a5a66dda46b0
+Author: Tim Markey <tmarkey@micron.com>
+Date:   Thu Sep 10 12:06:16 2026 -0700
+
+    spdm: reject LargeCertChain GET_CERTIFICATE without LARGE_RESP_CAP
+    
+    A GET_CERTIFICATE carrying the LargeCertChain request bit is only valid
+    at SPDM 1.4+ and only when the responder advertised LARGE_RESP_CAP. The
+    handler previously gated the bit on version alone, so a 1.4 requester
+    setting LargeCertChain against a responder that never advertised
+    LARGE_RESP_CAP was serviced with a normal CERTIFICATE response instead
+    of being rejected.
+    
+    Return ERROR(UnsupportedRequest) in that case, matching DSP0274 and the
+    SPDM-Responder-Validator certificate_large_invalid_request conformance
+    case. Add a regression test.
+    
+    (cherry picked from commit 05d7270cacd92bcf84e7a7d61d6b8b5b65c52a3e)
+
+commit f954377841242506366f68677af5b2cdcdbcc8fe
+Author: parvathib <bhogaraju.parvathi@gmail.com>
+Date:   Tue Sep 1 19:56:25 2026 -0700
+
+    spdm: separate streamed and buffered message limits
+    
+    - Size streamed certificate responses from the requester receive limit.
+    - Advertise inbound request capacity independently of scratch buffering.
+    - Stream SET_CERTIFICATE into storage with a tunable standard CertChain limit.
+    - Reassemble MCTP AuthorizedCommand requests without inflating DOE task state.
+    - Validate CHUNK_SEND frames against responder transport limits.
+    
+    (cherry picked from commit 277547586307e33d7d5824445d6846aaeda0cb8c)
+
 commit 1b2f1304bdcb2d7b7def9ba9762699c112d76ca0
 Author: Amit Kumar-Hermosillo <amitkh@google.com>
 Date:   Mon Aug 24 16:20:00 2026 +0000

@@ -65,8 +65,8 @@ pub use measurements::{
 };
 pub use set_certificate::{SetCertificateReqBody, SetCertificateRsp, SetCertificateRspBody};
 pub use vendor_defined::{
-    decode_vendor_defined_req, StandardsBodyId, VendorDefinedReq, VendorDefinedReqPdu,
-    VendorDefinedRspBody, VendorDefinedRspPdu,
+    decode_vendor_defined_req, StandardsBodyId, VendorDefinedParam1, VendorDefinedReq,
+    VendorDefinedReqPdu, VendorDefinedRspBody, VendorDefinedRspPdu,
 };
 pub use version::{
     GetVersionReqBody, ParsedVersionRsp, SpdmVersion, VersionNumberEntry, VersionRsp,
