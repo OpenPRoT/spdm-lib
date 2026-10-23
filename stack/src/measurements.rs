@@ -86,7 +86,8 @@ pub(crate) fn handle_get_measurements_req<'a, Pal: SpdmPal>(
 
         // Caliptra supports measurement signing only through provisioned
         // certificate slots; slot 0xF (public-key-only signing) is not supported.
-        if slot_id >= MAX_SLOTS || (pal.provisioned_slots() & (1 << slot_id)) == 0 {
+        if slot_id >= MAX_SLOTS || (pal.provisioned_slots(state.asym_algo()) & (1 << slot_id)) == 0
+        {
             return Err(SPDM_INVALID_REQUEST);
         }
     }
@@ -254,7 +255,13 @@ fn handle_measurements_response<'a, Pal: SpdmPal>(
             .get_mut(signature_offset..signature_offset + ECC_P384_SIGNATURE_SIZE)
             .ok_or(SPDM_UNSPECIFIED)?;
         let sig_len = pal
-            .sign_hash(io, plan.slot_id, asym_algo, &hash, signature)
+            .sign(
+                io,
+                plan.slot_id,
+                asym_algo,
+                SigningInput::EccP384Digest(&hash),
+                signature,
+            )
             .map_err(|_| SPDM_UNSPECIFIED)?;
         if sig_len != ECC_P384_SIGNATURE_SIZE {
             return Err(SPDM_UNSPECIFIED);

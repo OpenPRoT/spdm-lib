@@ -3,12 +3,26 @@
 //! SPDM cert-store abstraction (DSP0274 §10.5 / §10.6).
 //!
 //! All cert-chain methods take an [`SpdmPalAsymAlgo`] parameter
-//! so each slot can hold chains for multiple algorithms (e.g.
-//! ECC-384 and MLDSA-87). Only ECC-384 is implemented today;
-//! MLDSA-87 will be added later using the same interfaces.
+//! so each slot can hold chains and signing keys for multiple algorithms
+//! such as ECC-384 and ML-DSA-87.
 
 use crate::SpdmPalHashAlgo;
 use spdm_errors::PalResult;
+
+/// Size of the SHA-384 digest signed for ECDSA P-384.
+pub const ECC_P384_DIGEST_SIZE: usize = 48;
+
+/// Algorithm-specific input to [`SpdmPalCertStore::sign`].
+///
+/// The stack prepares the input in the form the signature algorithm
+/// requires, so the Integrator never has to infer it from a bare byte slice.
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub enum SigningInput<'a> {
+    /// SHA-384 digest for ECDSA P-384.
+    EccP384Digest(&'a [u8; ECC_P384_DIGEST_SIZE]),
+    /// Raw message for ML-DSA-87 (pure ML-DSA with an empty context).
+    Mldsa87RawMessage(&'a [u8]),
+}
 
 /// Maximum number of cert-chain slots the responder advertises.
 /// DSP0274 §10.5 caps this at 8 (`SlotMask` is one byte).
@@ -23,7 +37,7 @@ pub const MAX_SLOTS: u8 = 8;
 pub enum SpdmPalAsymAlgo {
     /// ECDSA P-384 / SHA-384 (96-byte signature: r || s).
     EccP384,
-    /// ML-DSA-87 (post-quantum). Reserved for future use.
+    /// ML-DSA-87 (post-quantum).
     MlDsa87,
 }
 
@@ -61,10 +75,14 @@ pub trait SpdmPalCertStore: crate::SpdmPalIoTransport {
     /// Bitmask of supported slots, bits 0..=7.
     fn supported_slots(&self) -> u8;
 
-    /// Bitmask of provisioned slots, bits 0..=7. Drives DIGESTS's
-    /// `SupportedSlotMask` / `ProvisionedSlotMask` (DSP0274 §10.5
-    /// Table 25).
-    fn provisioned_slots(&self) -> u8;
+    /// Bitmask of slots provisioned with a cert chain for `algo`, bits
+    /// 0..=7. Drives DIGESTS's `ProvisionedSlotMask` (DSP0274 §10.5
+    /// Table 25) and gates every slot-addressed read path.
+    ///
+    /// A connection negotiates exactly one asymmetric algorithm, so a
+    /// slot holding no chain for `algo` reports as unprovisioned: the
+    /// responder has nothing it can serve for that slot.
+    fn provisioned_slots(&self, algo: SpdmPalAsymAlgo) -> u8;
 
     /// Raw DER capacity/size for a slot-size query.
     fn cert_chain_slot_size(
@@ -133,13 +151,15 @@ pub trait SpdmPalCertStore: crate::SpdmPalIoTransport {
         dst: &mut [u8],
     ) -> PalResult<usize>;
 
-    /// Sign `digest` using the key in `slot` for the given algorithm.
-    fn sign_hash(
+    /// Sign the caller-prepared input using the key in `slot`.
+    ///
+    /// `algo` must identify the same DPE profile as `signing_input`.
+    fn sign(
         &self,
         io: &Self::Io<'_>,
         slot: u8,
         algo: SpdmPalAsymAlgo,
-        digest: &[u8],
+        signing_input: SigningInput<'_>,
         signature: &mut [u8],
     ) -> PalResult<usize>;
 
@@ -219,17 +239,20 @@ pub trait SpdmPalCertStore: crate::SpdmPalIoTransport {
     fn erase_cert_chain(&self, io: &Self::Io<'_>, slot: u8, algo: SpdmPalAsymAlgo)
         -> PalResult<()>;
 
-    /// KeyPairID associated with the slot.
-    /// Returns `None` for unprovisioned slots.
-    fn key_pair_id(&self, slot: u8) -> Option<u8>;
+    /// KeyPairID associated with the slot's `algo` chain.
+    ///
+    /// A slot may be provisioned for one algorithm and not another, so
+    /// this is scoped to the connection's negotiated algorithm.
+    /// Returns `None` where that chain is unprovisioned.
+    fn key_pair_id(&self, slot: u8, algo: SpdmPalAsymAlgo) -> Option<u8>;
 
-    /// CertificateInfo for the slot.
-    /// Returns `None` for unprovisioned slots.
-    fn cert_info(&self, slot: u8) -> Option<u8>;
+    /// CertificateInfo for the slot's `algo` chain.
+    /// Returns `None` where that chain is unprovisioned.
+    fn cert_info(&self, slot: u8, algo: SpdmPalAsymAlgo) -> Option<u8>;
 
-    /// KeyUsageMask for the slot.
-    /// Returns `None` for unprovisioned slots.
-    fn key_usage_mask(&self, slot: u8) -> Option<u16>;
+    /// KeyUsageMask for the slot's `algo` chain.
+    /// Returns `None` where that chain is unprovisioned.
+    fn key_usage_mask(&self, slot: u8, algo: SpdmPalAsymAlgo) -> Option<u16>;
 
     /// Optional cache hook: return a previously stored full
     /// SPDM-cert-chain digest for `(slot, asym_algo, hash_algo)`, or `None` to

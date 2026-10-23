@@ -1,3 +1,22 @@
+commit eb8981acfabc38183ff7f1c2d1fa8390c0204251
+Author: Amit Kumar-Hermosillo <amitkh@google.com>
+Date:   Mon Sep 21 07:45:02 2026 -0700
+
+    [spdm] serve per-algorithm chains from managed cert slots (#2100)
+    
+    Signed-off-by: Amit Kumar-Hermosillo <amitkh@google.com>
+    (cherry picked from commit 0b9659ebccf94070615c8d4b2932c5f166620e65)
+
+commit 2936eacf2a7884d5189a1aab6de0551b7b5088eb
+Author: parvathib <bhogaraju.parvathi@gmail.com>
+Date:   Wed Sep 2 12:22:55 2026 -0700
+
+    spdm: add ML-DSA cert-store signing
+    
+    Route typed signing inputs through Measurement API and the SPDM certificate store while preserving DPE handle rotation.
+    
+    (cherry picked from commit a78572915cf4a081084289d77f0992e6af49a27c)
+
 commit 7f531340a454f9043edd1b089e1990dfa67eb000
 Author: Amit Kumar-Hermosillo <amitkh@google.com>
 Date:   Fri Sep 11 17:12:11 2026 +0000

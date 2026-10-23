@@ -41,7 +41,7 @@ pub(crate) fn handle_challenge<'a, Pal: SpdmPal>(
     let meas_hash_type = challenge_req.meas_summary_hash_type;
 
     // Validate slot_id.
-    if slot_id >= MAX_SLOTS || (pal.provisioned_slots() & (1 << slot_id)) == 0 {
+    if slot_id >= MAX_SLOTS || (pal.provisioned_slots(state.asym_algo()) & (1 << slot_id)) == 0 {
         return Err(SPDM_INVALID_REQUEST);
     }
 
@@ -155,7 +155,13 @@ pub(crate) fn handle_challenge<'a, Pal: SpdmPal>(
         .get_mut(head + no_sig_len..head + no_sig_len + ECC_P384_SIGNATURE_SIZE)
         .ok_or(SPDM_UNSPECIFIED)?;
     let sig_len = pal
-        .sign_hash(io, slot_id, asym_algo, &m1_hash, sig_slot)
+        .sign(
+            io,
+            slot_id,
+            asym_algo,
+            SigningInput::EccP384Digest(&m1_hash),
+            sig_slot,
+        )
         .map_err(|_| SPDM_UNSPECIFIED)?;
     if sig_len != ECC_P384_SIGNATURE_SIZE {
         return Err(SPDM_UNSPECIFIED);

@@ -12,7 +12,7 @@ use p384::SecretKey;
 use sha2::{Digest, Sha384};
 
 use spdm_errors::{codes::INVARIANT, PalResult};
-use spdm_traits::{SpdmPalAsymAlgo, SpdmPalCertStore, SpdmPalHashAlgo};
+use spdm_traits::{SigningInput, SpdmPalAsymAlgo, SpdmPalCertStore, SpdmPalHashAlgo};
 
 use super::HostPal;
 
@@ -145,8 +145,8 @@ impl SpdmPalCertStore for HostPal {
         0x01 // slot 0 only
     }
 
-    fn provisioned_slots(&self) -> u8 {
-        if self.certs.is_provisioned() {
+    fn provisioned_slots(&self, algo: SpdmPalAsymAlgo) -> u8 {
+        if algo == SpdmPalAsymAlgo::EccP384 && self.certs.is_provisioned() {
             0x01
         } else {
             0x00
@@ -213,24 +213,26 @@ impl SpdmPalCertStore for HostPal {
         Ok(n)
     }
 
-    fn sign_hash(
+    fn sign(
         &self,
         _io: &Self::Io<'_>,
         slot: u8,
         algo: SpdmPalAsymAlgo,
-        digest: &[u8],
+        signing_input: SigningInput<'_>,
         signature: &mut [u8],
     ) -> PalResult<usize> {
-        if algo != SpdmPalAsymAlgo::EccP384 {
+        // The PoC only holds a P-384 key.
+        let (SpdmPalAsymAlgo::EccP384, SigningInput::EccP384Digest(digest)) = (algo, signing_input)
+        else {
             return Err(INVARIANT);
-        }
+        };
         let cert = self.slot0(slot)?;
         if signature.len() < ECC_P384_SIG_SIZE {
             return Err(INVARIANT);
         }
         let sig: Signature = cert
             .signing_key
-            .sign_prehash(digest)
+            .sign_prehash(digest.as_slice())
             .map_err(|_| INVARIANT)?;
         let bytes = sig.to_bytes(); // fixed 96-byte r‖s
         signature[..ECC_P384_SIG_SIZE].copy_from_slice(&bytes);
@@ -409,23 +411,23 @@ impl SpdmPalCertStore for HostPal {
         Ok(())
     }
 
-    fn key_pair_id(&self, slot: u8) -> Option<u8> {
-        if slot != 0 {
+    fn key_pair_id(&self, slot: u8, algo: SpdmPalAsymAlgo) -> Option<u8> {
+        if slot != 0 || algo != SpdmPalAsymAlgo::EccP384 {
             return None;
         }
         self.certs.meta.borrow().map(|m| m.key_pair_id)
     }
 
-    fn cert_info(&self, slot: u8) -> Option<u8> {
-        if slot != 0 {
+    fn cert_info(&self, slot: u8, algo: SpdmPalAsymAlgo) -> Option<u8> {
+        if slot != 0 || algo != SpdmPalAsymAlgo::EccP384 {
             return None;
         }
         // cert_model occupies bits 0..3 of CertificateInfo.
         self.certs.meta.borrow().map(|m| m.cert_model & 0x0F)
     }
 
-    fn key_usage_mask(&self, slot: u8) -> Option<u16> {
-        if slot != 0 {
+    fn key_usage_mask(&self, slot: u8, algo: SpdmPalAsymAlgo) -> Option<u16> {
+        if slot != 0 || algo != SpdmPalAsymAlgo::EccP384 {
             return None;
         }
         // challenge_usage | measurement_usage.

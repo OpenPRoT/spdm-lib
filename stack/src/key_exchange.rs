@@ -81,7 +81,7 @@ pub(crate) fn handle_key_exchange<'a, Pal: SpdmPal, const N: usize>(
     let req_session_id = ke_req.req_session_id_u16();
 
     // Validate slot_id.
-    if slot_id >= MAX_SLOTS || (pal.provisioned_slots() & (1 << slot_id)) == 0 {
+    if slot_id >= MAX_SLOTS || (pal.provisioned_slots(state.asym_algo()) & (1 << slot_id)) == 0 {
         return Err(SPDM_INVALID_REQUEST);
     }
 
@@ -300,10 +300,18 @@ fn key_exchange_inner<'a, Pal: SpdmPal, const N: usize>(
     // ── Sign TH1 ────────────────────────────────────────────────────
     build_signing_context(state.version, signing_ctx);
     compute_tbs_hash(pal, io, signing_ctx, th1).map_err(|_| SPDM_UNSPECIFIED)?;
-    let tbs_hash = &signing_ctx[..SHA384_HASH_SIZE];
+    let tbs_hash = signing_ctx[..]
+        .first_chunk::<SHA384_HASH_SIZE>()
+        .ok_or(SPDM_UNSPECIFIED)?;
 
     let sig_len = pal
-        .sign_hash(io, slot_id, asym_algo, tbs_hash, signature)
+        .sign(
+            io,
+            slot_id,
+            asym_algo,
+            SigningInput::EccP384Digest(tbs_hash),
+            signature,
+        )
         .map_err(|_| SPDM_UNSPECIFIED)?;
     if sig_len != ECC_P384_SIGNATURE_SIZE {
         return Err(SPDM_UNSPECIFIED);
