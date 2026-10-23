@@ -239,11 +239,16 @@ fn handle_measurements_response<'a, Pal: SpdmPal>(
         )?;
     }
 
-    if plan.signature_requested {
-        state.transcript.append_l1(pal, io, plan.spdm_req)?;
-        let transcript_rsp = buf.get(head..signature_offset).ok_or(SPDM_UNSPECIFIED)?;
-        state.transcript.append_l1(pal, io, transcript_rsp)?;
+    // L1 covers every GET_MEASUREMENTS/MEASUREMENTS pair since it was last
+    // re-initialized, signed or not; the response is hashed without its
+    // signature (DSP0274 1.4, §10.12.2).
+    state.transcript.append_l1(pal, io, plan.spdm_req)?;
+    let transcript_rsp = buf.get(head..signature_offset).ok_or(SPDM_UNSPECIFIED)?;
+    state.transcript.append_l1(pal, io, transcript_rsp)?;
 
+    if plan.signature_requested {
+        // Finalizing consumes L1, which re-initializes it to null as required
+        // once a signed MEASUREMENTS completes.
         let mut hash = [0u8; SHA384_HASH_SIZE];
         state.transcript.finalize_l1(pal, io, &mut hash)?;
 
@@ -545,6 +550,8 @@ mod tests {
         req.extend_from_slice(hdr.as_bytes());
         req.extend_from_slice(body.as_bytes());
         let io = support::TestIo::message(req);
+        // L1 forks from VCA, which negotiation always establishes first.
+        state.transcript.append_vca(&pal, &io, b"vca").unwrap();
 
         let (resp, spdm_len) =
             handle_get_measurements_req(&mut state, &pal, &io, io.request()).unwrap();
