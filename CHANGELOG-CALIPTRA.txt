@@ -1,3 +1,14 @@
+commit b3a4945efb6d2f821238d560b7b7f72e60b105f8
+Author: Amit Kumar-Hermosillo <amitkh@google.com>
+Date:   Mon Aug 24 15:37:28 2026 +0000
+
+    [spdm] support ML-DSA-87 asymmetric algorithm in spdm-lib
+    
+    Add SPDM 1.4 ML-DSA-87 asymmetric algorithm negotiation and cert-store
+    support.
+    
+    (cherry picked from commit 354d83c457896ce8d766035bdd7f1e5192afff52)
+
 commit 40f14da7db309015b13067efeebf28cdb647b8c0
 Author: Amit Kumar-Hermosillo <amitkh@google.com>
 Date:   Mon Aug 31 18:12:20 2026 -0700
