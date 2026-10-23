@@ -43,9 +43,9 @@ pub use certificate::{
 };
 pub use challenge::{ChallengeAuthRsp, ChallengeReq, ChallengeReqBody, ParsedChallengeAuth};
 pub use chunk::{
-    ChunkGetReqBody, ChunkResponseBody, ChunkSendAckBody, ChunkSendReqBody,
-    CHUNK_ACK_ATTR_EARLY_ERROR, CHUNK_ATTR_LAST_CHUNK, CHUNK_RESPONSE_FIXED_BODY_SIZE,
-    LARGE_RESPONSE_SIZE_FIELD_SIZE,
+    ChunkGetReqBody, ChunkGetReqBodyV13, ChunkGetReqBodyV14, ChunkResponseBody,
+    ChunkSendAckBodyV13, ChunkSendAckBodyV14, ChunkSendReqBody, CHUNK_ACK_ATTR_EARLY_ERROR,
+    CHUNK_ATTR_LAST_CHUNK, CHUNK_RESPONSE_FIXED_BODY_SIZE, LARGE_RESPONSE_SIZE_FIELD_SIZE,
 };
 pub use digests::{DigestsRsp, DigestsRspBody, GetDigestsReqBody, ParsedDigestsRsp};
 pub use end_session::{EndSessionAck, EndSessionReqBody};
@@ -55,8 +55,9 @@ pub use header::{
     SPDM_CONTEXT_LEN, SPDM_MSG_HDR_SIZE, SPDM_NONCE_LEN, SPDM_PREFIX_LEN, SPDM_SIGNING_CONTEXT_LEN,
 };
 pub use key_exchange::{
-    HeartBeatPeriod, KeyExchangeReqBody, KeyExchangeRsp, ECDH_P384_EXCHANGE_DATA_SIZE,
-    KEY_EXCHANGE_RANDOM_DATA_LEN,
+    HeartBeatPeriod, KeyExchangeReq, KeyExchangeReqBodyFixed, KeyExchangeRsp,
+    ECDH_P384_EXCHANGE_DATA_SIZE, KEY_EXCHANGE_RANDOM_DATA_LEN, KEY_EXCHANGE_RSP_FIXED_BODY_SIZE,
+    MAX_EXCHANGE_DATA_SIZE,
 };
 pub use measurements::{
     DmtfMeasurementBlockHeader, GetMeasurementsReq, GetMeasurementsReqBody, MeasurementsRsp,
@@ -76,7 +77,7 @@ pub use wire::{WireError, WireReader, WireWriter};
 
 pub use opaque::{
     encode_version_selection, parse_supported_versions, select_version, SmVersion,
-    SupportedVersions, OPAQUE_VERSION_SELECTION_SIZE,
+    SupportedVersions, MAX_SUPPORTED_VERSION_LIST_OPAQUE_SIZE, OPAQUE_VERSION_SELECTION_SIZE,
 };
 pub use secured_message::{
     encode_aad, SecuredMessageHeader, AES_256_GCM_TAG_SIZE, SECURED_MSG_HDR_SIZE,
