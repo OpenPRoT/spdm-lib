@@ -73,6 +73,9 @@ pub trait PeerVerifier {
 /// The requester's local policy — what it offers during VCA.
 #[derive(Clone, Copy)]
 pub struct RequesterConfig {
+    /// SPDM versions this Requester will negotiate; the highest version also
+    /// advertised by the Responder is selected.
+    pub versions: &'static [SpdmVersion],
     pub ct_exponent: u8,
     pub flags: CapFlags,
     pub data_transfer_size: u32,
@@ -92,6 +95,7 @@ impl Default for RequesterConfig {
     /// cleanly: ECDSA-P384 / SHA-384 / SECP384R1 / AES-256-GCM.
     fn default() -> Self {
         Self {
+            versions: &[SpdmVersion::V14, SpdmVersion::V13, SpdmVersion::V12],
             ct_exponent: 0,
             flags: CapFlags::CERT | CapFlags::CHAL | CapFlags::MEAS_SIG,
             data_transfer_size: 4096,

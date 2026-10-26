@@ -13,9 +13,6 @@ use zerocopy::FromBytes;
 
 use super::{PeerVerifier, RequesterTransport, SpdmRequester};
 
-/// Versions this requester supports, highest preference first.
-const SUPPORTED_VERSIONS: &[SpdmVersion] = &[SpdmVersion::V13, SpdmVersion::V12];
-
 impl<T: RequesterTransport, H: SpdmPalHash, V: PeerVerifier> SpdmRequester<T, H, V> {
     /// Selects the highest common version from the responder's VERSION list,
     /// then performs `GET_CAPABILITIES`. Returns
@@ -24,7 +21,7 @@ impl<T: RequesterTransport, H: SpdmPalHash, V: PeerVerifier> SpdmRequester<T, H,
         &mut self,
         versions: &ParsedVersionRsp,
     ) -> PalResult<(SpdmVersion, CapFlags, u32, u32)> {
-        let version = select_version(versions).ok_or(INVARIANT)?;
+        let version = select_version(self.config.versions, versions).ok_or(INVARIANT)?;
         self.version = version;
 
         // Build GET_CAPABILITIES.
@@ -69,14 +66,58 @@ impl<T: RequesterTransport, H: SpdmPalHash, V: PeerVerifier> SpdmRequester<T, H,
     }
 }
 
-/// Picks the highest version present in both our supported list and the
+/// Picks the highest version present in both `supported` and the
 /// responder's advertised list.
-fn select_version(rsp: &ParsedVersionRsp) -> Option<SpdmVersion> {
+fn select_version(supported: &[SpdmVersion], rsp: &ParsedVersionRsp) -> Option<SpdmVersion> {
     let mut best: Option<SpdmVersion> = None;
     for v in rsp.versions.iter().take(rsp.count).flatten() {
-        if SUPPORTED_VERSIONS.contains(v) && best.is_none_or(|b| *v > b) {
+        if supported.contains(v) && best.is_none_or(|b| *v > b) {
             best = Some(*v);
         }
     }
     best
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn advertised(versions: &[SpdmVersion]) -> ParsedVersionRsp {
+        let mut rsp = ParsedVersionRsp {
+            count: versions.len(),
+            versions: [None; ParsedVersionRsp::MAX_ENTRIES],
+        };
+        for (slot, v) in rsp.versions.iter_mut().zip(versions) {
+            *slot = Some(*v);
+        }
+        rsp
+    }
+
+    const ALL: &[SpdmVersion] = &[SpdmVersion::V14, SpdmVersion::V13, SpdmVersion::V12];
+
+    #[test]
+    fn selects_highest_common_version() {
+        let rsp = advertised(&[SpdmVersion::V12, SpdmVersion::V14, SpdmVersion::V13]);
+        assert_eq!(select_version(ALL, &rsp), Some(SpdmVersion::V14));
+    }
+
+    #[test]
+    fn local_list_caps_the_selection() {
+        let rsp = advertised(&[SpdmVersion::V14, SpdmVersion::V13, SpdmVersion::V12]);
+        let local = &[SpdmVersion::V13, SpdmVersion::V12];
+        assert_eq!(select_version(local, &rsp), Some(SpdmVersion::V13));
+    }
+
+    #[test]
+    fn no_common_version_is_rejected() {
+        let rsp = advertised(&[SpdmVersion::V10, SpdmVersion::V11]);
+        assert_eq!(select_version(ALL, &rsp), None);
+    }
+
+    #[test]
+    fn entries_past_count_are_ignored() {
+        let mut rsp = advertised(&[SpdmVersion::V12, SpdmVersion::V14]);
+        rsp.count = 1;
+        assert_eq!(select_version(ALL, &rsp), Some(SpdmVersion::V12));
+    }
 }
