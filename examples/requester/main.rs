@@ -14,12 +14,16 @@ use std::net::TcpStream;
 
 mod pal;
 
+use spdm_codec::SpdmVersion;
 use spdm_errors::{codes::INVARIANT, PalResult};
-use spdm_stack::requester::{RequesterTransport, SpdmRequester};
+use spdm_stack::requester::{RequesterConfig, RequesterTransport, SpdmRequester};
 
 use pal::{HostHash, HostVerifier};
 
 const DEFAULT_PORT: u16 = 2323;
+
+/// SPDM versions this Requester negotiates, highest first.
+const SPDM_VERSIONS: &[SpdmVersion] = &[SpdmVersion::V14, SpdmVersion::V13, SpdmVersion::V12];
 
 // spdm-emu socket command codes.
 const CMD_NORMAL: u32 = 0x0000_0001;
@@ -131,7 +135,11 @@ fn main() {
         std::process::exit(1);
     }
 
-    let mut requester = SpdmRequester::new(transport, HostHash, HostVerifier);
+    let config = RequesterConfig {
+        versions: SPDM_VERSIONS,
+        ..RequesterConfig::default()
+    };
+    let mut requester = SpdmRequester::with_config(transport, HostHash, HostVerifier, config);
     let n = match requester.negotiate() {
         Ok(n) => {
             println!("[req] VCA complete:");
