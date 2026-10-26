@@ -1,18 +1,26 @@
 # Licensed under the Apache-2.0 license
 
 [package]
-name = "poc-responder"
+name = "spdm-examples"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true
+publish = false
+description = "Host proof-of-concept SPDM Requester and Responder, run against DMTF spdm-emu."
+# Sources live in responder/ and requester/ beside this manifest, not in the
+# default examples/ subdirectory.
+autoexamples = false
 
-[[bin]]
+# Run from the workspace root, e.g.:
+#   cargo run --example poc-responder -- --port 2323
+#   cargo run --example poc-requester -- --port 2323
+[[example]]
 name = "poc-responder"
-path = "src/main.rs"
+path = "responder/main.rs"
 
-[[bin]]
+[[example]]
 name = "poc-requester"
-path = "src/requester_main.rs"
+path = "requester/main.rs"
 
 [features]
 default = []

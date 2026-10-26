@@ -12,12 +12,12 @@ use std::env;
 use std::io::{Read, Write};
 use std::net::TcpStream;
 
-mod requester_pal;
+mod pal;
 
 use spdm_errors::{codes::INVARIANT, PalResult};
 use spdm_stack::requester::{RequesterTransport, SpdmRequester};
 
-use requester_pal::{HostHash, HostVerifier};
+use pal::{HostHash, HostVerifier};
 
 const DEFAULT_PORT: u16 = 2323;
 

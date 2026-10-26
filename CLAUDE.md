@@ -46,9 +46,11 @@ directories excluded from the build.
     - Platform-independent stand-ins (`spdm-crypto`, `spdm-transport-sys`, `spdm-console`,
       `spdm-platform`) that let the workspace build and test without an MCU. The Integrator
       replaces these.
-- `poc-responder/`
-    - A proof-of-concept Responder wiring the stack to the placeholders. Useful as an integration
-      example.
+- `examples/`
+    - `spdm-examples`. Host proof-of-concept programs run as Cargo examples against DMTF spdm-emu
+      (`cargo run --example poc-responder` / `cargo run --example poc-requester`). `responder/`
+      wires the Responder to host crypto; `requester/` drives the Requester. Useful as integration
+      examples.
 - `legacy/`
     - The preserved host-crypto reference monolith. Excluded from the workspace build. Reference
       only; do not modify unless explicitly instructed.
