@@ -195,3 +195,150 @@ impl CapabilitiesBody {
         Ok(*parsed)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::SpdmVersion;
+
+    #[test]
+    fn test_get_capabilities_req_all_flags_roundtrip() {
+        // The defined constants cover bits 0..=31 with no gaps (the 2-bit
+        // MEAS/PSK/EP_INFO/MULTI_KEY fields fill their upper bit via the
+        // `2 << n` values), so enabling every flag is all 32 bits set.
+        // Note this makes each 2-bit field 0b11, which the spec reserves;
+        // the codec does not validate field values.
+        let flags = CapFlags::from_bits(u32::MAX);
+        assert_eq!(flags.meas_field(), 0b11);
+        assert_eq!(flags.psk_field(), 0b11);
+        assert_eq!(flags.multi_key_field(), 0b11);
+        assert!(flags.contains(CapFlags::CACHE));
+        assert!(flags.contains(CapFlags::LARGE_RESP));
+
+        let req = GetCapabilitiesReq {
+            ct_exponent: 10,
+            flags,
+            data_transfer_size: 0x1200,
+            max_spdm_msg_size: 0x1200,
+        };
+
+        // Body = Param1, Param2, Reserved, CTExponent (4) + ExtFlags (2)
+        //      + Flags (4) + DataTransferSize (4) + MaxSPDMmsgSize (4) = 18.
+        assert_eq!(req.body_size(), 18);
+
+        // Buffer = 2-byte common header + 18-byte body = 20 bytes.
+        let mut buf = [0u8; 2 + 18];
+        let mut w = WireWriter::new(&mut buf);
+        req.encode_with_header(SpdmVersion::V14, &mut w).unwrap();
+
+        assert_eq!(
+            buf,
+            [
+                0x14, 0xE1, // header: V1.4, GET_CAPABILITIES
+                0x00, 0x00, 0x00, 0x0A, // param1, param2, reserved, ct_exponent = 10
+                0x00, 0x00, // ext_flags (reserved in a request)
+                0xFF, 0xFF, 0xFF, 0xFF, // flags: every bit set
+                0x00, 0x12, 0x00, 0x00, // data_transfer_size = 0x1200 (little-endian)
+                0x00, 0x12, 0x00, 0x00, // max_spdm_msg_size = 0x1200 (little-endian)
+            ]
+        );
+
+        let parsed = CapabilitiesBody::parse(&buf[2..]).unwrap();
+        assert_eq!(parsed.ct_exponent, 10);
+        assert!(parsed.ext_flags.is_empty());
+        assert_eq!(parsed.flags.into_bits(), u32::MAX);
+        assert_eq!(parsed.data_transfer_size.get(), 0x1200);
+        assert_eq!(parsed.max_spdm_msg_size.get(), 0x1200);
+    }
+
+    #[test]
+    fn test_capabilities_rsp_valid_flags_roundtrip() {
+        // One legal value per 2-bit field, so no field holds the reserved 0b11:
+        //   MEAS = 0b10 (MEAS_SIG), PSK = 0b10 (PSK_WITH_CTX),
+        //   EP_INFO = 0b10 (EP_INFO_SIG), MULTI_KEY = 0b10 (MULTI_KEY_CONN_RSP).
+        // Every single-bit flag is enabled.
+        let flags = CapFlags::CACHE
+            | CapFlags::CERT
+            | CapFlags::CHAL
+            | CapFlags::MEAS_SIG
+            | CapFlags::MEAS_FRESH
+            | CapFlags::ENCRYPT
+            | CapFlags::MAC
+            | CapFlags::MUT_AUTH
+            | CapFlags::KEY_EX
+            | CapFlags::PSK_WITH_CTX
+            | CapFlags::ENCAP
+            | CapFlags::HBEAT
+            | CapFlags::KEY_UPD
+            | CapFlags::HANDSHAKE_IN_THE_CLEAR
+            | CapFlags::PUB_KEY_ID
+            | CapFlags::CHUNK
+            | CapFlags::ALIAS_CERT
+            | CapFlags::SET_CERT
+            | CapFlags::CSR
+            | CapFlags::CERT_INSTALL_RESET
+            | CapFlags::EP_INFO_SIG
+            | CapFlags::MEL
+            | CapFlags::EVENT
+            | CapFlags::MULTI_KEY_CONN_RSP
+            | CapFlags::GET_KEY_PAIR_INFO
+            | CapFlags::SET_KEY_PAIR_INFO
+            | CapFlags::SET_KEY_PAIR_RESET
+            | CapFlags::LARGE_RESP;
+
+        // Each 2-bit field is exactly 0b10, never the reserved 0b11.
+        assert_eq!(flags.meas_field(), 0b10);
+        assert_eq!(flags.psk_field(), 0b10);
+        assert_eq!(flags.multi_key_field(), 0b10);
+        assert!(!flags.contains(CapFlags::MEAS_NO_SIG));
+        assert!(!flags.contains(CapFlags::PSK));
+        assert!(!flags.contains(CapFlags::EP_INFO_NO_SIG));
+        assert!(!flags.contains(CapFlags::MULTI_KEY_ONLY));
+
+        // All 32 bits minus the four "low" field bits left clear:
+        //   bit 3 (MEAS_NO_SIG) = 0x0000_0008, bit 10 (PSK) = 0x0000_0400,
+        //   bit 22 (EP_INFO_NO_SIG) = 0x0040_0000, bit 26 (MULTI_KEY_ONLY) = 0x0400_0000.
+        //   0xFFFF_FFFF - 0x0440_0408 = 0xFBBF_FBF7.
+        assert_eq!(flags.into_bits(), 0xFBBF_FBF7);
+
+        let rsp = CapabilitiesRsp {
+            ct_exponent: 10,
+            ext_flags: ExtCapFlags::SLOT_MGMT,
+            flags,
+            data_transfer_size: 0x400,
+            max_spdm_msg_size: 0x800,
+        };
+
+        // Body is the same 18-byte CapabilitiesBody as the request.
+        assert_eq!(rsp.body_size(), 18);
+
+        // Buffer = 2-byte common header + 18-byte body = 20 bytes.
+        let mut buf = [0u8; 2 + 18];
+        let mut w = WireWriter::new(&mut buf);
+        rsp.encode_with_header(SpdmVersion::V14, &mut w).unwrap();
+
+        assert_eq!(
+            buf,
+            [
+                0x14, 0x61, // header: V1.4, CAPABILITIES
+                0x00, 0x00, 0x00, 0x0A, // param1, param2, reserved, ct_exponent = 10
+                0x01, 0x00, // ext_flags: SLOT_MGMT (bit 0), little-endian
+                0xF7, 0xFB, 0xBF, 0xFB, // flags = 0xFBBF_FBF7, little-endian
+                0x00, 0x04, 0x00, 0x00, // data_transfer_size = 0x400 (1024)
+                0x00, 0x08, 0x00, 0x00, // max_spdm_msg_size = 0x800 (2048)
+            ]
+        );
+
+        let parsed = CapabilitiesBody::parse(&buf[2..]).unwrap();
+        assert_eq!(parsed.ct_exponent, 10);
+        assert_eq!(parsed.ext_flags.into_bits(), ExtCapFlags::SLOT_MGMT.into_bits());
+        assert_eq!(parsed.flags.into_bits(), flags.into_bits());
+        assert_eq!(parsed.data_transfer_size.get(), 0x400);
+        assert_eq!(parsed.max_spdm_msg_size.get(), 0x800);
+
+        // Both sizes are below the 0x1200 used in the request test, and the
+        // max message size is not smaller than the transfer size.
+        assert!(parsed.data_transfer_size.get() >= CapabilitiesBody::MIN_DATA_TRANSFER_SIZE);
+        assert!(parsed.max_spdm_msg_size.get() >= parsed.data_transfer_size.get());
+    }
+}

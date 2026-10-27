@@ -506,4 +506,405 @@ mod tests {
         assert!(GetCertificateReq::parse(&[0x00; 5]).is_err());
         assert!(GetCertificateReq::parse(&[0x80; 13]).is_err());
     }
+
+    // ---- GetCertificateParam1 ---------------------------------------------------
+
+    #[test]
+    fn test_param1_bitfield_layout() {
+        // Bits 0..=3 SlotID, bits 4..=6 reserved, bit 7 LargeCertChain.
+        let p = GetCertificateParam1::from_bits(0x8F);
+        assert_eq!(p.slot_id(), 15);
+        assert!(p.large_cert_chain());
+
+        let p = GetCertificateParam1::from_bits(0x70); // only reserved bits set
+        assert_eq!(p.slot_id(), 0);
+        assert!(!p.large_cert_chain());
+
+        // Reserved bits survive a round trip.
+        assert_eq!(GetCertificateParam1::from_bits(0xFF).into_bits(), 0xFF);
+
+        // slot 5 (0x05) | LargeCertChain (0x80) = 0x85.
+        let built = GetCertificateParam1::new()
+            .with_slot_id(5)
+            .with_large_cert_chain(true);
+        assert_eq!(built.into_bits(), 0x85);
+    }
+
+    // ---- GetCertificateReqBuilder ----------------------------------------------
+
+    #[test]
+    fn test_get_certificate_req_builder_bytes_and_roundtrip() {
+        let req = GetCertificateReqBuilder {
+            slot_id: 2,
+            attributes: ATTR_SLOT_SIZE_REQUESTED,
+            offset: 0x1234,
+            length: 0xFFFF,
+        };
+        // Body = SlotID (1) + Attributes (1) + Offset (2) + Length (2) = 6.
+        assert_eq!(req.body_size(), 6);
+        // Wire = 2-byte common header + 6-byte body = 8 bytes.
+        assert_eq!(req.encoded_size(), 8);
+
+        let mut buf = [0xEEu8; 8];
+        let mut w = WireWriter::new(&mut buf);
+        req.encode_with_header(SpdmVersion::V13, &mut w).unwrap();
+        let len = w.position();
+        assert_eq!(len, 8);
+        assert_eq!(
+            buf,
+            [
+                0x13, 0x82, // header: V1.3, GET_CERTIFICATE
+                0x02, 0x01, // slot 2, SlotSizeRequested
+                0x34, 0x12, // offset = 0x1234, little-endian
+                0xFF, 0xFF, // length = 0xFFFF
+            ]
+        );
+
+        let parsed = GetCertificateReq::parse(&buf[2..]).unwrap();
+        assert!(!parsed.is_large());
+        assert_eq!(parsed.slot_id(), 2);
+        assert!(parsed.is_slot_size_requested());
+        assert_eq!(parsed.offset(), 0x1234);
+        assert_eq!(parsed.length(), 0xFFFF);
+    }
+
+    #[test]
+    fn test_get_certificate_req_builder_buffer_too_small() {
+        let req = GetCertificateReqBuilder {
+            slot_id: 0,
+            attributes: 0,
+            offset: 0,
+            length: 0,
+        };
+        // Needs 2 + 6 = 8 bytes; every shorter writer must fail.
+        for len in 0..8 {
+            let mut buf = [0u8; 8];
+            let mut w = WireWriter::new(&mut buf[..len]);
+            assert!(
+                req.encode_with_header(SpdmVersion::V13, &mut w).is_err(),
+                "writer of {len} bytes must fail"
+            );
+        }
+    }
+
+    // ---- GetCertificateReq::parse edge cases -----------------------------------
+
+    #[test]
+    fn test_get_certificate_req_standard_offset_length_extremes() {
+        // offset = 0xFFFF, length = 0 (zero-length request is not rejected).
+        let req = GetCertificateReq::parse(&[0x00, 0x00, 0xFF, 0xFF, 0x00, 0x00]).unwrap();
+        assert_eq!(req.offset(), 0xFFFF);
+        assert_eq!(req.length(), 0);
+
+        // offset = 0, length = 0xFFFF.
+        let req = GetCertificateReq::parse(&[0x00, 0x00, 0x00, 0x00, 0xFF, 0xFF]).unwrap();
+        assert_eq!(req.offset(), 0);
+        assert_eq!(req.length(), 0xFFFF);
+    }
+
+    #[test]
+    fn test_get_certificate_req_standard_requires_exact_length() {
+        // Standard form is exactly 6 bytes; one extra byte is rejected.
+        assert!(GetCertificateReq::parse(&[0u8; 7]).is_err());
+        assert!(GetCertificateReq::parse(&[0u8; 6]).is_ok());
+    }
+
+    #[test]
+    fn test_get_certificate_req_standard_reserved_bits_not_rejected() {
+        // Pins current leniency: reserved Param1 bits 4..=6 and the non-SlotSizeRequested
+        // attribute bits are accepted. slot_id() masks to bits 0..=3 (0x72 -> 2).
+        let req = GetCertificateReq::parse(&[0x72, 0xFE, 0x00, 0x00, 0x00, 0x00]).unwrap();
+        assert!(!req.is_large());
+        assert_eq!(req.slot_id(), 2);
+        assert_eq!(req.attributes(), 0xFE);
+        assert!(!req.is_slot_size_requested()); // bit 0 of 0xFE is clear
+    }
+
+    #[test]
+    fn test_get_certificate_req_large_rejects_nonzero_16bit_fields() {
+        // LargeCertChain=1 requires the 16-bit Offset and Length to be 0.
+        let mut bytes = [0u8; 14];
+        bytes[0] = 0x80;
+        assert!(GetCertificateReq::parse(&bytes).is_ok());
+
+        bytes[2] = 1; // Offset = 1
+        assert!(GetCertificateReq::parse(&bytes).is_err());
+        bytes[2] = 0;
+
+        bytes[4] = 1; // Length = 1
+        assert!(GetCertificateReq::parse(&bytes).is_err());
+    }
+
+    #[test]
+    fn test_get_certificate_req_large_extremes_trailing_and_reserved_bits() {
+        // Pins current leniency: the Large form (unlike Standard) accepts trailing
+        // bytes, and reserved Param1 bits 4..=6 are not rejected.
+        // Buffer = 14-byte body + 2 trailing bytes = 16.
+        let mut bytes = [0u8; 16];
+        bytes[0] = 0xF3; // reserved bits 4..=6 | LargeCertChain | slot 3
+        bytes[6..10].copy_from_slice(&u32::MAX.to_le_bytes()); // LargeOffset
+        bytes[10..14].copy_from_slice(&0x100u32.to_le_bytes()); // LargeLength
+        bytes[14..].fill(0xCC);
+
+        let req = GetCertificateReq::parse(&bytes).unwrap();
+        assert!(req.is_large());
+        assert_eq!(req.slot_id(), 3);
+        assert_eq!(req.offset(), u32::MAX as usize);
+        assert_eq!(req.length(), 0x100);
+    }
+
+    #[test]
+    fn test_get_certificate_req_large_truncation_fails() {
+        // Large form needs 14 bytes; every shorter slice starting with the
+        // LargeCertChain bit must fail.
+        let mut bytes = [0u8; 14];
+        bytes[0] = 0x80;
+        for len in 1..14 {
+            assert!(
+                GetCertificateReq::parse(&bytes[..len]).is_err(),
+                "large prefix of {len} bytes must fail"
+            );
+        }
+    }
+
+    // ---- CertificateRsp encode / ParsedCertificateRsp::parse --------------------
+
+    #[test]
+    fn test_certificate_rsp_roundtrip() {
+        let payload = [0xAA, 0xBB, 0xCC, 0xDD];
+        let rsp = CertificateRsp {
+            slot_id: 1,
+            param2: 0x02,
+            portion_length: 4,
+            remainder_length: 100,
+            chain_portion: &payload,
+        };
+        // Body = 6-byte header + 4 portion bytes = 10.
+        assert_eq!(rsp.body_size(), 10);
+
+        // Buffer = 2-byte common header + 10-byte body = 12 bytes.
+        let mut buf = [0u8; 12];
+        let mut w = WireWriter::new(&mut buf);
+        rsp.encode_with_header(SpdmVersion::V13, &mut w).unwrap();
+        assert_eq!(
+            buf,
+            [
+                0x13, 0x02, // header: V1.3, CERTIFICATE
+                0x01, 0x02, // slot 1, param2 (CertModel) = 2
+                0x04, 0x00, // portion_length = 4
+                0x64, 0x00, // remainder_length = 100
+                0xAA, 0xBB, 0xCC, 0xDD, // chain portion
+            ]
+        );
+
+        let parsed = ParsedCertificateRsp::parse(&buf[2..]).unwrap();
+        assert_eq!(parsed.slot_id, 1);
+        assert_eq!(parsed.param2, 2);
+        assert_eq!(parsed.portion_length, 4);
+        assert_eq!(parsed.remainder_length, 100);
+        assert_eq!(parsed.portion, &payload);
+    }
+
+    #[test]
+    fn test_certificate_rsp_slot_size_only_response() {
+        // SlotSizeRequested reply: PortionLength = 0, RemainderLength = total chain size.
+        let rsp = CertificateRsp {
+            slot_id: 0,
+            param2: 0,
+            portion_length: 0,
+            remainder_length: 0x1234,
+            chain_portion: &[],
+        };
+        // Body = 6; buffer = 2 + 6 = 8 bytes.
+        assert_eq!(rsp.body_size(), 6);
+        let mut buf = [0xEEu8; 8];
+        let mut w = WireWriter::new(&mut buf);
+        rsp.encode_with_header(SpdmVersion::V13, &mut w).unwrap();
+        assert_eq!(buf, [0x13, 0x02, 0x00, 0x00, 0x00, 0x00, 0x34, 0x12]);
+
+        let parsed = ParsedCertificateRsp::parse(&buf[2..]).unwrap();
+        assert_eq!(parsed.portion_length, 0);
+        assert_eq!(parsed.remainder_length, 0x1234);
+        assert!(parsed.portion.is_empty());
+    }
+
+    #[test]
+    fn test_certificate_rsp_buffer_too_small() {
+        let payload = [0xAA, 0xBB, 0xCC, 0xDD];
+        let rsp = CertificateRsp {
+            slot_id: 1,
+            param2: 0,
+            portion_length: 4,
+            remainder_length: 0,
+            chain_portion: &payload,
+        };
+        // Needs 2 + 6 + 4 = 12 bytes; every shorter writer must fail.
+        for len in 0..12 {
+            let mut buf = [0u8; 12];
+            let mut w = WireWriter::new(&mut buf[..len]);
+            assert!(
+                rsp.encode_with_header(SpdmVersion::V13, &mut w).is_err(),
+                "writer of {len} bytes must fail"
+            );
+        }
+    }
+
+    #[test]
+    fn test_certificate_rsp_header_length_not_derived_from_portion() {
+        // Pins current gap: the builder writes the caller's `portion_length` verbatim
+        // instead of deriving it from `chain_portion.len()`. A mismatched pair encodes
+        // successfully into a message the parser then rejects.
+        let payload = [0xAA, 0xBB, 0xCC, 0xDD];
+        let rsp = CertificateRsp {
+            slot_id: 0,
+            param2: 0,
+            portion_length: 8, // claims 8, carries 4
+            remainder_length: 0,
+            chain_portion: &payload,
+        };
+        let mut buf = [0u8; 12];
+        let mut w = WireWriter::new(&mut buf);
+        rsp.encode_with_header(SpdmVersion::V13, &mut w).unwrap();
+        assert_eq!(&buf[4..6], &[0x08, 0x00]);
+        assert!(ParsedCertificateRsp::parse(&buf[2..]).is_err());
+    }
+
+    #[test]
+    fn test_parse_certificate_rsp_rejects_short_header() {
+        // Header is 6 bytes; every shorter slice must fail.
+        for len in 0..6 {
+            assert!(ParsedCertificateRsp::parse(&[0u8; 6][..len]).is_err());
+        }
+    }
+
+    #[test]
+    fn test_parse_certificate_rsp_portion_length_exceeds_body() {
+        // Claims 4 portion bytes, only 3 present.
+        let body = [0x00, 0x00, 0x04, 0x00, 0x00, 0x00, 0xAA, 0xBB, 0xCC];
+        assert!(ParsedCertificateRsp::parse(&body).is_err());
+
+        // Claims the maximum 0xFFFF bytes with none present (no overflow or panic).
+        let body = [0x00, 0x00, 0xFF, 0xFF, 0x00, 0x00];
+        assert!(ParsedCertificateRsp::parse(&body).is_err());
+    }
+
+    #[test]
+    fn test_parse_certificate_rsp_ignores_trailing_bytes() {
+        // Pins current leniency: bytes beyond PortionLength are not rejected; the
+        // returned portion is limited to the claimed 2 bytes of the 5 present.
+        let body = [0x00, 0x00, 0x02, 0x00, 0x00, 0x00, 0x11, 0x22, 0x33, 0x44, 0x55];
+        let parsed = ParsedCertificateRsp::parse(&body).unwrap();
+        assert_eq!(parsed.portion, &[0x11, 0x22]);
+    }
+
+    #[test]
+    fn test_parse_certificate_rsp_cannot_parse_large_response() {
+        // Pins current gap: ParsedCertificateRsp has no Large variant. A large
+        // (LargeCertChain=1) response puts 0 in the 16-bit PortionLength, so it
+        // parses "successfully" with an empty portion, slot_id 0x81 (large bit
+        // unmasked) and the real lengths dropped, instead of being flagged.
+        let payload = [0xAA, 0xBB, 0xCC, 0xDD];
+        let rsp = CertificateLargeRsp {
+            slot_id: 1,
+            param2: 0,
+            large_portion_length: 4,
+            large_remainder_length: 100,
+            chain_portion: &payload,
+        };
+        let mut buf = [0u8; 2 + 14 + 4];
+        let mut w = WireWriter::new(&mut buf);
+        rsp.encode_with_header(SpdmVersion::V14, &mut w).unwrap();
+
+        let parsed = ParsedCertificateRsp::parse(&buf[2..]).unwrap();
+        assert_eq!(parsed.slot_id, 0x81);
+        assert_eq!(parsed.portion_length, 0);
+        assert_eq!(parsed.remainder_length, 0);
+        assert!(parsed.portion.is_empty());
+    }
+
+    // ---- CertificateLargeRsp encode --------------------------------------------
+
+    #[test]
+    fn test_large_rsp_empty_portion_exact_bytes() {
+        // Remainder above u16::MAX (65536) is only expressible in the 32-bit field.
+        let rsp = CertificateLargeRsp {
+            slot_id: 0,
+            param2: 0,
+            large_portion_length: 0,
+            large_remainder_length: 0x0001_0000,
+            chain_portion: &[],
+        };
+        // Body = 14; buffer = 2 + 14 = 16 bytes.
+        assert_eq!(rsp.body_size(), 14);
+        let mut buf = [0xEEu8; 16];
+        let mut w = WireWriter::new(&mut buf);
+        rsp.encode_with_header(SpdmVersion::V14, &mut w).unwrap();
+        assert_eq!(
+            buf,
+            [
+                0x14, 0x02, // header: V1.4, CERTIFICATE
+                0x80, 0x00, // param1: slot 0 | LargeCertChain, param2
+                0x00, 0x00, // 16-bit portion_length = 0
+                0x00, 0x00, // 16-bit remainder_length = 0
+                0x00, 0x00, 0x00, 0x00, // large_portion_length = 0
+                0x00, 0x00, 0x01, 0x00, // large_remainder_length = 0x0001_0000
+            ]
+        );
+    }
+
+    #[test]
+    fn test_large_rsp_buffer_too_small() {
+        let payload = [0xAA, 0xBB, 0xCC, 0xDD];
+        let rsp = CertificateLargeRsp {
+            slot_id: 1,
+            param2: 0,
+            large_portion_length: 4,
+            large_remainder_length: 0,
+            chain_portion: &payload,
+        };
+        // Needs 2 + 14 + 4 = 20 bytes; every shorter writer must fail.
+        for len in 0..20 {
+            let mut buf = [0u8; 20];
+            let mut w = WireWriter::new(&mut buf[..len]);
+            assert!(
+                rsp.encode_with_header(SpdmVersion::V14, &mut w).is_err(),
+                "writer of {len} bytes must fail"
+            );
+        }
+    }
+
+    #[test]
+    fn test_large_rsp_header_length_not_derived_from_portion() {
+        // Pins current gap (same as the standard builder): large_portion_length is
+        // written verbatim and is not checked against chain_portion.len().
+        let payload = [0xAA, 0xBB];
+        let rsp = CertificateLargeRsp {
+            slot_id: 0,
+            param2: 0,
+            large_portion_length: 0x1000, // claims 4096, carries 2
+            large_remainder_length: 0,
+            chain_portion: &payload,
+        };
+        let mut buf = [0u8; 2 + 14 + 2];
+        let mut w = WireWriter::new(&mut buf);
+        rsp.encode_with_header(SpdmVersion::V14, &mut w).unwrap();
+        assert_eq!(&buf[8..12], &[0x00, 0x10, 0x00, 0x00]);
+    }
+
+    #[test]
+    #[ignore = "known bug: CertificateLargeRsp::encode_body panics (bitfield `with_slot_id` bounds assert) for slot_id > 15"]
+    fn test_large_rsp_rejects_slot_id_above_15() {
+        // Intended behavior: a slot_id that does not fit the 4-bit SlotID field is
+        // rejected with an error; encoding must not panic (panic-free rule).
+        let rsp = CertificateLargeRsp {
+            slot_id: 0x1F,
+            param2: 0,
+            large_portion_length: 0,
+            large_remainder_length: 0,
+            chain_portion: &[],
+        };
+        let mut buf = [0u8; 16];
+        let mut w = WireWriter::new(&mut buf);
+        assert!(rsp.encode_with_header(SpdmVersion::V14, &mut w).is_err());
+    }
 }
