@@ -1,3 +1,27 @@
+commit bb95659223df8f890ea1ded8054460b4ed4b4d2a
+Author: Parvathi Bhogaraju <bhogaraju.parvathi@gmail.com>
+Date:   Fri Sep 25 17:46:09 2026 -0700
+
+    attestation: support ML-DSA-87 signed OCP EAT tokens (#2139)
+    
+    Selectively ported from main-2.1 commit 18f1f03bb963ef42f5bc9714a9743360d52afd40. Use raw-message signing rather than external-mu.
+
+commit 32d0b56eb73eee7780c9fbdf1679aac6e9648f34
+Author: Parvathi Bhogaraju <bhogaraju.parvathi@gmail.com>
+Date:   Fri Sep 18 01:04:45 2026 +0000
+
+    spdm: support ML-DSA-87 signing for MEASUREMENTS
+    
+    Selectively ported from main-2.1 commit 5b956060c0eb8985aff1c4d66f5f1dc315e63631. Retain the Caliptra 2.0 raw-message signing flow.
+
+commit 287c8db085e21097ab8d3f5be7cda14b3d4a728b
+Author: Parvathi Bhogaraju <bhogaraju.parvathi@gmail.com>
+Date:   Fri Sep 18 01:04:37 2026 +0000
+
+    spdm: support ML-DSA-87 signing for CHALLENGE_AUTH
+    
+    Selectively ported from main-2.1 commit 0b39f53b3d04fb886401ae970a428f127e2e74df. Use Caliptra 2.0 raw-message DPE signing and its Core/DPE prerequisites.
+
 commit e37dd9d86037c3e819f31783bddb3350c1f29b41
 Author: parvathib <bhogaraju.parvathi@gmail.com>
 Date:   Thu Oct 8 16:54:55 2026 -0700
