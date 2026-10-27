@@ -425,3 +425,226 @@ impl ParsedAlgorithmsRsp {
         Ok(out)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::SpdmVersion;
+
+    fn three_structs() -> [Option<AlgStructEntry>; MAX_ALG_STRUCT_ENTRIES] {
+        // A `None` in the middle checks that empty slots are skipped on the wire.
+        [
+            Some(AlgStructEntry::dhe(DheAlgos::SECP_384_R1)),
+            None,
+            Some(AlgStructEntry::aead(AeadAlgos::AES_256_GCM)),
+            Some(AlgStructEntry::key_schedule(KeyScheduleAlgos::SPDM)),
+        ]
+    }
+
+    #[test]
+    fn test_negotiate_algorithms_req_encode() {
+        let req = NegotiateAlgorithmsReq {
+            measurement_spec: MeasSpec::DMTF,
+            other_param_support: OtherParamSupport::OPAQUE_DATA_FMT1,
+            base_asym_algo: AsymAlgos::ECDSA_ECC_NIST_P384,
+            base_hash_algo: HashAlgos::SHA_384,
+            alg_structs: three_structs(),
+        };
+
+        // Body = 30-byte fixed prefix + 3 AlgStruct entries * 4 bytes = 42.
+        assert_eq!(req.body_size(), 42);
+
+        // Buffer = 2-byte common header + 42-byte body = 44 bytes (0x2C).
+        let mut buf = [0xFFu8; 44];
+        let mut w = WireWriter::new(&mut buf);
+        req.encode_with_header(SpdmVersion::V12, &mut w).unwrap();
+
+        assert_eq!(
+            buf,
+            [
+                0x12, 0xE3, // header: V1.2, NEGOTIATE_ALGORITHMS
+                0x03, 0x00, // num_alg_struct = 3, param2
+                0x2C, 0x00, // length = 44 (includes the common header)
+                0x01, // measurement_spec = DMTF
+                0x02, // other_param_support = OPAQUE_DATA_FMT1
+                0x80, 0x00, 0x00, 0x00, // base_asym_algo = ECDSA P-384 (1 << 7)
+                0x02, 0x00, 0x00, 0x00, // base_hash_algo = SHA-384 (1 << 1)
+                0x00, 0x00, 0x00, 0x00, // pqc_asym_algo = none (classical only)
+                0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // reserved1
+                0x00, 0x00, // ext_asym_count, ext_hash_count
+                0x00, 0x00, // reserved2, mel_spec
+                0x02, 0x20, 0x10, 0x00, // DHE: FixedAlgCount=2, SECP_384_R1 (1 << 4)
+                0x03, 0x20, 0x02, 0x00, // AEAD: AES_256_GCM (1 << 1)
+                0x05, 0x20, 0x01, 0x00, // KeySchedule: SPDM (1 << 0)
+            ]
+        );
+    }
+
+    #[test]
+    fn test_negotiate_algorithms_req_no_alg_structs() {
+        let req = NegotiateAlgorithmsReq {
+            measurement_spec: MeasSpec::DMTF,
+            other_param_support: OtherParamSupport::EMPTY,
+            base_asym_algo: AsymAlgos::ECDSA_ECC_NIST_P256,
+            base_hash_algo: HashAlgos::SHA_256,
+            alg_structs: [None; MAX_ALG_STRUCT_ENTRIES],
+        };
+        // Body = 30 + 0 entries; wire = 2 + 30 = 32 bytes (0x20).
+        assert_eq!(req.body_size(), 30);
+        let mut buf = [0u8; 32];
+        let mut w = WireWriter::new(&mut buf);
+        req.encode_with_header(SpdmVersion::V12, &mut w).unwrap();
+        assert_eq!(buf[2], 0); // num_alg_struct
+        assert_eq!(&buf[4..6], &[0x20, 0x00]); // length = 32
+    }
+
+    #[test]
+    fn test_negotiate_algorithms_req_buffer_too_small() {
+        let req = NegotiateAlgorithmsReq {
+            measurement_spec: MeasSpec::DMTF,
+            other_param_support: OtherParamSupport::EMPTY,
+            base_asym_algo: AsymAlgos::ECDSA_ECC_NIST_P384,
+            base_hash_algo: HashAlgos::SHA_384,
+            alg_structs: three_structs(),
+        };
+        // Needs 44 bytes; 43 is one short, so the last AlgStruct write fails.
+        let mut buf = [0u8; 43];
+        let mut w = WireWriter::new(&mut buf);
+        assert!(req.encode_with_header(SpdmVersion::V12, &mut w).is_err());
+    }
+
+    fn rsp_p384_sha384() -> AlgorithmsRsp {
+        AlgorithmsRsp {
+            measurement_spec_sel: MeasSpec::DMTF,
+            other_param_support: OtherParamSupport::OPAQUE_DATA_FMT1,
+            meas_hash_algo: MeasHashAlgos::SHA_384,
+            base_asym_sel: AsymAlgos::ECDSA_ECC_NIST_P384,
+            base_hash_sel: HashAlgos::SHA_384,
+            pqc_asym_sel: PqcAsymAlgos::EMPTY,
+            alg_structs: three_structs(),
+        }
+    }
+
+    #[test]
+    fn test_algorithms_rsp_encode_and_parse() {
+        let rsp = rsp_p384_sha384();
+
+        // Body = 34-byte fixed prefix + 3 entries * 4 bytes = 46.
+        assert_eq!(rsp.body_size(), 46);
+
+        // Buffer = 2-byte common header + 46-byte body = 48 bytes (0x30).
+        let mut buf = [0xFFu8; 48];
+        let mut w = WireWriter::new(&mut buf);
+        rsp.encode_with_header(SpdmVersion::V12, &mut w).unwrap();
+
+        assert_eq!(
+            buf,
+            [
+                0x12, 0x63, // header: V1.2, ALGORITHMS
+                0x03, 0x00, // num_alg_struct = 3, param2
+                0x30, 0x00, // length = 48 (includes the common header)
+                0x01, // measurement_spec_sel = DMTF
+                0x02, // other_param_support = OPAQUE_DATA_FMT1
+                0x04, 0x00, 0x00, 0x00, // meas_hash_algo = SHA-384 (1 << 2)
+                0x80, 0x00, 0x00, 0x00, // base_asym_sel = ECDSA P-384 (1 << 7)
+                0x02, 0x00, 0x00, 0x00, // base_hash_sel = SHA-384 (1 << 1)
+                0x00, 0x00, 0x00, 0x00, // pqc_asym_sel = none
+                0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // reserved3 (7)
+                0x00, 0x00, 0x00, // mel_spec_sel, ext_asym_sel_count, ext_hash_sel_count
+                0x00, 0x00, // reserved4
+                0x02, 0x20, 0x10, 0x00, // DHE: SECP_384_R1
+                0x03, 0x20, 0x02, 0x00, // AEAD: AES_256_GCM
+                0x05, 0x20, 0x01, 0x00, // KeySchedule: SPDM
+            ]
+        );
+
+        let parsed = ParsedAlgorithmsRsp::parse(&buf[2..]).unwrap();
+        assert_eq!(parsed.measurement_spec_sel.into_bits(), MeasSpec::DMTF.into_bits());
+        assert_eq!(
+            parsed.other_param_support.into_bits(),
+            OtherParamSupport::OPAQUE_DATA_FMT1.into_bits()
+        );
+        assert_eq!(parsed.meas_hash_algo.into_bits(), MeasHashAlgos::SHA_384.into_bits());
+        assert_eq!(
+            parsed.base_asym_sel.into_bits(),
+            AsymAlgos::ECDSA_ECC_NIST_P384.into_bits()
+        );
+        assert_eq!(parsed.base_hash_sel.into_bits(), HashAlgos::SHA_384.into_bits());
+        assert_eq!(parsed.dhe.into_bits(), DheAlgos::SECP_384_R1.into_bits());
+        assert_eq!(parsed.aead.into_bits(), AeadAlgos::AES_256_GCM.into_bits());
+        assert_eq!(parsed.key_schedule.into_bits(), KeyScheduleAlgos::SPDM.into_bits());
+    }
+
+    #[test]
+    fn test_algorithms_rsp_pqc_selection_is_exclusive_with_classical() {
+        // V1.4: exactly one signing algorithm is selected, so choosing ML-DSA-87
+        // leaves base_asym_sel empty.
+        let rsp = AlgorithmsRsp {
+            base_asym_sel: AsymAlgos::EMPTY,
+            pqc_asym_sel: PqcAsymAlgos::ML_DSA_87,
+            ..rsp_p384_sha384()
+        };
+        let mut buf = [0u8; 48];
+        let mut w = WireWriter::new(&mut buf);
+        rsp.encode_with_header(SpdmVersion::V14, &mut w).unwrap();
+
+        // Body offsets (buf offset = body offset + 2): base_asym_sel 10..14,
+        // pqc_asym_sel 18..22.
+        assert_eq!(&buf[12..16], &[0x00, 0x00, 0x00, 0x00]);
+        assert_eq!(&buf[20..24], &[0x04, 0x00, 0x00, 0x00]); // ML_DSA_87 = 1 << 2
+
+        let parsed = ParsedAlgorithmsRsp::parse(&buf[2..]).unwrap();
+        assert!(parsed.base_asym_sel.is_empty());
+    }
+
+    #[test]
+    fn test_parse_algorithms_rejects_short_fixed_prefix() {
+        // Fixed prefix is 34 bytes; 33 is one short.
+        assert!(ParsedAlgorithmsRsp::parse(&[0u8; 33]).is_err());
+        assert!(ParsedAlgorithmsRsp::parse(&[]).is_err());
+    }
+
+    #[test]
+    fn test_parse_algorithms_rejects_truncated_alg_structs() {
+        // Fixed prefix claims 2 entries (8 bytes) but only 1 (4 bytes) follows.
+        let mut body = [0u8; 34 + 4];
+        body[0] = 2;
+        body[34..].copy_from_slice(&[0x02, 0x20, 0x10, 0x00]);
+        assert!(ParsedAlgorithmsRsp::parse(&body).is_err());
+
+        // A partial entry (3 of 4 bytes) is also rejected.
+        let mut partial = [0u8; 34 + 3];
+        partial[0] = 1;
+        assert!(ParsedAlgorithmsRsp::parse(&partial).is_err());
+    }
+
+    #[test]
+    fn test_parse_algorithms_ignores_unknown_alg_struct_types() {
+        // One ReqBaseAsymAlg (0x04) entry: parsed past, but ParsedAlgorithmsRsp
+        // has no field for it, so DHE/AEAD/KeySchedule stay empty.
+        let mut body = [0u8; 34 + 4];
+        body[0] = 1;
+        body[34..].copy_from_slice(&[alg_type::REQ_BASE_ASYM, 0x20, 0x80, 0x00]);
+        let parsed = ParsedAlgorithmsRsp::parse(&body).unwrap();
+        assert!(parsed.dhe.is_empty());
+        assert!(parsed.aead.is_empty());
+        assert!(parsed.key_schedule.is_empty());
+    }
+
+    #[test]
+    fn test_alg_struct_helpers_wire_layout() {
+        // type, FixedAlgCount=2 in the high nibble (0x20), AlgSupported LE.
+        assert_eq!(
+            AlgStructEntry::dhe(DheAlgos::SECP_256_R1).as_bytes(),
+            &[0x02, 0x20, 0x08, 0x00] // SECP_256_R1 = 1 << 3
+        );
+        assert_eq!(
+            AlgStructEntry::aead(AeadAlgos::CHACHA20_POLY1305).as_bytes(),
+            &[0x03, 0x20, 0x04, 0x00] // CHACHA20_POLY1305 = 1 << 2
+        );
+        assert_eq!(
+            AlgStructEntry::key_schedule(KeyScheduleAlgos::SPDM).as_bytes(),
+            &[0x05, 0x20, 0x01, 0x00]
+        );
+    }
+}
