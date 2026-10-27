@@ -169,7 +169,7 @@ impl ResponseBody for KeyExchangeRsp<'_> {
         if let Some(mh) = self.meas_summary_hash {
             w.write_bytes(mh)?;
         }
-        let opaque_len = self.opaque_data.len() as u16;
+        let opaque_len = u16::try_from(self.opaque_data.len()).map_err(|_| WireError)?;
         w.write_bytes(&opaque_len.to_le_bytes())?;
         if !self.opaque_data.is_empty() {
             w.write_bytes(self.opaque_data)?;
@@ -588,7 +588,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "known bug: KeyExchangeRsp::encode_body truncates opaque_data.len() with `as u16` above 65535 bytes"]
     fn test_key_exchange_rsp_rejects_opaque_longer_than_u16() {
         // Intended behavior: opaque data whose length does not fit the 2-byte
         // OpaqueDataLength must be rejected, not encoded with a wrapped length
