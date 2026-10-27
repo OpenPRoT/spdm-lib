@@ -12,8 +12,13 @@
 //! never touch the PAL allocator directly, and never forget to
 //! reserve the transport-framing header.
 
-use spdm_codec::{ReqRespCode, ResponseBody, SpdmMsgHdrPdu, SpdmVersion, WireWriter};
-use spdm_traits::{PalBytes, SpdmPal};
+use spdm_codec::{
+    ReqRespCode, ResponseBody, SpdmMsgHdrPdu, SpdmVersion, WireWriter, SHA384_HASH_SIZE,
+    SPDM_CONTEXT_LEN, SPDM_SIGNING_CONTEXT_LEN,
+};
+use spdm_traits::{
+    PalBytes, SigningInput, SpdmPal, SpdmPalAsymAlgo, SpdmPalHashAlgo, SpdmPalIoTransport,
+};
 
 use crate::error::{SpdmError, SpdmResult, SPDM_UNSPECIFIED};
 
@@ -148,4 +153,89 @@ pub(crate) fn build_error_response<'a, Pal: SpdmPal>(
     let mut buf = alloc_padded(pal, io, raw_len)?;
     encode_error_response(&mut buf[head..], version, error)?;
     Ok(buf)
+}
+
+const SPDM_RAW_SIGNING_MESSAGE_LEN: usize = SPDM_SIGNING_CONTEXT_LEN + SHA384_HASH_SIZE;
+
+/// Construct the 100-byte SPDM signing context into `out`.
+///
+/// Layout: 4 × "dmtf-spdm-v<x>.<y>.*" (prefix, 64 B) || zero-pad || op (36 B).
+/// Delegates to [`crate::signing::build_signing_context`], the shared builder
+/// the Requester also uses, so both roles stay byte-identical.
+pub(crate) fn build_spdm_signing_context(
+    version: SpdmVersion,
+    op: &[u8],
+    out: &mut [u8; SPDM_SIGNING_CONTEXT_LEN],
+) -> SpdmResult<()> {
+    if op.len() > SPDM_CONTEXT_LEN {
+        return Err(SPDM_UNSPECIFIED);
+    }
+    *out = crate::signing::build_signing_context(version, op);
+    Ok(())
+}
+
+#[cfg(test)]
+pub(crate) fn spdm_signing_context(
+    version: SpdmVersion,
+    op: &[u8],
+) -> SpdmResult<[u8; SPDM_SIGNING_CONTEXT_LEN]> {
+    let mut ctx = [0u8; SPDM_SIGNING_CONTEXT_LEN];
+    build_spdm_signing_context(version, op, &mut ctx)?;
+    Ok(ctx)
+}
+
+fn compute_tbs_hash<Pal: SpdmPal>(
+    pal: &Pal,
+    io: &<Pal as SpdmPalIoTransport>::Io<'_>,
+    signing_ctx: &[u8; SPDM_SIGNING_CONTEXT_LEN],
+    transcript_hash: &mut [u8; SHA384_HASH_SIZE],
+) -> spdm_errors::PalResult<()> {
+    let mut state = pal.hash_init(io, SpdmPalHashAlgo::Sha384, signing_ctx)?;
+    pal.hash_update(io, &mut state, transcript_hash)?;
+    pal.hash_finish(io, &mut state, transcript_hash)
+}
+
+/// Sign a transcript hash with either ECDSA P-384 or ML-DSA-87.
+///
+/// Computes the TBS hash for ECDSA. Caliptra 2.0 ML-DSA signs the raw
+/// `SPDM signing context || transcript hash` message with the operation string
+/// as the FIPS 204 context.
+#[inline(never)]
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn sign_transcript<Pal: SpdmPal>(
+    pal: &Pal,
+    io: &<Pal as SpdmPalIoTransport>::Io<'_>,
+    slot_id: u8,
+    asym_algo: SpdmPalAsymAlgo,
+    version: SpdmVersion,
+    operation_context: &'static [u8],
+    transcript_hash: &mut [u8; SHA384_HASH_SIZE],
+    sig_slot: &mut [u8],
+    expected_sig_len: usize,
+) -> SpdmResult<()> {
+    let mut signing_ctx = [0u8; SPDM_SIGNING_CONTEXT_LEN];
+    build_spdm_signing_context(version, operation_context, &mut signing_ctx)?;
+    let mut raw_signing_message = [0u8; SPDM_RAW_SIGNING_MESSAGE_LEN];
+    let signing_input = match asym_algo {
+        SpdmPalAsymAlgo::EccP384 => {
+            compute_tbs_hash(pal, io, &signing_ctx, transcript_hash)
+                .map_err(|_| SPDM_UNSPECIFIED)?;
+            SigningInput::EccP384Digest(transcript_hash)
+        }
+        SpdmPalAsymAlgo::MlDsa87 => {
+            raw_signing_message[..SPDM_SIGNING_CONTEXT_LEN].copy_from_slice(&signing_ctx);
+            raw_signing_message[SPDM_SIGNING_CONTEXT_LEN..].copy_from_slice(transcript_hash);
+            SigningInput::Mldsa87RawMessage {
+                context: operation_context,
+                message: &raw_signing_message,
+            }
+        }
+    };
+    let sig_len = pal
+        .sign(io, slot_id, asym_algo, signing_input, sig_slot)
+        .map_err(|_| SPDM_UNSPECIFIED)?;
+    if sig_len != expected_sig_len {
+        return Err(SPDM_UNSPECIFIED);
+    }
+    Ok(())
 }

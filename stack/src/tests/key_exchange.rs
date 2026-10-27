@@ -4,8 +4,8 @@ extern crate std;
 
 use super::*;
 use spdm_codec::{
-    CapFlags, KeyExchangeReqBodyFixed, ReqRespCode, SpdmVersion, ECC_P384_SIGNATURE_SIZE,
-    ECDH_P384_EXCHANGE_DATA_SIZE, KEY_EXCHANGE_RSP_FIXED_BODY_SIZE,
+    CapFlags, KeyExchangeReqBodyFixed, PqcAsymAlgos, ReqRespCode, SpdmVersion,
+    ECC_P384_SIGNATURE_SIZE, ECDH_P384_EXCHANGE_DATA_SIZE, KEY_EXCHANGE_RSP_FIXED_BODY_SIZE,
 };
 use std::vec::Vec;
 use zerocopy::IntoBytes;
@@ -22,7 +22,7 @@ fn key_exchange_request(opaque_data: &[u8]) -> Vec<u8> {
         _reserved: 0,
         random_data: [0x5a; KEY_EXCHANGE_RANDOM_DATA_LEN],
     };
-    let mut request = std::vec![SpdmVersion::V14.to_u8(), ReqRespCode::KEY_EXCHANGE.0];
+    let mut request = std::vec![SpdmVersion::V13.to_u8(), ReqRespCode::KEY_EXCHANGE.0];
     request.extend_from_slice(fixed.as_bytes());
     request.extend_from_slice(&[0x3c; ECDH_P384_EXCHANGE_DATA_SIZE]);
     request.extend_from_slice(&(opaque_data.len() as u16).to_le_bytes());
@@ -33,7 +33,7 @@ fn key_exchange_request(opaque_data: &[u8]) -> Vec<u8> {
 fn run_key_exchange(opaque_data: &[u8]) -> Vec<u8> {
     let pal = TestPal::default();
     let io = TestIo::message(key_exchange_request(opaque_data));
-    let mut state = negotiated_state(SpdmVersion::V14);
+    let mut state = negotiated_state(SpdmVersion::V13);
     state.transcript.append_vca(&pal, &io, &[0xaa]).unwrap();
     let mut sessions: Sessions<TestPal, 1> = crate::session::SessionManager::new();
 
@@ -89,7 +89,7 @@ fn ecdsa_response_can_be_chunked() {
     };
     let request = key_exchange_request(&[]);
     let io = TestIo::message(request);
-    let mut state = negotiated_state(SpdmVersion::V14);
+    let mut state = negotiated_state(SpdmVersion::V13);
     state.peer_cap_flags = CapFlags::CHUNK;
     state.peer_data_transfer_size = 128;
     state.peer_max_spdm_msg_size = 1024;
@@ -110,4 +110,51 @@ fn ecdsa_response_can_be_chunked() {
         SpdmMsgHdrPdu::SIZE + KEY_EXCHANGE_RSP_FIXED_BODY_SIZE + ECDH_P384_EXCHANGE_DATA_SIZE + 2;
     let signature = &response[signature_start..signature_start + ECC_P384_SIGNATURE_SIZE];
     assert!(signature.iter().all(|&byte| byte == 0x77));
+}
+
+#[test]
+fn v14_key_exchange_is_unsupported_for_ecc_and_mldsa() {
+    for pqc_algo in [PqcAsymAlgos::EMPTY, PqcAsymAlgos::ML_DSA_87] {
+        let pal = TestPal::default();
+        let mut request = key_exchange_request(&[]);
+        request[0] = SpdmVersion::V14.to_u8();
+        let io = TestIo::message(request);
+        let mut state = negotiated_state(SpdmVersion::V14);
+        state.negotiated_pqc_asym_sel = pqc_algo;
+        let mut sessions: Sessions<TestPal, 1> = crate::session::SessionManager::new();
+
+        let err = handle_key_exchange(&mut state, &mut sessions, &pal, &io).unwrap_err();
+
+        assert_eq!(err.spec_byte(), SPDM_UNSUPPORTED_REQUEST.spec_byte());
+        assert_eq!(err.error_data(), ReqRespCode::KEY_EXCHANGE.0);
+        assert!(!sessions.has_handshake_in_progress());
+        assert!(pal.sign_ops.borrow().is_empty());
+    }
+}
+
+#[test]
+fn v14_buffered_key_exchange_is_unsupported() {
+    let pal = TestPal::default();
+    let mut request = key_exchange_request(&[]);
+    request[0] = SpdmVersion::V14.to_u8();
+    let request_len = request.len();
+    let guard = WipeOnDrop { buf: Some(request) };
+    let io = TestIo::message(Vec::new());
+    let mut state = negotiated_state(SpdmVersion::V14);
+    let mut sessions: Sessions<TestPal, 1> = crate::session::SessionManager::new();
+
+    let err = handle_buffered_key_exchange_req(
+        &mut state,
+        &mut sessions,
+        &pal,
+        &io,
+        guard,
+        request_len,
+        128,
+    )
+    .unwrap_err();
+
+    assert_eq!(err.spec_byte(), SPDM_UNSUPPORTED_REQUEST.spec_byte());
+    assert!(!sessions.has_handshake_in_progress());
+    assert!(pal.sign_ops.borrow().is_empty());
 }
