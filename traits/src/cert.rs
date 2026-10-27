@@ -20,8 +20,13 @@ pub const ECC_P384_DIGEST_SIZE: usize = 48;
 pub enum SigningInput<'a> {
     /// SHA-384 digest for ECDSA P-384.
     EccP384Digest(&'a [u8; ECC_P384_DIGEST_SIZE]),
-    /// Raw message for ML-DSA-87 (pure ML-DSA with an empty context).
-    Mldsa87RawMessage(&'a [u8]),
+    /// Raw ML-DSA-87 message and FIPS 204 context.
+    Mldsa87RawMessage {
+        /// FIPS 204 context (the SPDM operation string).
+        context: &'a [u8],
+        /// Message signed under `context`.
+        message: &'a [u8],
+    },
 }
 
 /// Maximum number of cert-chain slots the responder advertises.
@@ -39,6 +44,16 @@ pub enum SpdmPalAsymAlgo {
     EccP384,
     /// ML-DSA-87 (post-quantum).
     MlDsa87,
+}
+
+impl SpdmPalAsymAlgo {
+    /// `SigLen` for this algorithm.
+    pub const fn signature_size(self) -> usize {
+        match self {
+            Self::EccP384 => 96,
+            Self::MlDsa87 => 4627,
+        }
+    }
 }
 
 /// Endorsement certificate chain provider for a single slot.

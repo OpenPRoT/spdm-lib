@@ -5,7 +5,7 @@
 use sha2::{Digest, Sha384};
 
 use spdm_errors::{codes::INVARIANT, PalResult};
-use spdm_traits::{MeasurementInfo, SpdmPalMeasurements, SPDM_NONCE_LEN};
+use spdm_traits::{MeasurementInfo, SpdmPalAsymAlgo, SpdmPalMeasurements, SPDM_NONCE_LEN};
 
 use super::HostPal;
 
@@ -23,6 +23,7 @@ impl SpdmPalMeasurements for HostPal {
         _io: &Self::Io<'_>,
         index: u8,
         _nonce: Option<&[u8; SPDM_NONCE_LEN]>,
+        _asym_algo: SpdmPalAsymAlgo,
         out: &mut [u8],
     ) -> PalResult<usize> {
         if index != MEAS_INDEX {
