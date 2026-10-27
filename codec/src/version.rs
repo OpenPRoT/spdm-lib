@@ -211,3 +211,231 @@ impl ResponseBody for VersionRsp<'_> {
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_get_version_req_structure() {
+        let req = GetVersionReqBody::default();
+        // Body = Param1 (1) + Param2 (1) = 2 bytes.
+        assert_eq!(req.body_size(), 2);
+        // Wire size = common header (SPDMVersion + code = 2) + body (2) = 4 bytes.
+        assert_eq!(req.encoded_size(), 4);
+
+        // DSP0274 §10.2: GET_VERSION is always sent with SPDMVersion = 1.0.
+        let mut buf = [0xFFu8; 4];
+        let mut w = WireWriter::new(&mut buf);
+        req.encode_with_header(SpdmVersion::V10, &mut w).unwrap();
+
+        assert_eq!(buf, [0x10, 0x84, 0x00, 0x00]);
+    }
+
+    #[test]
+    fn test_version_rsp_1_2_to_1_4_roundtrip() {
+        let supported = [SpdmVersion::V12, SpdmVersion::V13, SpdmVersion::V14];
+        let rsp = VersionRsp {
+            versions: &supported,
+        };
+        // Body = 4-byte VersionRspBody (Param1, Param2, Reserved, Count)
+        //      + 3 entries * 2 bytes each (Update/Alpha, Major/Minor) = 10 bytes.
+        assert_eq!(rsp.body_size(), 4 + 3 * 2);
+
+        // Buffer = 2-byte common header + 10-byte body = 12 bytes.
+        let mut buf = [0xFFu8; 2 + 4 + 3 * 2];
+        let mut w = WireWriter::new(&mut buf);
+        rsp.encode_with_header(SpdmVersion::V10, &mut w).unwrap();
+
+        assert_eq!(
+            buf,
+            [
+                0x10, 0x04, // header: V1.0, VERSION
+                0x00, 0x00, 0x00, 0x03, // param1, param2, reserved, count = 3
+                0x00, 0x12, 0x00, 0x13, 0x00, 0x14, // entries
+            ]
+        );
+
+        // parse() takes the body, i.e. everything after the 2-byte header.
+        let parsed = ParsedVersionRsp::parse(&buf[2..]).unwrap();
+        assert_eq!(parsed.count, 3);
+        assert_eq!(
+            &parsed.versions[..3],
+            &[
+                Some(SpdmVersion::V12),
+                Some(SpdmVersion::V13),
+                Some(SpdmVersion::V14)
+            ]
+        );
+        assert!(parsed.versions[3..].iter().all(Option::is_none));
+    }
+
+    // ---- ParsedVersionRsp::parse: malformed input ----------------------------
+
+    #[test]
+    fn test_parse_rejects_short_header() {
+        // VersionRspBody is 4 bytes; anything shorter must fail.
+        assert!(ParsedVersionRsp::parse(&[]).is_err());
+        assert!(ParsedVersionRsp::parse(&[0x00, 0x00, 0x00]).is_err());
+    }
+
+    #[test]
+    fn test_parse_rejects_truncated_entries() {
+        // Header claims 3 entries (3 * 2 = 6 bytes) but only 2 are present (4 bytes).
+        let two_of_three = [0x00, 0x00, 0x00, 0x03, 0x00, 0x13, 0x00, 0x14];
+        assert!(ParsedVersionRsp::parse(&two_of_three).is_err());
+
+        // Header claims 1 entry (2 bytes) but only 1 byte follows.
+        let half_entry = [0x00, 0x00, 0x00, 0x01, 0x00];
+        assert!(ParsedVersionRsp::parse(&half_entry).is_err());
+
+        // Header claims 1 entry but none follow.
+        assert!(ParsedVersionRsp::parse(&[0x00, 0x00, 0x00, 0x01]).is_err());
+    }
+
+    #[test]
+    fn test_parse_zero_entries() {
+        let parsed = ParsedVersionRsp::parse(&[0x00, 0x00, 0x00, 0x00]).unwrap();
+        assert_eq!(parsed.count, 0);
+        assert!(parsed.versions.iter().all(Option::is_none));
+    }
+
+    #[test]
+    fn test_parse_skips_unknown_version() {
+        // 3 wire entries: 1.2, an unknown 1.5 (0x15), 1.4. The unknown one is
+        // dropped, so count (2) is below the wire count (3).
+        let body = [
+            0x00, 0x00, 0x00, 0x03, // header, count = 3
+            0x00, 0x12, 0x00, 0x15, 0x00, 0x14, // entries
+        ];
+        let parsed = ParsedVersionRsp::parse(&body).unwrap();
+        assert_eq!(parsed.count, 2);
+        assert_eq!(
+            &parsed.versions[..2],
+            &[Some(SpdmVersion::V12), Some(SpdmVersion::V14)]
+        );
+        assert!(parsed.versions[2..].iter().all(Option::is_none));
+    }
+
+    #[test]
+    fn test_parse_caps_at_max_entries() {
+        // 10 valid entries; only MAX_ENTRIES (8) are kept, the rest are dropped
+        // without panicking or erroring.
+        // Buffer = 4-byte header + 10 entries * 2 bytes = 24 bytes.
+        let mut body = [0u8; 4 + 10 * 2];
+        body[3] = 10;
+        for entry in body[4..].chunks_exact_mut(2) {
+            entry[1] = 0x14;
+        }
+        let parsed = ParsedVersionRsp::parse(&body).unwrap();
+        assert_eq!(parsed.count, ParsedVersionRsp::MAX_ENTRIES);
+        assert!(parsed.versions.iter().all(|v| *v == Some(SpdmVersion::V14)));
+    }
+
+    #[test]
+    fn test_parse_ignores_update_alpha_and_keeps_duplicates() {
+        // Pins current leniency: Update/Alpha (first byte of each entry) is not
+        // inspected, and duplicates are not collapsed.
+        let body = [
+            0x00, 0x00, 0x00, 0x02, // header, count = 2
+            0x05, 0x14, // update_alpha = 0x05, still decodes as 1.4
+            0x00, 0x14, // duplicate 1.4
+        ];
+        let parsed = ParsedVersionRsp::parse(&body).unwrap();
+        assert_eq!(parsed.count, 2);
+        assert_eq!(
+            &parsed.versions[..2],
+            &[Some(SpdmVersion::V14), Some(SpdmVersion::V14)]
+        );
+    }
+
+    // ---- VersionRsp encode: edge cases ---------------------------------------
+
+    #[test]
+    fn test_version_rsp_empty_list() {
+        let rsp = VersionRsp { versions: &[] };
+        // Body = 4-byte header + 0 entries = 4; buffer = 2 + 4 = 6 bytes.
+        assert_eq!(rsp.body_size(), 4);
+        let mut buf = [0xFFu8; 2 + 4];
+        let mut w = WireWriter::new(&mut buf);
+        rsp.encode_with_header(SpdmVersion::V10, &mut w).unwrap();
+        assert_eq!(buf, [0x10, 0x04, 0x00, 0x00, 0x00, 0x00]);
+    }
+
+    #[test]
+    fn test_version_rsp_buffer_too_small() {
+        let versions = [SpdmVersion::V12, SpdmVersion::V13, SpdmVersion::V14];
+        let rsp = VersionRsp {
+            versions: &versions,
+        };
+        // Needs 2 (common header) + 4 (body header) + 3 * 2 (entries) = 12 bytes;
+        // 11 is one short, so the last entry write must fail.
+        let mut buf = [0u8; 11];
+        let mut w = WireWriter::new(&mut buf);
+        assert!(rsp.encode_with_header(SpdmVersion::V10, &mut w).is_err());
+    }
+
+    #[test]
+    #[ignore = "known bug: VersionRsp::encode_body truncates entry_count with `as u8` above 255 entries"]
+    fn test_version_rsp_rejects_more_than_255_entries() {
+        // Intended behavior: a list whose count does not fit the 1-byte Count
+        // field must be rejected, not encoded with a wrapped count (256 -> 0).
+        let versions = [SpdmVersion::V14; 256];
+        let rsp = VersionRsp {
+            versions: &versions,
+        };
+        // Buffer = 2 + 4 + 256 * 2 = 518 bytes, large enough that only the
+        // count check (not buffer space) can cause the failure.
+        let mut buf = [0u8; 2 + 4 + 256 * 2];
+        let mut w = WireWriter::new(&mut buf);
+        assert!(rsp.encode_with_header(SpdmVersion::V10, &mut w).is_err());
+    }
+
+    // ---- SpdmVersion helpers -------------------------------------------------
+
+    #[test]
+    fn test_spdm_version_roundtrip_and_strings() {
+        let all = [
+            (SpdmVersion::V10, 0x10, "1.0"),
+            (SpdmVersion::V11, 0x11, "1.1"),
+            (SpdmVersion::V12, 0x12, "1.2"),
+            (SpdmVersion::V13, 0x13, "1.3"),
+            (SpdmVersion::V14, 0x14, "1.4"),
+        ];
+        for (v, byte, s) in all {
+            assert_eq!(v.to_u8(), byte);
+            assert_eq!(SpdmVersion::from_u8(byte), Some(v));
+            assert_eq!(v.spec_str(), s);
+        }
+    }
+
+    #[test]
+    fn test_spdm_version_rejects_unknown_bytes() {
+        // Below 1.0, a minor nibble past the defined range, and a future version.
+        for b in [0x00, 0x0F, 0x15, 0x20, 0xFF] {
+            assert_eq!(SpdmVersion::from_u8(b), None);
+        }
+    }
+
+    #[test]
+    fn test_spdm_version_ordering_and_max() {
+        assert!(SpdmVersion::V10 < SpdmVersion::V11);
+        assert!(SpdmVersion::V13 < SpdmVersion::V14);
+        assert_eq!(SpdmVersion::MAX, SpdmVersion::V14);
+    }
+
+    // ---- GET_VERSION request decode ------------------------------------------
+
+    #[test]
+    fn test_get_version_req_decode() {
+        let mut r = WireReader::new(&[0x00, 0x00]);
+        let req: &GetVersionReqBody = r.read().unwrap();
+        assert_eq!(req.param1, 0);
+        assert_eq!(req.param2, 0);
+        assert!(r.is_empty());
+
+        // Body is 2 bytes; one byte is too short.
+        let mut short = WireReader::new(&[0x00]);
+        assert!(short.read::<GetVersionReqBody>().is_err());
+    }
+}
