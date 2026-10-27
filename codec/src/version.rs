@@ -203,7 +203,7 @@ impl ResponseBody for VersionRsp<'_> {
             param1: 0,
             param2: 0,
             reserved: 0,
-            entry_count: self.versions.len() as u8,
+            entry_count: u8::try_from(self.versions.len()).map_err(|_| WireError)?,
         })?;
         for &v in self.versions {
             w.write(&VersionNumberEntry::from_version(v))?;
@@ -376,7 +376,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "known bug: VersionRsp::encode_body truncates entry_count with `as u8` above 255 entries"]
     fn test_version_rsp_rejects_more_than_255_entries() {
         // Intended behavior: a list whose count does not fit the 1-byte Count
         // field must be rejected, not encoded with a wrapped count (256 -> 0).

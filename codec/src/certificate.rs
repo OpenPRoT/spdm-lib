@@ -341,6 +341,9 @@ impl ResponseBody for CertificateLargeRsp<'_> {
     }
 
     fn encode_body(&self, w: &mut WireWriter<'_>) -> Result<(), WireError> {
+        if self.slot_id > 0x0F {
+            return Err(WireError);
+        }
         w.write(&CertificateLargeRspBody {
             param1: GetCertificateParam1::new()
                 .with_slot_id(self.slot_id)
@@ -892,7 +895,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "known bug: CertificateLargeRsp::encode_body panics (bitfield `with_slot_id` bounds assert) for slot_id > 15"]
     fn test_large_rsp_rejects_slot_id_above_15() {
         // Intended behavior: a slot_id that does not fit the 4-bit SlotID field is
         // rejected with an error; encoding must not panic (panic-free rule).

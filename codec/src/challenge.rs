@@ -53,7 +53,7 @@ impl ResponseBody for ChallengeAuthRsp<'_> {
 
     fn encode_body(&self, w: &mut WireWriter<'_>) -> Result<(), WireError> {
         w.write_bytes(&[self.slot_id & 0x0F])?;
-        w.write_bytes(&[1u8 << self.slot_id])?;
+        w.write_bytes(&[1u8.checked_shl(self.slot_id.into()).ok_or(WireError)?])?;
         w.write_bytes(self.cert_chain_hash)?;
         w.write_bytes(self.nonce)?;
         if let Some(mh) = self.meas_summary_hash {
@@ -390,7 +390,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "known bug: ChallengeAuthRsp::encode_body does `1u8 << slot_id`, which panics (debug) for slot_id >= 8 instead of returning Err"]
     fn test_challenge_auth_rsp_rejects_slot_id_above_7() {
         // The slot mask is one byte, so only slots 0..=7 are representable.
         let rsp = ChallengeAuthRsp {

@@ -186,15 +186,21 @@ impl DmtfMeasurementBlockHeader {
     /// * `is_raw` — true for raw bitstream, false for digest
     /// * `meas_value_type` — DMTF value type (0..=10)
     /// * `value_len` — length of the measurement value
-    pub fn new(index: u8, is_raw: bool, meas_value_type: u8, value_len: u16) -> Self {
-        let meas_size = 3u16 + value_len; // value_type(1) + value_size(2) + value
-        Self {
+    pub fn new(
+        index: u8,
+        is_raw: bool,
+        meas_value_type: u8,
+        value_len: u16,
+    ) -> Result<Self, WireError> {
+        // value_type(1) + value_size(2) + value; must fit the 16-bit MeasurementSize.
+        let meas_size = value_len.checked_add(3).ok_or(WireError)?;
+        Ok(Self {
             index,
             measurement_specification: 0x01, // DMTF
             measurement_size: meas_size.to_le_bytes(),
             value_type: meas_value_type | (if is_raw { 0x80 } else { 0x00 }),
             value_size: value_len.to_le_bytes(),
-        }
+        })
     }
 }
 
@@ -479,33 +485,30 @@ mod tests {
     fn test_block_header_digest_and_raw() {
         // Digest, index 1, value type 1, 48-byte SHA-384 value:
         //   MeasurementSize = 3 + 48 = 51 = 0x0033; value size 48 = 0x0030.
-        let h = DmtfMeasurementBlockHeader::new(1, false, 0x01, 48);
+        let h = DmtfMeasurementBlockHeader::new(1, false, 0x01, 48).unwrap();
         assert_eq!(h.as_bytes(), &[0x01, 0x01, 0x33, 0x00, 0x01, 0x30, 0x00]);
         assert_eq!(h.as_bytes().len(), MEAS_BLOCK_METADATA_SIZE);
 
         // Raw bitstream sets bit 7 of the value type: 0x04 | 0x80 = 0x84.
         //   MeasurementSize = 3 + 32 = 35 = 0x0023; value size 32 = 0x0020.
-        let raw = DmtfMeasurementBlockHeader::new(0xFE, true, 0x04, 32);
+        let raw = DmtfMeasurementBlockHeader::new(0xFE, true, 0x04, 32).unwrap();
         assert_eq!(raw.as_bytes(), &[0xFE, 0x01, 0x23, 0x00, 0x84, 0x20, 0x00]);
     }
 
     #[test]
     fn test_block_header_largest_value_without_overflow() {
         // 3 + 0xFFFC = 0xFFFF is the largest MeasurementSize that fits in 16 bits.
-        let h = DmtfMeasurementBlockHeader::new(1, false, 0, 0xFFFC);
+        let h = DmtfMeasurementBlockHeader::new(1, false, 0, 0xFFFC).unwrap();
         assert_eq!(h.measurement_size, [0xFF, 0xFF]);
         assert_eq!(h.value_size, [0xFC, 0xFF]);
     }
 
     #[test]
-    #[ignore = "known bug: DmtfMeasurementBlockHeader::new computes `3u16 + value_len` unchecked; panics (debug) or wraps (release) for value_len > 0xFFFC"]
-    fn test_block_header_value_len_overflow_is_not_silently_wrapped() {
-        // Intended: MeasurementSize must never wrap below the value size it covers.
-        // (The API returns Self, so the fix needs a Result or a clamped input; this
-        // test asserts only the non-wrapping outcome.)
-        let h = DmtfMeasurementBlockHeader::new(1, false, 0, 0xFFFF);
-        let meas_size = u16::from_le_bytes(h.measurement_size) as u32;
-        assert_eq!(meas_size, 3 + 0xFFFF);
+    fn test_block_header_value_len_overflow_is_rejected() {
+        // MeasurementSize = 3 + value_len must fit 16 bits, so 0xFFFD is the first
+        // value_len that is rejected (3 + 0xFFFD = 0x1_0000).
+        assert!(DmtfMeasurementBlockHeader::new(1, false, 0, 0xFFFD).is_err());
+        assert!(DmtfMeasurementBlockHeader::new(1, false, 0, 0xFFFF).is_err());
     }
 
     // ---- MEASUREMENTS response -----------------------------------------------
@@ -514,7 +517,11 @@ mod tests {
     fn test_measurements_rsp_signed_roundtrip() {
         // One digest block: 7-byte header + 48-byte value = 55-byte record.
         let mut record = [0x77u8; 55];
-        record[..7].copy_from_slice(DmtfMeasurementBlockHeader::new(1, false, 0x01, 48).as_bytes());
+        record[..7].copy_from_slice(
+            DmtfMeasurementBlockHeader::new(1, false, 0x01, 48)
+                .unwrap()
+                .as_bytes(),
+        );
 
         let rsp = MeasurementsRsp {
             total_number_of_measurement: 5,

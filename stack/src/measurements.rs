@@ -418,7 +418,8 @@ fn write_measurement_record_block<Pal: SpdmPal>(
     let value_len_u16 = u16::try_from(value_len).map_err(|_| SPDM_UNSPECIFIED)?;
 
     let block_hdr =
-        DmtfMeasurementBlockHeader::new(info.index, info.is_raw, info.value_type, value_len_u16);
+        DmtfMeasurementBlockHeader::new(info.index, info.is_raw, info.value_type, value_len_u16)
+            .map_err(|_| SPDM_UNSPECIFIED)?;
     offset = write_into_slice(out, header_start, block_hdr.as_bytes())?;
     offset.checked_add(value_len).ok_or(SPDM_UNSPECIFIED)
 }
