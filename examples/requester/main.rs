@@ -18,7 +18,7 @@ use spdm_codec::SpdmVersion;
 use spdm_errors::{codes::INVARIANT, PalResult};
 use spdm_stack::requester::{RequesterConfig, RequesterTransport, SpdmRequester};
 
-use pal::{HostHash, HostVerifier};
+use pal::{HostHash, HostRng, HostVerifier};
 
 const DEFAULT_PORT: u16 = 2323;
 
@@ -139,7 +139,8 @@ fn main() {
         versions: SPDM_VERSIONS,
         ..RequesterConfig::default()
     };
-    let mut requester = SpdmRequester::with_config(transport, HostHash, HostVerifier, config);
+    let mut requester =
+        SpdmRequester::with_config(transport, HostHash, HostRng, HostVerifier, config);
     let n = match requester.negotiate() {
         Ok(n) => {
             println!("[req] VCA complete:");

@@ -7,12 +7,14 @@ use spdm_codec::{
     WireWriter,
 };
 use spdm_errors::{codes::INVARIANT, PalResult};
-use spdm_traits::SpdmPalHash;
+use spdm_traits::{SpdmPalHash, SpdmPalRng};
 use zerocopy::FromBytes;
 
 use super::{PeerVerifier, RequesterTransport, SpdmRequester};
 
-impl<T: RequesterTransport, H: SpdmPalHash, V: PeerVerifier> SpdmRequester<T, H, V> {
+impl<T: RequesterTransport, H: SpdmPalHash, R: SpdmPalRng, V: PeerVerifier>
+    SpdmRequester<T, H, R, V>
+{
     /// Sends `GET_VERSION` and returns the responder's supported version list.
     ///
     /// Per DSP0274 §10.2 the GET_VERSION request carries `SPDMVersion = V1.0`

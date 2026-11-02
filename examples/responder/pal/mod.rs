@@ -11,6 +11,7 @@ mod alloc;
 mod certs;
 mod hash;
 mod meas;
+mod rng;
 mod session;
 mod transport;
 
@@ -56,7 +57,7 @@ impl HostPal {
     }
 }
 
-// All six sub-traits are implemented across the submodules, so the marker
+// All sub-traits are implemented across the submodules, so the marker
 // super-trait is satisfied automatically.
 impl SpdmPal for HostPal {}
 

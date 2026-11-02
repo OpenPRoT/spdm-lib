@@ -272,6 +272,13 @@ impl SpdmPalIoTransport for TestPal {
     }
 }
 
+impl spdm_traits::SpdmPalRng for TestPal {
+    fn fill_random(&self, _io: &impl SpdmPalIo, out: &mut [u8]) -> PalResult<()> {
+        out.fill(0xA5);
+        Ok(())
+    }
+}
+
 impl SpdmPalHash for TestPal {
     type State = TestHashState;
 

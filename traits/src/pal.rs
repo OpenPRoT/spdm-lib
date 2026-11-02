@@ -13,13 +13,14 @@ use super::*;
 /// Top-level Platform Abstraction Layer trait for SPDM-Lite.
 ///
 /// Implementors of this trait provide a complete platform binding for the
-/// SPDM-Lite stack: per-I/O allocation, transport I/O, hashing, certificate
+/// SPDM-Lite stack: per-I/O allocation, transport I/O, hashing, random-number generation, certificate
 /// access, measurement retrieval, persistent large-message storage for
 /// chunking, and secure-session cryptographic operations.
 pub trait SpdmPal:
     SpdmPalAlloc
     + SpdmPalIoTransport
     + SpdmPalHash
+    + SpdmPalRng
     + SpdmPalCertStore
     + SpdmPalMeasurements
     + SpdmPalSessionCrypto
