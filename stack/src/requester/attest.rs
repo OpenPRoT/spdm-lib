@@ -19,7 +19,7 @@ use spdm_codec::{
     SPDM_NONCE_LEN,
 };
 use spdm_errors::{codes::INVARIANT, PalResult};
-use spdm_traits::SpdmPalHash;
+use spdm_traits::{SpdmPalHash, SpdmPalRng};
 use zerocopy::FromBytes;
 
 use crate::signing::{build_signing_context, compute_tbs_hash, OP_CHALLENGE_AUTH, OP_MEASUREMENTS};
@@ -37,7 +37,9 @@ pub struct Attestation {
     pub verified: bool,
 }
 
-impl<T: RequesterTransport, H: SpdmPalHash, V: PeerVerifier> SpdmRequester<T, H, V> {
+impl<T: RequesterTransport, H: SpdmPalHash, R: SpdmPalRng, V: PeerVerifier>
+    SpdmRequester<T, H, R, V>
+{
     /// Runs GET_DIGESTS → GET_CERTIFICATE → CHALLENGE → GET_MEASUREMENTS,
     /// validating the cert chain and verifying both signatures. Call after
     /// [`negotiate`](Self::negotiate).
@@ -119,10 +121,12 @@ impl<T: RequesterTransport, H: SpdmPalHash, V: PeerVerifier> SpdmRequester<T, H,
         let version = self.version;
         let requester_context =
             (version >= SpdmVersion::V13).then_some([0u8; REQUESTER_CONTEXT_LEN]);
+        let mut nonce = [0u8; SPDM_NONCE_LEN];
+        self.rng.fill_random(&NullIo, &mut nonce)?;
         let req = ChallengeReq {
             slot_id,
             meas_summary_hash_type: 0, // none (this milestone)
-            nonce: [0xA5; SPDM_NONCE_LEN],
+            nonce,
             requester_context,
         };
         let (req_buf, req_len) = self.build(&req, version)?;
@@ -158,10 +162,12 @@ impl<T: RequesterTransport, H: SpdmPalHash, V: PeerVerifier> SpdmRequester<T, H,
         let version = self.version;
         let requester_context =
             (version >= SpdmVersion::V13).then_some([0u8; REQUESTER_CONTEXT_LEN]);
+        let mut nonce = [0u8; SPDM_NONCE_LEN];
+        self.rng.fill_random(&NullIo, &mut nonce)?;
         let req = GetMeasurementsReq {
             attributes: MEAS_ATTR_SIGNATURE_REQUESTED,
             measurement_operation: MEAS_OP_ALL,
-            nonce: Some([0x5A; SPDM_NONCE_LEN]),
+            nonce: Some(nonce),
             slot_id,
             requester_context,
         };
@@ -197,9 +203,9 @@ impl<T: RequesterTransport, H: SpdmPalHash, V: PeerVerifier> SpdmRequester<T, H,
     // ---- helpers ------------------------------------------------------------
 
     /// Encode `req` with `version` into `self.buf`; return `(buf_copy, len)`.
-    fn build<R: RequestBody>(
+    fn build<B: RequestBody>(
         &mut self,
-        req: &R,
+        req: &B,
         version: SpdmVersion,
     ) -> PalResult<([u8; BUF_LEN], usize)> {
         let mut w = WireWriter::new(&mut self.buf);

@@ -8,12 +8,14 @@ use spdm_codec::{
     SpdmMsgHdrPdu, SpdmVersion, WireWriter,
 };
 use spdm_errors::{codes::INVARIANT, PalResult};
-use spdm_traits::SpdmPalHash;
+use spdm_traits::{SpdmPalHash, SpdmPalRng};
 use zerocopy::FromBytes;
 
 use super::{PeerVerifier, RequesterTransport, SpdmRequester};
 
-impl<T: RequesterTransport, H: SpdmPalHash, V: PeerVerifier> SpdmRequester<T, H, V> {
+impl<T: RequesterTransport, H: SpdmPalHash, R: SpdmPalRng, V: PeerVerifier>
+    SpdmRequester<T, H, R, V>
+{
     /// Selects the highest common version from the responder's VERSION list,
     /// then performs `GET_CAPABILITIES`. Returns
     /// `(version, peer_flags, peer_data_transfer_size, peer_max_spdm_msg_size)`.

@@ -12,7 +12,7 @@ use x509_cert::Certificate;
 
 use spdm_errors::{codes::INVARIANT, PalResult};
 use spdm_stack::requester::PeerVerifier;
-use spdm_traits::{SpdmPalHash, SpdmPalHashAlgo, SpdmPalIo};
+use spdm_traits::{SpdmPalHash, SpdmPalHashAlgo, SpdmPalIo, SpdmPalRng};
 
 /// SHA-384 running-hash backend (same logic as the responder's `HostPal`).
 pub struct HostHash;
@@ -63,6 +63,16 @@ impl SpdmPalHash for HostHash {
             return Err(INVARIANT);
         }
         out[..48].copy_from_slice(&state.clone().finalize());
+        Ok(())
+    }
+}
+
+/// Host random source: OS-seeded thread RNG from `rand`.
+pub struct HostRng;
+
+impl SpdmPalRng for HostRng {
+    fn fill_random(&self, _io: &impl SpdmPalIo, out: &mut [u8]) -> PalResult<()> {
+        rand::RngCore::fill_bytes(&mut rand::thread_rng(), out);
         Ok(())
     }
 }

@@ -29,7 +29,7 @@ use spdm_codec::{
     OtherParamSupport, SpdmVersion,
 };
 use spdm_errors::PalResult;
-use spdm_traits::{SpdmPalHash, SpdmPalIo, SpdmPalIoKind};
+use spdm_traits::{SpdmPalHash, SpdmPalIo, SpdmPalIoKind, SpdmPalRng};
 
 use crate::transcript::Transcript;
 
@@ -150,12 +150,14 @@ impl SpdmPalIo for NullIo {
 
 /// SPDM requester driver.
 ///
-/// Generic over the transport `T`, a hash backend `H` (transcript + TBS), and a
-/// peer verifier `V` (cert-chain validation + signature verify). All three are
-/// supplied by the caller.
-pub struct SpdmRequester<T: RequesterTransport, H: SpdmPalHash, V: PeerVerifier> {
+/// Generic over the transport `T`, a hash backend `H` (transcript + TBS), a
+/// random source `R` (CHALLENGE / GET_MEASUREMENTS nonces), and a peer verifier
+/// `V` (cert-chain validation + signature verify). All are supplied by the
+/// caller.
+pub struct SpdmRequester<T: RequesterTransport, H: SpdmPalHash, R: SpdmPalRng, V: PeerVerifier> {
     transport: T,
     hash: H,
+    rng: R,
     verifier: V,
     config: RequesterConfig,
     /// Scratch buffer for building requests / receiving responses.
@@ -167,17 +169,26 @@ pub struct SpdmRequester<T: RequesterTransport, H: SpdmPalHash, V: PeerVerifier>
     transcript: Transcript<H::State>,
 }
 
-impl<T: RequesterTransport, H: SpdmPalHash, V: PeerVerifier> SpdmRequester<T, H, V> {
+impl<T: RequesterTransport, H: SpdmPalHash, R: SpdmPalRng, V: PeerVerifier>
+    SpdmRequester<T, H, R, V>
+{
     /// Build a requester with the default (responder-matching) config.
-    pub fn new(transport: T, hash: H, verifier: V) -> Self {
-        Self::with_config(transport, hash, verifier, RequesterConfig::default())
+    pub fn new(transport: T, hash: H, rng: R, verifier: V) -> Self {
+        Self::with_config(transport, hash, rng, verifier, RequesterConfig::default())
     }
 
     /// Build a requester with an explicit local policy.
-    pub fn with_config(transport: T, hash: H, verifier: V, config: RequesterConfig) -> Self {
+    pub fn with_config(
+        transport: T,
+        hash: H,
+        rng: R,
+        verifier: V,
+        config: RequesterConfig,
+    ) -> Self {
         Self {
             transport,
             hash,
+            rng,
             verifier,
             config,
             buf: [0u8; BUF_LEN],
