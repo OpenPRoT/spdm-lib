@@ -617,6 +617,7 @@ fn dispatch<'a, Pal: SpdmPal, Vdm: SpdmVdmBackend, const MAX_SESSIONS: usize>(
         sessions.remove_all_and_destroy();
         return version::handle_get_version(state, pal, io);
     }
+    state.large_msg_ctx.set_current_session(None);
     abort_chunk_reassembly_if_interrupted(state, pal, io, vdm, code);
     reset_l1_unless_measurement(state, code);
     if code != ReqRespCode::CHUNK_GET
@@ -856,6 +857,7 @@ fn handle_secured_inner<'a, Pal: SpdmPal, Vdm: SpdmVdmBackend, const MAX_SESSION
     // ── Dispatch on SPDM code ───────────────────────────────────────
     let (spdm_hdr, _) =
         SpdmMsgHdrPdu::ref_from_prefix(spdm_msg).map_err(|_| SPDM_INVALID_REQUEST)?;
+    state.large_msg_ctx.set_current_session(Some(session_id));
     abort_chunk_reassembly_if_interrupted(state, pal, io, vdm, spdm_hdr.code);
     reset_l1_unless_measurement(state, spdm_hdr.code);
     let session_state = sessions.find(session_id).ok_or(SPDM_UNSPECIFIED)?.state;

@@ -133,6 +133,9 @@ pub(crate) struct ActiveLargeResponse {
     pub(crate) bytes_sent: usize,
     pub(crate) response_size: usize,
     pub(crate) kind: LargeResponse,
+    /// Secured session that staged this response; `None` for a cleartext
+    /// exchange. CHUNK_GET must arrive in the same context.
+    pub(crate) session_id: Option<u32>,
 }
 
 impl ActiveLargeResponse {
@@ -210,6 +213,9 @@ pub(crate) struct LargeMessageCtx<L> {
     pub(crate) mode: LargeMessageMode,
     buf: Option<L>,
     pub(crate) next_handle: u8,
+    /// Context of the request being dispatched: the authenticated session ID
+    /// for a secured message, `None` for cleartext. Set by the dispatcher.
+    current_session: Option<u32>,
 }
 
 impl<L> LargeMessageCtx<L> {
@@ -219,7 +225,16 @@ impl<L> LargeMessageCtx<L> {
             mode: LargeMessageMode::Idle,
             buf: None,
             next_handle: 1,
+            current_session: None,
         }
+    }
+
+    pub(crate) fn set_current_session(&mut self, session_id: Option<u32>) {
+        self.current_session = session_id;
+    }
+
+    pub(crate) fn current_session(&self) -> Option<u32> {
+        self.current_session
     }
 }
 
@@ -418,6 +433,7 @@ impl<L: core::ops::DerefMut<Target = [u8]>> LargeMessageCtx<L> {
             bytes_sent: 0,
             response_size,
             kind,
+            session_id: self.current_session,
         });
         self.buf = response_buf;
 
