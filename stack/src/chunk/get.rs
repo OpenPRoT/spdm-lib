@@ -54,6 +54,12 @@ pub(crate) fn handle_chunk_get<'a, Pal: SpdmPal>(
         return Err(SPDM_UNEXPECTED_REQUEST);
     };
 
+    // A response staged in one context (a secured session, or cleartext) must
+    // not be served in another.
+    if active_rsp.session_id != state.large_msg_ctx.current_session() {
+        return Err(SPDM_UNEXPECTED_REQUEST);
+    }
+
     let handle = chunk_req.get_handle();
     let seq_num = chunk_req.get_chunk_seq_num();
     if handle != active_rsp.handle || seq_num != u32::from(active_rsp.next_seq_num) {
@@ -136,6 +142,48 @@ mod tests {
 
     use super::*;
     use crate::test_support::{chunking_state, TestIo, TestPal};
+
+    #[test]
+    fn plaintext_chunk_get_of_session_staged_response_is_rejected() {
+        let pal = TestPal::default();
+        let mut state = chunking_state();
+        state.version = SpdmVersion::V14;
+        // Stage inside secured session 0x1234_5678.
+        state.large_msg_ctx.set_current_session(Some(0x1234_5678));
+        state
+            .large_msg_ctx
+            .start_response(LargeResponse::Buffered, 1, Some(std::vec![0x5a]))
+            .unwrap();
+        let handle = state.large_msg_ctx.response().unwrap().handle;
+
+        let mut req = [0u8; SpdmMsgHdrPdu::SIZE + ChunkGetReqBodyV14::SIZE];
+        let mut writer = WireWriter::new(&mut req);
+        writer
+            .write(&SpdmMsgHdrPdu::new(
+                SpdmVersion::V14,
+                ReqRespCode::CHUNK_GET,
+            ))
+            .unwrap();
+        writer
+            .write(&ChunkGetReqBodyV14 {
+                param1: 0,
+                handle,
+                chunk_seq_num: U32::new(0),
+            })
+            .unwrap();
+        let io = TestIo::message(req.to_vec());
+
+        // Cleartext context and a different session are both refused.
+        for ctx in [None, Some(0xdead_beef)] {
+            state.large_msg_ctx.set_current_session(ctx);
+            let err = handle_chunk_get(&mut state, &pal, &io, &req).unwrap_err();
+            assert_eq!(err, SPDM_UNEXPECTED_REQUEST);
+        }
+        // Nothing was consumed; the owning session can still retrieve it.
+        assert_eq!(state.large_msg_ctx.response().unwrap().bytes_sent, 0);
+        state.large_msg_ctx.set_current_session(Some(0x1234_5678));
+        assert!(handle_chunk_get(&mut state, &pal, &io, &req).is_ok());
+    }
 
     #[test]
     fn out_of_range_sequence_returns_invalid_request() {
