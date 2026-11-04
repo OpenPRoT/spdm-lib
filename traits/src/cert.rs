@@ -120,6 +120,10 @@ pub trait SpdmPalCertStore: crate::SpdmPalIoTransport {
 
     /// Validate an incoming SET_CERTIFICATE chain before it is committed.
     ///
+    /// Chains delivered via CHUNK_SEND bypass this method; the same
+    /// obligations then apply to
+    /// [`finish_write_cert_chain_stream`](Self::finish_write_cert_chain_stream).
+    ///
     /// The PAL implementation **must** verify that `SHA-384(first DER
     /// certificate in `cert_chain`) == *root_hash`. The stack no longer
     /// performs this check, since the PAL already has access to hashing
@@ -225,6 +229,17 @@ pub trait SpdmPalCertStore: crate::SpdmPalIoTransport {
     }
 
     /// Commits a streaming SET_CERTIFICATE write transaction.
+    ///
+    /// This is the streaming counterpart of
+    /// [`validate_set_certificate_chain`](Self::validate_set_certificate_chain)
+    /// and carries the **same hard requirement**: the implementation
+    /// **must** verify that `SHA-384(first DER certificate of the streamed
+    /// chain) == *root_hash`, and apply the same policy it enforces in
+    /// `validate_set_certificate_chain`, before activating the chain. On any
+    /// failure it **must not** commit. The stack only checks DER framing of
+    /// the stream, never the root hash, and a requester chooses between the
+    /// buffered and streamed paths by chunking, so skipping this check lets an
+    /// unvalidated chain become the slot's attestation identity.
     #[allow(clippy::too_many_arguments)]
     fn finish_write_cert_chain_stream(
         &self,
