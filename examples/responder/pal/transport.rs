@@ -11,9 +11,11 @@
 //! message with no additional transport header, so `header_size()` is 0.
 
 use std::io::{Read, Write};
+use std::sync::OnceLock;
+use std::time::Instant;
 
 use spdm_errors::{codes::INVARIANT, PalErrorCode, PalResult};
-use spdm_traits::{SpdmPalIo, SpdmPalIoKind, SpdmPalIoTransport};
+use spdm_traits::{Milliseconds, SpdmPalIo, SpdmPalIoKind, SpdmPalIoTransport};
 
 use super::HostPal;
 
@@ -183,6 +185,12 @@ impl SpdmPalIoTransport for HostPal {
         // yet. This is a requester-side gap to fix as the responder is ported
         // forward, not a responder bug.
         4096
+    }
+
+    fn now(&self) -> Milliseconds {
+        static START: OnceLock<Instant> = OnceLock::new();
+        let elapsed = START.get_or_init(Instant::now).elapsed().as_millis();
+        Milliseconds(u64::try_from(elapsed).unwrap_or(u64::MAX))
     }
 
     fn recv_request(&self) -> PalResult<Self::Io<'_>> {
