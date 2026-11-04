@@ -158,3 +158,55 @@ fn v14_buffered_key_exchange_is_unsupported() {
     assert!(!sessions.has_handshake_in_progress());
     assert!(pal.sign_ops.borrow().is_empty());
 }
+
+/// Runs a KEY_EXCHANGE at `now_ms` against `sessions`.
+fn key_exchange_at(
+    pal: &TestPal,
+    sessions: &mut Sessions<TestPal, 1>,
+    now_ms: u64,
+) -> SpdmResult<Vec<u8>> {
+    pal.set_now_ms(now_ms);
+    let io = TestIo::message(key_exchange_request(&[]));
+    let mut state = negotiated_state(SpdmVersion::V13);
+    state.transcript.append_vca(pal, &io, &[0xaa]).unwrap();
+    handle_key_exchange(&mut state, sessions, pal, &io)
+}
+
+/// An abandoned KEY_EXCHANGE holds its slot until HANDSHAKE_TIMEOUT_MS has
+/// passed, then the run loop's expire_due reclaims it.
+#[test]
+fn abandoned_handshake_expires_after_timeout() {
+    let pal = TestPal::default();
+    let mut sessions: Sessions<TestPal, 1> = crate::session::SessionManager::new();
+
+    key_exchange_at(&pal, &mut sessions, 1000).unwrap();
+    assert_eq!(
+        sessions.nearest_deadline_ms(),
+        Some(1000 + HANDSHAKE_TIMEOUT_MS)
+    );
+
+    // Before the deadline: slot still held, second KEY_EXCHANGE rejected.
+    assert_eq!(sessions.expire_due(1000 + HANDSHAKE_TIMEOUT_MS - 1), 0);
+    let err = key_exchange_at(&pal, &mut sessions, 1000 + HANDSHAKE_TIMEOUT_MS - 1).unwrap_err();
+    assert_eq!(err.spec_byte(), SPDM_UNEXPECTED_REQUEST.spec_byte());
+
+    // At the deadline: reclaimed, and a new KEY_EXCHANGE gets the slot.
+    assert_eq!(sessions.expire_due(1000 + HANDSHAKE_TIMEOUT_MS), 1);
+    assert!(!sessions.has_handshake_in_progress());
+    key_exchange_at(&pal, &mut sessions, 1000 + HANDSHAKE_TIMEOUT_MS).unwrap();
+    assert!(sessions.has_handshake_in_progress());
+}
+
+/// Traffic during the handshake must not extend or clear its deadline.
+#[test]
+fn handshake_deadline_ignores_touch() {
+    let pal = TestPal::default();
+    let mut sessions: Sessions<TestPal, 1> = crate::session::SessionManager::new();
+    key_exchange_at(&pal, &mut sessions, 0).unwrap();
+
+    let deadline = sessions.nearest_deadline_ms();
+    // First responder session ID is 1; the request uses req_session_id 0x1234.
+    let session_id = (1u32 << 16) | 0x1234;
+    sessions.find_mut(session_id).unwrap().touch_heartbeat(4000);
+    assert_eq!(sessions.nearest_deadline_ms(), deadline);
+}
