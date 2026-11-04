@@ -995,11 +995,6 @@ fn validate_message_allowed_phase(
             Err(SPDM_UNEXPECTED_REQUEST)
         }
     };
-    let current_key = || match session_state {
-        SessionState::HandshakeInProgress => Ok(SessionKeyType::ResponseHandshakeKey),
-        SessionState::Established => Ok(SessionKeyType::ResponseDataKey),
-    };
-
     match code {
         ReqRespCode(0) => Err(SPDM_INVALID_REQUEST),
         ReqRespCode::GET_VERSION
@@ -1011,7 +1006,10 @@ fn validate_message_allowed_phase(
         | ReqRespCode::GET_CERTIFICATE
         | ReqRespCode::GET_MEASUREMENTS
         | ReqRespCode::END_SESSION
-        | ReqRespCode::HEARTBEAT => application_key(),
+        | ReqRespCode::HEARTBEAT
+        | ReqRespCode::VENDOR_DEFINED_REQUEST
+        | ReqRespCode::CHUNK_GET
+        | ReqRespCode::CHUNK_SEND => application_key(),
         ReqRespCode::SET_CERTIFICATE => Err(SPDM_UNSUPPORTED_REQUEST.with_data(code.0)),
         ReqRespCode::FINISH => {
             if session_state == SessionState::HandshakeInProgress {
@@ -1019,9 +1017,6 @@ fn validate_message_allowed_phase(
             } else {
                 Err(SPDM_UNEXPECTED_REQUEST)
             }
-        }
-        ReqRespCode::VENDOR_DEFINED_REQUEST | ReqRespCode::CHUNK_GET | ReqRespCode::CHUNK_SEND => {
-            current_key()
         }
         _ => Err(SPDM_UNSUPPORTED_REQUEST.with_data(code.0)),
     }
@@ -1143,3 +1138,23 @@ mod vendor_defined_tests;
 #[cfg(test)]
 #[path = "tests/measurements_l1.rs"]
 mod measurements_l1_tests;
+
+#[cfg(test)]
+mod phase_gate_tests {
+    use super::*;
+
+    #[test]
+    fn app_requests_rejected_during_handshake() {
+        for code in [
+            ReqRespCode::VENDOR_DEFINED_REQUEST,
+            ReqRespCode::CHUNK_GET,
+            ReqRespCode::CHUNK_SEND,
+        ] {
+            assert_eq!(
+                validate_message_allowed_phase(code, SessionState::HandshakeInProgress).err(),
+                Some(SPDM_UNEXPECTED_REQUEST)
+            );
+            assert!(validate_message_allowed_phase(code, SessionState::Established).is_ok());
+        }
+    }
+}
