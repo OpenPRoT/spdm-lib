@@ -2,7 +2,7 @@
 # Licensed under the Apache-2.0 license
 """Run DMTF spdm-emu's requester against the poc-responder for each SPDM version.
 
-usage: scripts/spdm_emu_interop.py [--port N] [--emu-dir DIR] [versions...]
+usage: scripts/spdm_emu_interop.py [--port N] --emu-dir DIR [versions...]
 Exit status is non-zero if any version fails.
 """
 import argparse
@@ -56,7 +56,7 @@ def run_version(ver, port, emu_dir):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--port", type=int, default=2323)
-    ap.add_argument("--emu-dir", default="/home/wmarone/dmtf/spdm-emu/build/bin")
+    ap.add_argument("--emu-dir", required=True, help="spdm-emu build/bin directory")
     ap.add_argument("versions", nargs="*", default=["1.2", "1.3", "1.4"])
     a = ap.parse_args()
 
