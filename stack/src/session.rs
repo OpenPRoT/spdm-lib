@@ -193,9 +193,10 @@ impl<K: Clone, S> SessionInfo<K, S> {
             .and_then(|window| now_ms.checked_add(window));
     }
 
-    /// Refresh the watchdog after any traffic on this session.
+    /// Refresh the watchdog after any traffic on this session. A handshake
+    /// deadline is fixed: traffic before FINISH must not extend or clear it.
     pub fn touch_heartbeat(&mut self, now_ms: u64) {
-        if self.deadline_ms.is_some() {
+        if self.state == SessionState::Established && self.deadline_ms.is_some() {
             self.arm_heartbeat(now_ms);
         }
     }

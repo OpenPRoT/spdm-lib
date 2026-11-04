@@ -396,6 +396,9 @@ fn key_exchange_inner<'a, Pal: SpdmPal, const N: usize>(
     let hb_period = heartbeat_period_for::<Pal>(state);
     let session = sessions.find_mut(session_id).ok_or(SPDM_UNSPECIFIED)?;
     session.heartbeat_period = hb_period;
+    // Reclaim the slot if FINISH never arrives; FINISH re-arms the deadline
+    // for the HEARTBEAT watchdog (or clears it).
+    session.deadline_ms = pal.now().0.checked_add(HANDSHAKE_TIMEOUT_MS);
 
     let mut workspace = pal.alloc_bytes(io, KEY_EXCHANGE_WORKSPACE_SIZE)?;
     workspace.fill(0);
@@ -541,6 +544,10 @@ fn key_exchange_inner<'a, Pal: SpdmPal, const N: usize>(
         guard.finish_response_with_limit(state, pal, io, head, spdm_len, inline_response_limit)?;
     Ok((resp, returned_len))
 }
+
+/// Time a session may sit in `HandshakeInProgress` after KEY_EXCHANGE before
+/// it is torn down, so an abandoned handshake cannot block later KEY_EXCHANGEs.
+pub(crate) const HANDSHAKE_TIMEOUT_MS: u64 = 5000;
 
 /// HeartbeatPeriod to advertise in KEY_EXCHANGE_RSP for this connection.
 fn heartbeat_period_for<Pal: SpdmPal>(state: &ConnState<'_, Pal>) -> HeartBeatPeriod {

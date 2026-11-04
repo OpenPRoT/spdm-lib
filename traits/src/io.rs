@@ -83,14 +83,11 @@ pub trait SpdmPalIoTransport {
 
     /// Current value of a free-running monotonic millisecond clock.
     ///
-    /// Used by the SPDM stack's HEARTBEAT liveness watchdog to compute and
-    /// check per-session deadlines. The default returns 0; a PAL that wants
-    /// heartbeat-driven session teardown must override this with a real
-    /// monotonic source. With the default, `now` never advances so no
-    /// watchdog deadline is ever reached.
-    fn now(&self) -> Milliseconds {
-        Milliseconds(0)
-    }
+    /// Used by the SPDM stack to compute and check per-session deadlines: the
+    /// KEY_EXCHANGE handshake timeout and the HEARTBEAT liveness watchdog.
+    /// Required: a clock that never advances lets an abandoned KEY_EXCHANGE
+    /// hold its session slot indefinitely.
+    fn now(&self) -> Milliseconds;
 
     /// Maximum SPDM payload the underlying transport will carry in a
     /// single message, excluding [`Self::header_size`] framing.
