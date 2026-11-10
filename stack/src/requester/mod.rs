@@ -20,6 +20,7 @@
 mod algorithms;
 mod attest;
 mod capabilities;
+mod chunk;
 mod version;
 
 pub use attest::Attestation;
@@ -115,7 +116,7 @@ impl Default for RequesterConfig {
         Self {
             versions: &[SpdmVersion::V14, SpdmVersion::V13, SpdmVersion::V12],
             ct_exponent: 0,
-            flags: CapFlags::CERT | CapFlags::CHAL | CapFlags::MEAS_SIG,
+            flags: CapFlags::CERT | CapFlags::CHAL | CapFlags::MEAS_SIG | CapFlags::CHUNK,
             data_transfer_size: BUF_LEN as u32,
             max_spdm_msg_size: BUF_LEN as u32,
             measurement_spec: MeasSpec::DMTF,

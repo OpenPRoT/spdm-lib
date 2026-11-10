@@ -215,13 +215,18 @@ impl<T: RequesterTransport, H: SpdmPalHash, R: SpdmPalRng, V: PeerVerifier>
     }
 
     /// Receive one response into an owned buffer; returns `(code, bytes, len)`.
+    /// An `ERROR(LargeResponse)` is followed through `CHUNK_GET` and the
+    /// reassembled response is returned as if it had arrived whole.
     fn recv(&mut self) -> PalResult<(ReqRespCode, [u8; BUF_LEN], usize)> {
-        let n = self.transport.recv(&mut self.buf)?;
+        let mut n = self.transport.recv(&mut self.buf)?;
         let mut msg = [0u8; BUF_LEN];
         if n > msg.len() {
             return Err(INVARIANT);
         }
         msg[..n].copy_from_slice(&self.buf[..n]);
+        if let Some(handle) = super::chunk::large_response_handle(&msg[..n]) {
+            n = self.fetch_large_response(handle, &mut msg)?;
+        }
         let (hdr, _) = SpdmMsgHdrPdu::ref_from_prefix(&msg[..n]).map_err(|_| INVARIANT)?;
         Ok((hdr.code, msg, n))
     }
