@@ -174,16 +174,11 @@ impl SpdmPalIoTransport for HostPal {
     }
 
     fn mtu(&self) -> usize {
-        // spdm-emu default max buffer; the stack caps DataTransferSize by this.
-        //
-        // NOTE: a smaller mtu forces oversized responses (cert chain,
-        // measurements) down the chunking path — the responder correctly emits
-        // a LARGE_RESPONSE error + chunk handle, but the large staging buffer
-        // (`alloc_large_buf`) is only allocated once the requester follows up
-        // with CHUNK_GET/CHUNK_SEND. The legacy requester example does not
-        // implement that follow-up, so chunking can't be exercised end-to-end
-        // yet. This is a requester-side gap to fix as the responder is ported
-        // forward, not a responder bug.
+        // The stack caps DataTransferSize by this. Kept at 4096 on purpose: any
+        // response larger than that (ML-DSA-87 CHALLENGE_AUTH and signed
+        // MEASUREMENTS are over 4.7 KB) goes down the chunking path, where the
+        // responder sends ERROR(LargeResponse) and serves CHUNK_GET. The PoC
+        // requester follows that up, so the path is exercised end to end.
         4096
     }
 
