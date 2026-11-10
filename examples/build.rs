@@ -17,9 +17,17 @@
 //! certificates below it (SPDM mutable-certificate OID). All keys are P-384 and
 //! all signatures ECDSA-with-SHA384.
 //!
+//! A second, post-quantum chain is generated alongside it for SPDM 1.4: a
+//! self-signed ML-DSA-87 root, then IDEVID → LDEVID → LEAF with the same shape
+//! and extensions as above. Every key is ML-DSA-87 and every signature is pure
+//! ML-DSA-87 with an empty context (RFC 9881). Unlike the classical hierarchy
+//! the root is generated here too, so it changes on every clean build.
+//!
 //! Outputs, in `OUT_DIR`:
 //! * `device_chain.der` — IDevID ‖ LDevID ‖ leaf, concatenated DER.
 //! * `leaf_key.bin` — the leaf's raw 48-byte P-384 private scalar.
+//! * `pq_chain.der` — ML-DSA-87 root ‖ IDevID ‖ LDevID ‖ leaf.
+//! * `pq_leaf_seed.bin` — the ML-DSA-87 leaf's 32-byte key seed.
 //!
 //! Cargo re-runs this script after `cargo clean` or when `certs/` or this file
 //! change, so every clean build gets fresh device keys and serial numbers.
@@ -28,6 +36,7 @@
 
 use std::{env, error::Error, fs, path::PathBuf, str::FromStr, time::SystemTime};
 
+use ml_dsa::{MlDsa87, SigningKey as PqKey, B32};
 use p384::ecdsa::{signature::hazmat::PrehashSigner, Signature, SigningKey};
 use p384::pkcs8::{DecodePrivateKey, EncodePublicKey};
 use rand::{rngs::OsRng, RngCore};
@@ -63,10 +72,70 @@ const SPDM_MUTABLE_CERTIFICATE: ObjectIdentifier =
 /// SPDM Responder Authentication EKU (DSP0274 §10.9.2.1).
 const SPDM_RESPONDER_AUTH: ObjectIdentifier = ObjectIdentifier::new_unwrap("1.3.6.1.4.1.412.274.3");
 
+/// id-ml-dsa-87 (RFC 9881); used as both key and signature algorithm, no parameters.
+const ML_DSA_87: ObjectIdentifier = ObjectIdentifier::new_unwrap("2.16.840.1.101.3.4.3.19");
+
+/// A key that can be certified and can sign certificates.
+enum Key {
+    Ec(SigningKey),
+    Pq(PqKey<MlDsa87>),
+}
+
+impl Key {
+    fn pq_random() -> (Self, [u8; 32]) {
+        let seed = random_bytes::<32>();
+        (Key::Pq(PqKey::<MlDsa87>::from_seed(&B32::from(seed))), seed)
+    }
+
+    fn spki(&self) -> Result<SubjectPublicKeyInfoOwned> {
+        Ok(match self {
+            Key::Ec(k) => SubjectPublicKeyInfoOwned::from_der(
+                k.verifying_key().to_public_key_der()?.as_bytes(),
+            )?,
+            Key::Pq(k) => SubjectPublicKeyInfoOwned {
+                algorithm: AlgorithmIdentifierOwned {
+                    oid: ML_DSA_87,
+                    parameters: None,
+                },
+                subject_public_key: BitString::from_bytes(
+                    &k.expanded_key().verifying_key().encode(),
+                )?,
+            },
+        })
+    }
+
+    fn sig_alg(&self) -> AlgorithmIdentifierOwned {
+        let oid = match self {
+            Key::Ec(_) => ECDSA_WITH_SHA384,
+            Key::Pq(_) => ML_DSA_87,
+        };
+        AlgorithmIdentifierOwned {
+            oid,
+            parameters: None,
+        }
+    }
+
+    /// Signature BIT STRING contents over `tbs`.
+    fn sign(&self, tbs: &[u8]) -> Result<Vec<u8>> {
+        Ok(match self {
+            Key::Ec(k) => {
+                let sig: Signature = k.sign_prehash(&Sha384::digest(tbs))?;
+                sig.to_der().as_bytes().to_vec()
+            }
+            Key::Pq(k) => k
+                .expanded_key()
+                .sign_deterministic(tbs, &[])
+                .map_err(|e| format!("ML-DSA sign: {e:?}"))?
+                .encode()
+                .to_vec(),
+        })
+    }
+}
+
 /// A certificate authority that can sign the next certificate down.
 struct Issuer {
     name: Name,
-    key: SigningKey,
+    key: Key,
     key_id: Vec<u8>,
 }
 
@@ -85,11 +154,11 @@ fn main() -> Result<()> {
     let serial = hex(&random_bytes::<8>());
     let device_info = format!("OPENPROT:SPDMLIB DEMO:{serial}");
 
-    let idevid_key = SigningKey::random(&mut OsRng);
+    let idevid_key = Key::Ec(SigningKey::random(&mut OsRng));
     let (idevid, idevid_issuer) = issue(
         "CN=SPDMLIB IDEVID DEMO",
         idevid_key,
-        &identity_signing,
+        Some(&identity_signing),
         vec![
             ext(
                 true,
@@ -107,11 +176,11 @@ fn main() -> Result<()> {
         ],
     )?;
 
-    let ldevid_key = SigningKey::random(&mut OsRng);
+    let ldevid_key = Key::Ec(SigningKey::random(&mut OsRng));
     let (ldevid, ldevid_issuer) = issue(
         "CN=SPDMLIB LDEVID DEMO",
         ldevid_key,
-        &idevid_issuer,
+        Some(&idevid_issuer),
         vec![
             ext(
                 true,
@@ -125,12 +194,15 @@ fn main() -> Result<()> {
         ],
     )?;
 
-    let leaf_key = SigningKey::random(&mut OsRng);
-    let leaf_scalar = leaf_key.to_bytes();
+    let leaf_key = Key::Ec(SigningKey::random(&mut OsRng));
+    let Key::Ec(ec_leaf) = &leaf_key else {
+        unreachable!()
+    };
+    let leaf_scalar = ec_leaf.to_bytes();
     let (leaf, _) = issue(
         "CN=SPDMLIB LEAF DEMO",
         leaf_key,
-        &ldevid_issuer,
+        Some(&ldevid_issuer),
         vec![
             ext(
                 true,
@@ -148,6 +220,77 @@ fn main() -> Result<()> {
     let chain = [idevid, ldevid, leaf].concat();
     fs::write(out.join("device_chain.der"), chain)?;
     fs::write(out.join("leaf_key.bin"), &leaf_scalar[..])?;
+
+    // ---- ML-DSA-87 chain: root → IDevID → LDevID → leaf ----
+    let ca_ext = |usage: x509_cert::der::flagset::FlagSet<KeyUsages>,
+                  extra: Vec<Extension>|
+     -> Result<Vec<Extension>> {
+        let mut v = vec![
+            ext(
+                true,
+                &BasicConstraints {
+                    ca: true,
+                    path_len_constraint: None,
+                },
+            )?,
+            ext(true, &KeyUsage(usage))?,
+        ];
+        v.extend(extra);
+        Ok(v)
+    };
+    let (root_key, _) = Key::pq_random();
+    let (pq_root, pq_root_iss) = issue(
+        "CN=SPDMLIB PQC ROOT DEMO",
+        root_key,
+        None,
+        ca_ext(KeyUsages::KeyCertSign.into(), vec![])?,
+    )?;
+    let (pq_idevid_key, _) = Key::pq_random();
+    let (pq_idevid, pq_idevid_iss) = issue(
+        "CN=SPDMLIB PQC IDEVID DEMO",
+        pq_idevid_key,
+        Some(&pq_root_iss),
+        ca_ext(
+            KeyUsages::KeyCertSign | KeyUsages::DigitalSignature,
+            vec![
+                ext(false, &device_info_san(&device_info)?)?,
+                spdm_extension(SPDM_HARDWARE_IDENTITY)?,
+            ],
+        )?,
+    )?;
+    let (pq_ldevid_key, _) = Key::pq_random();
+    let (pq_ldevid, pq_ldevid_iss) = issue(
+        "CN=SPDMLIB PQC LDEVID DEMO",
+        pq_ldevid_key,
+        Some(&pq_idevid_iss),
+        ca_ext(
+            KeyUsages::KeyCertSign.into(),
+            vec![spdm_extension(SPDM_MUTABLE_CERTIFICATE)?],
+        )?,
+    )?;
+    let (pq_leaf_key, pq_leaf_seed) = Key::pq_random();
+    let (pq_leaf, _) = issue(
+        "CN=SPDMLIB PQC LEAF DEMO",
+        pq_leaf_key,
+        Some(&pq_ldevid_iss),
+        vec![
+            ext(
+                true,
+                &BasicConstraints {
+                    ca: false,
+                    path_len_constraint: None,
+                },
+            )?,
+            ext(true, &KeyUsage(KeyUsages::DigitalSignature.into()))?,
+            ext(false, &ExtendedKeyUsage(vec![SPDM_RESPONDER_AUTH]))?,
+            spdm_extension(SPDM_MUTABLE_CERTIFICATE)?,
+        ],
+    )?;
+    fs::write(
+        out.join("pq_chain.der"),
+        [pq_root, pq_idevid, pq_ldevid, pq_leaf].concat(),
+    )?;
+    fs::write(out.join("pq_leaf_seed.bin"), pq_leaf_seed)?;
     Ok(())
 }
 
@@ -155,14 +298,18 @@ fn main() -> Result<()> {
 /// DER plus an [`Issuer`] that can sign the next level down.
 fn issue(
     subject: &str,
-    subject_key: SigningKey,
-    issuer: &Issuer,
+    subject_key: Key,
+    issuer: Option<&Issuer>,
     mut extensions: Vec<Extension>,
 ) -> Result<(Vec<u8>, Issuer)> {
     let subject = Name::from_str(subject)?;
-    let spki_der = subject_key.verifying_key().to_public_key_der()?;
-    let spki = SubjectPublicKeyInfoOwned::from_der(spki_der.as_bytes())?;
+    let spki = subject_key.spki()?;
     let key_id = key_id(&spki);
+    // `None` issuer: self-signed root.
+    let (issuer_name, signer, issuer_key_id) = match issuer {
+        Some(i) => (&i.name, &i.key, &i.key_id),
+        None => (&subject, &subject_key, &key_id),
+    };
 
     extensions.push(ext(
         false,
@@ -171,16 +318,13 @@ fn issue(
     extensions.push(ext(
         false,
         &AuthorityKeyIdentifier {
-            key_identifier: Some(OctetString::new(issuer.key_id.clone())?),
+            key_identifier: Some(OctetString::new(issuer_key_id.clone())?),
             authority_cert_issuer: None,
             authority_cert_serial_number: None,
         },
     )?);
 
-    let sig_alg = AlgorithmIdentifierOwned {
-        oid: ECDSA_WITH_SHA384,
-        parameters: None,
-    };
+    let sig_alg = signer.sig_alg();
     // Slot 0 certificates should not expire (DSP0274 1.4 §10.9.1).
     let not_after = GeneralizedTime::from_date_time(DateTime::new(9999, 12, 31, 23, 59, 59)?);
     let validity = Validity::<x509_cert::certificate::Rfc5280>::new(
@@ -193,19 +337,18 @@ fn issue(
         explicit(0, &2u8.to_der()?)?, // version v3
         SerialNumber::<x509_cert::certificate::Rfc5280>::new(&serial_number())?.to_der()?,
         sig_alg.to_der()?,
-        issuer.name.to_der()?,
+        issuer_name.to_der()?,
         validity.to_der()?,
         subject.to_der()?,
         spki.to_der()?,
         explicit(3, &extensions.to_der()?)?,
     ])?;
 
-    let digest = Sha384::digest(&tbs);
-    let signature: Signature = issuer.key.sign_prehash(&digest)?;
+    let signature = signer.sign(&tbs)?;
     let cert = sequence(&[
         tbs,
         sig_alg.to_der()?,
-        BitString::from_bytes(signature.to_der().as_bytes())?.to_der()?,
+        BitString::from_bytes(&signature)?.to_der()?,
     ])?;
 
     // Round-trip through the parser so a malformed certificate fails the build.
@@ -233,7 +376,7 @@ fn load_issuer(cert_der: &[u8], key_pkcs8_der: &[u8]) -> Result<Issuer> {
     let ski = SubjectKeyIdentifier::from_der(ski.extn_value.as_bytes())?;
     Ok(Issuer {
         name: tbs.subject().clone(),
-        key: SigningKey::from_pkcs8_der(key_pkcs8_der)?,
+        key: Key::Ec(SigningKey::from_pkcs8_der(key_pkcs8_der)?),
         key_id: ski.0.as_bytes().to_vec(),
     })
 }

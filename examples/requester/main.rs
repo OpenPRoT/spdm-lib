@@ -158,6 +158,10 @@ fn main() {
                 n.base_asym_sel.into_bits()
             );
             println!(
+                "[req]   pqc_asym_sel     : 0x{:08x}",
+                n.pqc_asym_sel.into_bits()
+            );
+            println!(
                 "[req]   base_hash_sel    : 0x{:08x}",
                 n.base_hash_sel.into_bits()
             );
