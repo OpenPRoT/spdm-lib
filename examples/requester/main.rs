@@ -111,6 +111,8 @@ fn spdm_name(msg: &[u8]) -> String {
         0xE0 => "GET_MEASUREMENTS",
         0x60 => "MEASUREMENTS",
         0x7F => "ERROR",
+        0x86 => "CHUNK_GET",
+        0x06 => "CHUNK_RESPONSE",
         _ => "UNKNOWN",
     };
     format!("{name} (v1.{}, {} bytes)", msg[0] & 0x0f, msg.len())
