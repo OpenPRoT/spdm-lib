@@ -3,11 +3,11 @@
 //! Requester step: `NEGOTIATE_ALGORITHMS` → `ALGORITHMS` (DSP0274 §10.4).
 
 use spdm_codec::{
-    AlgStructEntry, NegotiateAlgorithmsReq, ParsedAlgorithmsRsp, ReqRespCode, RequestBody,
-    SpdmMsgHdrPdu, SpdmVersion, WireWriter,
+    AlgStructEntry, NegotiateAlgorithmsReq, ParsedAlgorithmsRsp, PqcAsymAlgos, ReqRespCode,
+    RequestBody, SpdmMsgHdrPdu, SpdmVersion, WireWriter,
 };
 use spdm_errors::{codes::INVARIANT, PalResult};
-use spdm_traits::{SpdmPalHash, SpdmPalRng};
+use spdm_traits::{SpdmPalAsymAlgo, SpdmPalHash, SpdmPalRng};
 use zerocopy::FromBytes;
 
 use super::{PeerVerifier, RequesterTransport, SpdmRequester};
@@ -25,6 +25,12 @@ impl<T: RequesterTransport, H: SpdmPalHash, R: SpdmPalRng, V: PeerVerifier>
             other_param_support: cfg.other_param_support,
             base_asym_algo: cfg.base_asym_algo,
             base_hash_algo: cfg.base_hash_algo,
+            // The PQC field is reserved before 1.4.
+            pqc_asym_algo: if version >= SpdmVersion::V14 {
+                cfg.pqc_asym_algo
+            } else {
+                PqcAsymAlgos::EMPTY
+            },
             alg_structs: [
                 Some(AlgStructEntry::dhe(cfg.dhe)),
                 Some(AlgStructEntry::aead(cfg.aead)),
@@ -61,6 +67,20 @@ impl<T: RequesterTransport, H: SpdmPalHash, R: SpdmPalRng, V: PeerVerifier>
         let parsed = ParsedAlgorithmsRsp::parse(body).map_err(|_| INVARIANT)?;
         // ALGORITHMS response contributes to VCA.
         self.append_vca(msg)?;
+
+        // The connection signs with exactly one algorithm. Accept only what we
+        // offered; anything else (or a PQC choice before 1.4) is a protocol error.
+        self.sig_algo = if version >= SpdmVersion::V14 && !parsed.pqc_asym_sel.is_empty() {
+            if !parsed.base_asym_sel.is_empty()
+                || parsed.pqc_asym_sel.into_bits() != PqcAsymAlgos::ML_DSA_87.into_bits()
+                || !cfg.pqc_asym_algo.contains(PqcAsymAlgos::ML_DSA_87)
+            {
+                return Err(INVARIANT);
+            }
+            SpdmPalAsymAlgo::MlDsa87
+        } else {
+            SpdmPalAsymAlgo::EccP384
+        };
         Ok(parsed)
     }
 }

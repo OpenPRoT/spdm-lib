@@ -161,13 +161,29 @@ impl<'a> ParsedChallengeAuth<'a> {
         has_meas_summary: bool,
         has_requester_context: bool,
     ) -> Result<Self, WireError> {
+        Self::parse_with_sig_len(
+            body,
+            has_meas_summary,
+            has_requester_context,
+            ECC_P384_SIGNATURE_SIZE,
+        )
+    }
+
+    /// As [`parse`](Self::parse), for a signature of `sig_len` bytes (e.g.
+    /// [`MLDSA87_SIGNATURE_SIZE`](crate::MLDSA87_SIGNATURE_SIZE)).
+    pub fn parse_with_sig_len(
+        body: &'a [u8],
+        has_meas_summary: bool,
+        has_requester_context: bool,
+        sig_len: usize,
+    ) -> Result<Self, WireError> {
         // Fixed leading fields: slot(1) + slotmask(1) + cert_chain_hash(48)
         // + nonce(32) [+ meas_summary(48)] + opaque_len(2) [+ req_ctx(8)]
         // + signature(96).
-        if body.len() < ECC_P384_SIGNATURE_SIZE {
+        if body.len() < sig_len {
             return Err(WireError);
         }
-        let no_sig_len = body.len() - ECC_P384_SIGNATURE_SIZE;
+        let no_sig_len = body.len() - sig_len;
         let no_sig_prefix = &body[..no_sig_len];
         let signature = &body[no_sig_len..];
 
@@ -404,6 +420,29 @@ mod tests {
         let mut buf = [0u8; 182];
         let mut w = WireWriter::new(&mut buf);
         assert!(rsp.encode_with_header(SpdmVersion::V12, &mut w).is_err());
+    }
+
+    #[test]
+    fn parse_with_sig_len_splits_off_a_pqc_signature() {
+        const PREFIX: usize = 2 + SHA384_HASH_SIZE + SPDM_NONCE_LEN + 2;
+        let mut b = [0u8; PREFIX + crate::MLDSA87_SIGNATURE_SIZE];
+        b[PREFIX..].fill(0xA5);
+        let p = ParsedChallengeAuth::parse_with_sig_len(
+            &b,
+            false,
+            false,
+            crate::MLDSA87_SIGNATURE_SIZE,
+        )
+        .unwrap();
+        assert_eq!(p.signature.len(), crate::MLDSA87_SIGNATURE_SIZE);
+        // A body shorter than the signature is rejected.
+        assert!(ParsedChallengeAuth::parse_with_sig_len(
+            &b[..100],
+            false,
+            false,
+            crate::MLDSA87_SIGNATURE_SIZE
+        )
+        .is_err());
     }
 
     // ---- ParsedChallengeAuth::parse: malformed input -----------------------

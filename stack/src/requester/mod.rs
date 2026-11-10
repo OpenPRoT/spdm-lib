@@ -26,10 +26,10 @@ pub use attest::Attestation;
 
 use spdm_codec::{
     AeadAlgos, AsymAlgos, CapFlags, DheAlgos, HashAlgos, KeyScheduleAlgos, MeasHashAlgos, MeasSpec,
-    OtherParamSupport, SpdmVersion,
+    OtherParamSupport, PqcAsymAlgos, SpdmVersion,
 };
 use spdm_errors::PalResult;
-use spdm_traits::{SpdmPalHash, SpdmPalIo, SpdmPalIoKind, SpdmPalRng};
+use spdm_traits::{SpdmPalAsymAlgo, SpdmPalHash, SpdmPalIo, SpdmPalIoKind, SpdmPalRng};
 
 use crate::transcript::Transcript;
 
@@ -68,6 +68,18 @@ pub trait PeerVerifier {
     /// was signed with the prehash variant) using `key`. `sig` is the fixed
     /// 96-byte r‖s encoding.
     fn verify_p384(&self, key: &Self::PubKey, tbs: &[u8; 48], sig: &[u8]) -> PalResult<()>;
+
+    /// Verify a pure ML-DSA-87 (FIPS 204) signature over `message` under the
+    /// FIPS 204 context string `context` (the SPDM operation string). `sig` is
+    /// the 4627-byte signature. `message` is `SPDM signing context ‖ transcript
+    /// hash`, the same raw message the Responder signs.
+    fn verify_mldsa87(
+        &self,
+        key: &Self::PubKey,
+        context: &[u8],
+        message: &[u8],
+        sig: &[u8],
+    ) -> PalResult<()>;
 }
 
 /// The requester's local policy — what it offers during VCA.
@@ -84,6 +96,10 @@ pub struct RequesterConfig {
     pub other_param_support: OtherParamSupport,
     pub base_asym_algo: AsymAlgos,
     pub base_hash_algo: HashAlgos,
+    /// PQC algorithms offered at SPDM 1.4 and later (ignored below 1.4). A
+    /// Responder that supports one selects it in place of a classical
+    /// algorithm.
+    pub pqc_asym_algo: PqcAsymAlgos,
     pub dhe: DheAlgos,
     pub aead: AeadAlgos,
     pub key_schedule: KeyScheduleAlgos,
@@ -92,18 +108,21 @@ pub struct RequesterConfig {
 impl Default for RequesterConfig {
     /// Defaults mirror the responder's fixed policy (`ConnectionState::caliptra`)
     /// so a VCA exchange between our own requester and responder negotiates
-    /// cleanly: ECDSA-P384 / SHA-384 / SECP384R1 / AES-256-GCM.
+    /// cleanly: ECDSA-P384 / SHA-384 / SECP384R1 / AES-256-GCM, plus ML-DSA-87 at
+    /// SPDM 1.4. Buffers hold an ML-DSA-87 CHALLENGE_AUTH (over 4 KiB), so the
+    /// advertised transfer sizes are [`BUF_LEN`].
     fn default() -> Self {
         Self {
             versions: &[SpdmVersion::V14, SpdmVersion::V13, SpdmVersion::V12],
             ct_exponent: 0,
             flags: CapFlags::CERT | CapFlags::CHAL | CapFlags::MEAS_SIG,
-            data_transfer_size: 4096,
-            max_spdm_msg_size: 4096,
+            data_transfer_size: BUF_LEN as u32,
+            max_spdm_msg_size: BUF_LEN as u32,
             measurement_spec: MeasSpec::DMTF,
             other_param_support: OtherParamSupport::OPAQUE_DATA_FMT1,
             base_asym_algo: AsymAlgos::ECDSA_ECC_NIST_P384,
             base_hash_algo: HashAlgos::SHA_384,
+            pqc_asym_algo: PqcAsymAlgos::ML_DSA_87,
             dhe: DheAlgos::SECP_384_R1,
             aead: AeadAlgos::AES_256_GCM,
             key_schedule: KeyScheduleAlgos::SPDM,
@@ -123,6 +142,8 @@ pub struct Negotiated {
     /// Negotiated selections from ALGORITHMS.
     pub base_asym_sel: AsymAlgos,
     pub base_hash_sel: HashAlgos,
+    /// PQC selection (1.4); empty when a classical algorithm was selected.
+    pub pqc_asym_sel: PqcAsymAlgos,
     pub meas_hash_algo: MeasHashAlgos,
     pub dhe_sel: DheAlgos,
     pub aead_sel: AeadAlgos,
@@ -130,7 +151,11 @@ pub struct Negotiated {
 }
 
 /// Scratch buffer size for building requests / receiving responses.
-const BUF_LEN: usize = 4096;
+const BUF_LEN: usize = 8192;
+
+/// Capacity for a reassembled certificate chain. An ML-DSA-87 chain of four
+/// certificates is about 30 KiB.
+const CHAIN_BUF_LEN: usize = 40 * 1024;
 
 /// Minimal [`SpdmPalIo`] shim for the requester's hash calls.
 ///
@@ -165,6 +190,8 @@ pub struct SpdmRequester<T: RequesterTransport, H: SpdmPalHash, R: SpdmPalRng, V
     /// Common SPDM version negotiated during VCA (defaults to V1.0 for the
     /// initial GET_VERSION per DSP0274).
     version: SpdmVersion,
+    /// Signature algorithm selected during VCA; ECDSA P-384 until negotiated.
+    sig_algo: SpdmPalAsymAlgo,
     /// VCA/M1/L1 transcript, mirrored byte-for-byte against the responder.
     transcript: Transcript<H::State>,
 }
@@ -193,6 +220,7 @@ impl<T: RequesterTransport, H: SpdmPalHash, R: SpdmPalRng, V: PeerVerifier>
             config,
             buf: [0u8; BUF_LEN],
             version: SpdmVersion::V10,
+            sig_algo: SpdmPalAsymAlgo::EccP384,
             transcript: Transcript::new(),
         }
     }
@@ -209,6 +237,7 @@ impl<T: RequesterTransport, H: SpdmPalHash, R: SpdmPalRng, V: PeerVerifier>
             peer_max_spdm_msg_size: peer_max,
             base_asym_sel: algs.base_asym_sel,
             base_hash_sel: algs.base_hash_sel,
+            pqc_asym_sel: algs.pqc_asym_sel,
             meas_hash_algo: algs.meas_hash_algo,
             dhe_sel: algs.dhe,
             aead_sel: algs.aead,

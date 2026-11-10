@@ -285,6 +285,16 @@ impl<'a> ParsedMeasurementsRsp<'a> {
         has_requester_context: bool,
     ) -> Result<Self, WireError> {
         let sig_len = if signed { ECC_P384_SIGNATURE_SIZE } else { 0 };
+        Self::parse_with_sig_len(body, sig_len, has_requester_context)
+    }
+
+    /// As [`parse`](Self::parse), with an explicit trailing signature length
+    /// (0 if unsigned), e.g. [`MLDSA87_SIGNATURE_SIZE`](crate::MLDSA87_SIGNATURE_SIZE).
+    pub fn parse_with_sig_len(
+        body: &'a [u8],
+        sig_len: usize,
+        has_requester_context: bool,
+    ) -> Result<Self, WireError> {
         if body.len() < sig_len {
             return Err(WireError);
         }

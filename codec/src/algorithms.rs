@@ -194,6 +194,9 @@ pub struct NegotiateAlgorithmsReq {
     pub other_param_support: OtherParamSupport,
     pub base_asym_algo: AsymAlgos,
     pub base_hash_algo: HashAlgos,
+    /// PQC algorithms offered (V1.4). Must be empty for earlier versions, where
+    /// the field is reserved.
+    pub pqc_asym_algo: PqcAsymAlgos,
     /// AlgStruct entries to offer; `None` slots are skipped.
     pub alg_structs: [Option<AlgStructEntry>; MAX_ALG_STRUCT_ENTRIES],
 }
@@ -223,8 +226,7 @@ impl RequestBody for NegotiateAlgorithmsReq {
             other_param_support: self.other_param_support,
             base_asym_algo: self.base_asym_algo,
             base_hash_algo: self.base_hash_algo,
-            // This Requester offers classical algorithms only.
-            pqc_asym_algo: PqcAsymAlgos::EMPTY,
+            pqc_asym_algo: self.pqc_asym_algo,
             reserved1: [0; 8],
             ext_asym_count: 0,
             ext_hash_count: 0,
@@ -385,6 +387,8 @@ pub struct ParsedAlgorithmsRsp {
     pub meas_hash_algo: MeasHashAlgos,
     pub base_asym_sel: AsymAlgos,
     pub base_hash_sel: HashAlgos,
+    /// PQC selection (V1.4); empty when a classical algorithm was selected.
+    pub pqc_asym_sel: PqcAsymAlgos,
     /// DHE selection from the DHE AlgStruct, if present.
     pub dhe: DheAlgos,
     /// AEAD selection from the AEAD AlgStruct, if present.
@@ -407,6 +411,7 @@ impl ParsedAlgorithmsRsp {
             meas_hash_algo: fixed.meas_hash_algo,
             base_asym_sel: fixed.base_asym_sel,
             base_hash_sel: fixed.base_hash_sel,
+            pqc_asym_sel: fixed.pqc_asym_sel,
             dhe: DheAlgos::EMPTY,
             aead: AeadAlgos::EMPTY,
             key_schedule: KeyScheduleAlgos::EMPTY,
@@ -448,6 +453,7 @@ mod tests {
             other_param_support: OtherParamSupport::OPAQUE_DATA_FMT1,
             base_asym_algo: AsymAlgos::ECDSA_ECC_NIST_P384,
             base_hash_algo: HashAlgos::SHA_384,
+            pqc_asym_algo: PqcAsymAlgos::EMPTY,
             alg_structs: three_structs(),
         };
 
@@ -481,12 +487,30 @@ mod tests {
     }
 
     #[test]
+    fn test_negotiate_algorithms_req_encodes_pqc_offer() {
+        let req = NegotiateAlgorithmsReq {
+            measurement_spec: MeasSpec::DMTF,
+            other_param_support: OtherParamSupport::EMPTY,
+            base_asym_algo: AsymAlgos::ECDSA_ECC_NIST_P384,
+            base_hash_algo: HashAlgos::SHA_384,
+            pqc_asym_algo: PqcAsymAlgos::ML_DSA_87,
+            alg_structs: [None; MAX_ALG_STRUCT_ENTRIES],
+        };
+        let mut buf = [0u8; 64];
+        let mut w = WireWriter::new(&mut buf);
+        req.encode_with_header(SpdmVersion::V14, &mut w).unwrap();
+        // 2-byte header + body offset 14: PqcAsymAlgo, little-endian ML_DSA_87 = 1 << 2.
+        assert_eq!(&buf[16..20], &[0x04, 0, 0, 0]);
+    }
+
+    #[test]
     fn test_negotiate_algorithms_req_no_alg_structs() {
         let req = NegotiateAlgorithmsReq {
             measurement_spec: MeasSpec::DMTF,
             other_param_support: OtherParamSupport::EMPTY,
             base_asym_algo: AsymAlgos::ECDSA_ECC_NIST_P256,
             base_hash_algo: HashAlgos::SHA_256,
+            pqc_asym_algo: PqcAsymAlgos::EMPTY,
             alg_structs: [None; MAX_ALG_STRUCT_ENTRIES],
         };
         // Body = 30 + 0 entries; wire = 2 + 30 = 32 bytes (0x20).
@@ -505,6 +529,7 @@ mod tests {
             other_param_support: OtherParamSupport::EMPTY,
             base_asym_algo: AsymAlgos::ECDSA_ECC_NIST_P384,
             base_hash_algo: HashAlgos::SHA_384,
+            pqc_asym_algo: PqcAsymAlgos::EMPTY,
             alg_structs: three_structs(),
         };
         // Needs 44 bytes; 43 is one short, so the last AlgStruct write fails.
@@ -559,20 +584,32 @@ mod tests {
         );
 
         let parsed = ParsedAlgorithmsRsp::parse(&buf[2..]).unwrap();
-        assert_eq!(parsed.measurement_spec_sel.into_bits(), MeasSpec::DMTF.into_bits());
+        assert_eq!(
+            parsed.measurement_spec_sel.into_bits(),
+            MeasSpec::DMTF.into_bits()
+        );
         assert_eq!(
             parsed.other_param_support.into_bits(),
             OtherParamSupport::OPAQUE_DATA_FMT1.into_bits()
         );
-        assert_eq!(parsed.meas_hash_algo.into_bits(), MeasHashAlgos::SHA_384.into_bits());
+        assert_eq!(
+            parsed.meas_hash_algo.into_bits(),
+            MeasHashAlgos::SHA_384.into_bits()
+        );
         assert_eq!(
             parsed.base_asym_sel.into_bits(),
             AsymAlgos::ECDSA_ECC_NIST_P384.into_bits()
         );
-        assert_eq!(parsed.base_hash_sel.into_bits(), HashAlgos::SHA_384.into_bits());
+        assert_eq!(
+            parsed.base_hash_sel.into_bits(),
+            HashAlgos::SHA_384.into_bits()
+        );
         assert_eq!(parsed.dhe.into_bits(), DheAlgos::SECP_384_R1.into_bits());
         assert_eq!(parsed.aead.into_bits(), AeadAlgos::AES_256_GCM.into_bits());
-        assert_eq!(parsed.key_schedule.into_bits(), KeyScheduleAlgos::SPDM.into_bits());
+        assert_eq!(
+            parsed.key_schedule.into_bits(),
+            KeyScheduleAlgos::SPDM.into_bits()
+        );
     }
 
     #[test]
