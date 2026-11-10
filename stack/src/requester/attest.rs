@@ -15,16 +15,16 @@ use spdm_codec::{
     ChallengeReq, GetCertificateReqBuilder, GetDigestsReqBody, GetMeasurementsReq,
     ParsedCertificateRsp, ParsedChallengeAuth, ParsedDigestsRsp, ParsedMeasurementsRsp,
     ReqRespCode, RequestBody, SpdmMsgHdrPdu, SpdmVersion, WireWriter, ECC_P384_SIGNATURE_SIZE,
-    MEAS_ATTR_SIGNATURE_REQUESTED, MEAS_OP_ALL, REQUESTER_CONTEXT_LEN, SHA384_HASH_SIZE,
-    SPDM_NONCE_LEN,
+    MEAS_ATTR_SIGNATURE_REQUESTED, MEAS_OP_ALL, MLDSA87_SIGNATURE_SIZE, REQUESTER_CONTEXT_LEN,
+    SHA384_HASH_SIZE, SPDM_NONCE_LEN, SPDM_SIGNING_CONTEXT_LEN,
 };
 use spdm_errors::{codes::INVARIANT, PalResult};
-use spdm_traits::{SpdmPalHash, SpdmPalRng};
+use spdm_traits::{SpdmPalAsymAlgo, SpdmPalHash, SpdmPalRng};
 use zerocopy::FromBytes;
 
 use crate::signing::{build_signing_context, compute_tbs_hash, OP_CHALLENGE_AUTH, OP_MEASUREMENTS};
 
-use super::{NullIo, PeerVerifier, RequesterTransport, SpdmRequester, BUF_LEN};
+use super::{NullIo, PeerVerifier, RequesterTransport, SpdmRequester, BUF_LEN, CHAIN_BUF_LEN};
 
 /// SPDM cert-chain wire header: length(2) | reserved(2) | root_hash(48).
 const SPDM_CERT_CHAIN_HDR_LEN: usize = 4 + SHA384_HASH_SIZE;
@@ -72,7 +72,7 @@ impl<T: RequesterTransport, H: SpdmPalHash, R: SpdmPalRng, V: PeerVerifier>
     /// GET_CERTIFICATE (chunked) → reassemble raw DER chain → validate chain →
     /// return leaf public key. Feeds every request/response into M1.
     fn get_certificate(&mut self, slot_id: u8) -> PalResult<V::PubKey> {
-        let mut chain = [0u8; BUF_LEN];
+        let mut chain = [0u8; CHAIN_BUF_LEN];
         let mut total: usize = 0;
         let mut offset: u16 = 0;
         let version = self.version;
@@ -82,7 +82,11 @@ impl<T: RequesterTransport, H: SpdmPalHash, R: SpdmPalRng, V: PeerVerifier>
                 slot_id,
                 attributes: 0,
                 offset,
-                length: 0xFFFF, // request as much as the responder will give
+                // Ask for what one response can carry (8 bytes of CERTIFICATE
+                // framing), or a large chain draws ResponseTooLarge.
+                length: (self.config.data_transfer_size as usize)
+                    .saturating_sub(8)
+                    .min(0xFFFF) as u16,
             };
             let (req_buf, req_len) = self.build(&req, version)?;
             self.transport.send(&req_buf[..req_len])?;
@@ -137,23 +141,20 @@ impl<T: RequesterTransport, H: SpdmPalHash, R: SpdmPalRng, V: PeerVerifier>
         if code != ReqRespCode::CHALLENGE_AUTH {
             return Err(INVARIANT);
         }
-        let parsed = ParsedChallengeAuth::parse(
+        let parsed = ParsedChallengeAuth::parse_with_sig_len(
             &msg[SpdmMsgHdrPdu::SIZE..n],
             false,
             requester_context.is_some(),
+            self.sig_len(),
         )
         .map_err(|_| INVARIANT)?;
 
-        let mut sig = [0u8; ECC_P384_SIGNATURE_SIZE];
-        if parsed.signature.len() != ECC_P384_SIGNATURE_SIZE {
-            return Err(INVARIANT);
-        }
-        sig.copy_from_slice(parsed.signature);
+        let sig = parsed.signature;
         // M1 covers header + body-without-signature.
         let m1_len = SpdmMsgHdrPdu::SIZE + parsed.no_sig_prefix.len();
 
-        let tbs = self.finalize_and_tbs_m1(&msg, m1_len, version)?;
-        self.verifier.verify_p384(pubkey, &tbs, &sig)
+        let m1_hash = self.finalize_m1(&msg, m1_len)?;
+        self.verify_signature(pubkey, version, OP_CHALLENGE_AUTH, &m1_hash, sig)
     }
 
     /// GET_MEASUREMENTS (signed, all blocks) → MEASUREMENTS, verifying the L1
@@ -180,23 +181,19 @@ impl<T: RequesterTransport, H: SpdmPalHash, R: SpdmPalRng, V: PeerVerifier>
         if code != ReqRespCode::MEASUREMENTS {
             return Err(INVARIANT);
         }
-        let parsed = ParsedMeasurementsRsp::parse(
+        let parsed = ParsedMeasurementsRsp::parse_with_sig_len(
             &msg[SpdmMsgHdrPdu::SIZE..n],
-            true,
+            self.sig_len(),
             requester_context.is_some(),
         )
         .map_err(|_| INVARIANT)?;
 
-        let mut sig = [0u8; ECC_P384_SIGNATURE_SIZE];
-        if parsed.signature.len() != ECC_P384_SIGNATURE_SIZE {
-            return Err(INVARIANT);
-        }
-        sig.copy_from_slice(parsed.signature);
+        let sig = parsed.signature;
         let blocks = parsed.number_of_blocks;
         let l1_len = SpdmMsgHdrPdu::SIZE + parsed.no_sig_prefix.len();
 
-        let tbs = self.finalize_and_tbs_l1(&msg, l1_len, version)?;
-        self.verifier.verify_p384(pubkey, &tbs, &sig)?;
+        let l1_hash = self.finalize_l1(&msg, l1_len)?;
+        self.verify_signature(pubkey, version, OP_MEASUREMENTS, &l1_hash, sig)?;
         Ok(blocks)
     }
 
@@ -244,13 +241,49 @@ impl<T: RequesterTransport, H: SpdmPalHash, R: SpdmPalRng, V: PeerVerifier>
         self.append_l1(&tmp[..len])
     }
 
+    /// Signature length for the negotiated algorithm.
+    fn sig_len(&self) -> usize {
+        match self.sig_algo {
+            SpdmPalAsymAlgo::EccP384 => ECC_P384_SIGNATURE_SIZE,
+            SpdmPalAsymAlgo::MlDsa87 => MLDSA87_SIGNATURE_SIZE,
+        }
+    }
+
+    /// Verifies `sig` over transcript hash `hash` for operation `op` with the
+    /// negotiated algorithm: ECDSA P-384 over the TBS digest, or ML-DSA-87 over
+    /// the raw `signing context ‖ hash` message with `op` as the FIPS 204 context.
+    fn verify_signature(
+        &self,
+        pubkey: &V::PubKey,
+        version: SpdmVersion,
+        op: &'static [u8],
+        hash: &[u8; SHA384_HASH_SIZE],
+        sig: &[u8],
+    ) -> PalResult<()> {
+        if sig.len() != self.sig_len() {
+            return Err(INVARIANT);
+        }
+        let ctx = build_signing_context(version, op);
+        match self.sig_algo {
+            SpdmPalAsymAlgo::EccP384 => {
+                let tbs = compute_tbs_hash(&self.hash, &NullIo, &ctx, hash)?;
+                self.verifier.verify_p384(pubkey, &tbs, sig)
+            }
+            SpdmPalAsymAlgo::MlDsa87 => {
+                let mut message = [0u8; SPDM_SIGNING_CONTEXT_LEN + SHA384_HASH_SIZE];
+                message[..SPDM_SIGNING_CONTEXT_LEN].copy_from_slice(&ctx);
+                message[SPDM_SIGNING_CONTEXT_LEN..].copy_from_slice(hash);
+                self.verifier.verify_mldsa87(pubkey, op, &message, sig)
+            }
+        }
+    }
+
     /// Append `msg[..m1_len]` (header + body-without-sig) to M1, finalize M1,
-    /// and return the TBS digest for CHALLENGE_AUTH.
-    fn finalize_and_tbs_m1(
+    /// and return the M1 hash.
+    fn finalize_m1(
         &mut self,
         msg: &[u8; BUF_LEN],
         m1_len: usize,
-        version: SpdmVersion,
     ) -> PalResult<[u8; SHA384_HASH_SIZE]> {
         let mut prefix = [0u8; BUF_LEN];
         prefix[..m1_len].copy_from_slice(&msg[..m1_len]);
@@ -258,16 +291,14 @@ impl<T: RequesterTransport, H: SpdmPalHash, R: SpdmPalRng, V: PeerVerifier>
         let mut m1_hash = [0u8; SHA384_HASH_SIZE];
         self.transcript
             .finalize_m1(&self.hash, &NullIo, &mut m1_hash)?;
-        let ctx = build_signing_context(version, OP_CHALLENGE_AUTH);
-        compute_tbs_hash(&self.hash, &NullIo, &ctx, &m1_hash)
+        Ok(m1_hash)
     }
 
-    /// Append `msg[..l1_len]` to L1, finalize L1, return the MEASUREMENTS TBS.
-    fn finalize_and_tbs_l1(
+    /// Append `msg[..l1_len]` to L1, finalize L1, return the L1 hash.
+    fn finalize_l1(
         &mut self,
         msg: &[u8; BUF_LEN],
         l1_len: usize,
-        version: SpdmVersion,
     ) -> PalResult<[u8; SHA384_HASH_SIZE]> {
         let mut prefix = [0u8; BUF_LEN];
         prefix[..l1_len].copy_from_slice(&msg[..l1_len]);
@@ -275,7 +306,6 @@ impl<T: RequesterTransport, H: SpdmPalHash, R: SpdmPalRng, V: PeerVerifier>
         let mut l1_hash = [0u8; SHA384_HASH_SIZE];
         self.transcript
             .finalize_l1(&self.hash, &NullIo, &mut l1_hash)?;
-        let ctx = build_signing_context(version, OP_MEASUREMENTS);
-        compute_tbs_hash(&self.hash, &NullIo, &ctx, &l1_hash)
+        Ok(l1_hash)
     }
 }
