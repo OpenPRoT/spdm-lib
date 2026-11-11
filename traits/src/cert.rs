@@ -1,6 +1,6 @@
 // Licensed under the Apache-2.0 license
 
-//! SPDM cert-store abstraction (DSP0274 §10.5 / §10.6).
+//! SPDM cert-store abstraction.
 //!
 //! All cert-chain methods take an [`SpdmPalAsymAlgo`] parameter
 //! so each slot can hold chains and signing keys for multiple algorithms
@@ -29,8 +29,7 @@ pub enum SigningInput<'a> {
     },
 }
 
-/// Maximum number of cert-chain slots the responder advertises.
-/// DSP0274 §10.5 caps this at 8 (`SlotMask` is one byte).
+/// Maximum number of cert-chain slots the responder advertises (`SlotMask` is one byte).
 pub const MAX_SLOTS: u8 = 8;
 
 /// Asymmetric algorithm selector.
@@ -56,43 +55,14 @@ impl SpdmPalAsymAlgo {
     }
 }
 
-/// Endorsement certificate chain provider for a single slot.
-///
-/// Integrators implement this for each endorsement type:
-/// - `ReadOnlyEndorsement` — static root CA certs (slot 0)
-/// - `MutableEndorsement` — flash-backed certs (slots 1-2, SET_CERTIFICATE)
-///
-/// The PAL uses this to compose the full SPDM cert chain:
-/// `endorsement (this) + DPE device chain + leaf (CertifyKey)`
-pub trait EndorsementCertChain {
-    /// Hash of the root certificate under the given algorithm.
-    fn root_cert_hash(&self, algo: SpdmPalAsymAlgo, out: &mut [u8]) -> PalResult<()>;
-
-    /// Total byte length of the endorsement cert chain for the
-    /// given algorithm.
-    fn size(&mut self, algo: SpdmPalAsymAlgo) -> PalResult<usize>;
-
-    /// Read endorsement chain bytes at `offset` into `buf`.
-    /// Returns bytes written.
-    fn read(&mut self, algo: SpdmPalAsymAlgo, offset: usize, buf: &mut [u8]) -> PalResult<usize>;
-
-    /// Write endorsement cert chain data for the given algorithm.
-    /// `ReadOnlyEndorsement` rejects this; `MutableEndorsement`
-    /// persists to flash.
-    fn write(&mut self, algo: SpdmPalAsymAlgo, data: &[u8]) -> PalResult<()>;
-
-    /// Erase the endorsement cert chain for the given algorithm.
-    fn erase(&mut self, algo: SpdmPalAsymAlgo) -> PalResult<()>;
-}
-
 /// Slot-indexed cert-store backend.
 pub trait SpdmPalCertStore: crate::SpdmPalIoTransport {
     /// Bitmask of supported slots, bits 0..=7.
     fn supported_slots(&self) -> u8;
 
     /// Bitmask of slots provisioned with a cert chain for `algo`, bits
-    /// 0..=7. Drives DIGESTS's `ProvisionedSlotMask` (DSP0274 §10.5
-    /// Table 25) and gates every slot-addressed read path.
+    /// 0..=7. Drives DIGESTS's `ProvisionedSlotMask` and gates every
+    /// slot-addressed read path.
     ///
     /// A connection negotiates exactly one asymmetric algorithm, so a
     /// slot holding no chain for `algo` reports as unprovisioned: the
@@ -171,13 +141,10 @@ pub trait SpdmPalCertStore: crate::SpdmPalIoTransport {
     ) -> PalResult<usize>;
 
     /// Sign the caller-prepared input using the key in `slot`.
-    ///
-    /// `algo` must identify the same DPE profile as `signing_input`.
     fn sign(
         &self,
         io: &Self::Io<'_>,
         slot: u8,
-        algo: SpdmPalAsymAlgo,
         signing_input: SigningInput<'_>,
         signature: &mut [u8],
     ) -> PalResult<usize>;
@@ -310,7 +277,4 @@ pub trait SpdmPalCertStore: crate::SpdmPalIoTransport {
         _digest: &[u8],
     ) {
     }
-
-    /// Fill `out` with random bytes from the platform RNG.
-    fn generate_nonce(&self, io: &Self::Io<'_>, out: &mut [u8]) -> PalResult<()>;
 }

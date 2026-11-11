@@ -10,7 +10,7 @@
 use spdm_errors::{domain, PalErrorCode};
 use spdm_errors::{spdm_wire, SUBDOMAIN_LOCAL};
 
-// ---- SPDM wire errors (DSP0274 §10.10.2) ------------------------------------
+// ---- SPDM wire errors (DSP0274) ---------------------------------------------
 
 pub const SPDM_INVALID_REQUEST: PalErrorCode = spdm_wire(0x01);
 pub const SPDM_BUSY: PalErrorCode = spdm_wire(0x03);

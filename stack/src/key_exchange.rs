@@ -506,13 +506,7 @@ fn key_exchange_inner<'a, Pal: SpdmPal, const N: usize>(
     build_signing_context(state.version, signing_ctx);
     compute_tbs_hash(pal, io, signing_ctx, th1).map_err(|_| SPDM_UNSPECIFIED)?;
     let written = pal
-        .sign(
-            io,
-            slot_id,
-            asym_algo,
-            SigningInput::EccP384Digest(th1),
-            sig_slot,
-        )
+        .sign(io, slot_id, SigningInput::EccP384Digest(th1), sig_slot)
         .map_err(|_| SPDM_UNSPECIFIED)?;
     if written != sig_len {
         return Err(SPDM_UNSPECIFIED);

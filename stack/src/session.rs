@@ -374,3 +374,149 @@ impl<K: Clone, S, B: Deref<Target = SessionInfo<K, S>> + DerefMut, const N: usiz
         Err(SPDM_SESSION_LIMIT_EXCEEDED)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    extern crate std;
+
+    use super::*;
+    use spdm_traits::{SpdmPalHashAlgo, SpdmPalIoKind};
+    use std::boxed::Box;
+    use std::vec::Vec;
+
+    struct TestIo;
+
+    impl SpdmPalIo for TestIo {
+        fn kind(&self) -> SpdmPalIoKind {
+            SpdmPalIoKind::Message
+        }
+
+        fn request(&self) -> &[u8] {
+            &[]
+        }
+    }
+
+    struct RecordingHash;
+
+    impl SpdmPalHash for RecordingHash {
+        type State = Vec<u8>;
+
+        fn hash_init(
+            &self,
+            _io: &impl SpdmPalIo,
+            _algo: SpdmPalHashAlgo,
+            seed: &[u8],
+        ) -> PalResult<Self::State> {
+            Ok(seed.to_vec())
+        }
+
+        fn hash_update(
+            &self,
+            _io: &impl SpdmPalIo,
+            state: &mut Self::State,
+            data: &[u8],
+        ) -> PalResult<()> {
+            state.extend_from_slice(data);
+            Ok(())
+        }
+
+        fn hash_clone(&self, _io: &impl SpdmPalIo, state: &Self::State) -> PalResult<Self::State> {
+            Ok(state.clone())
+        }
+
+        fn hash_finish(
+            &self,
+            _io: &impl SpdmPalIo,
+            state: &mut Self::State,
+            out: &mut [u8],
+        ) -> PalResult<()> {
+            out[..state.len()].copy_from_slice(state);
+            Ok(())
+        }
+    }
+
+    type TestManager<const N: usize> = SessionManager<u8, (), Box<SessionInfo<u8, ()>>, N>;
+
+    fn create<const N: usize>(sessions: &mut TestManager<N>, requester_id: u16) -> PalResult<u32> {
+        sessions.create_session(requester_id, SpdmVersion::V12, |info| Ok(Box::new(info)))
+    }
+
+    #[test]
+    fn capacity_is_enforced_and_released_slot_is_reusable() {
+        let mut sessions = TestManager::<2>::new();
+        let first = create(&mut sessions, 0x1001).unwrap();
+        let second = create(&mut sessions, 0x1002).unwrap();
+
+        assert!(sessions.find(first).is_some());
+        assert!(sessions.find(second).is_some());
+        assert_eq!(
+            create(&mut sessions, 0x1003),
+            Err(SPDM_SESSION_LIMIT_EXCEEDED)
+        );
+
+        sessions.remove_and_destroy(first);
+        let replacement = create(&mut sessions, 0x1003).unwrap();
+        assert!(sessions.find(first).is_none());
+        assert!(sessions.find(second).is_some());
+        assert!(sessions.find(replacement).is_some());
+    }
+
+    #[test]
+    fn recreated_session_does_not_accept_stale_session_id() {
+        let mut sessions = TestManager::<1>::new();
+        let old_session = create(&mut sessions, 0x1234).unwrap();
+
+        sessions.remove_and_destroy(old_session);
+        let new_session = create(&mut sessions, 0x1234).unwrap();
+
+        assert_ne!(new_session, old_session);
+        assert!(sessions.find(old_session).is_none());
+        assert!(sessions.find(new_session).is_some());
+    }
+
+    #[test]
+    fn remove_all_clears_handshake_and_established_sessions() {
+        let mut sessions = TestManager::<2>::new();
+        let handshake = create(&mut sessions, 0x1001).unwrap();
+        let established = create(&mut sessions, 0x1002).unwrap();
+        sessions.find_mut(established).unwrap().state = SessionState::Established;
+
+        assert!(sessions.has_handshake_in_progress());
+        sessions.remove_all_and_destroy();
+
+        assert!(!sessions.has_handshake_in_progress());
+        assert!(sessions.find(handshake).is_none());
+        assert!(sessions.find(established).is_none());
+        assert!(create(&mut sessions, 0x1003).is_ok());
+    }
+
+    #[test]
+    fn transcript_preserves_order_and_snapshot_does_not_consume_state() {
+        let hash = RecordingHash;
+        let io = TestIo;
+        let running_vca = Vec::from(&b"VCA"[..]);
+        let mut transcript = SessionTranscript::new();
+        transcript
+            .init_from_running(&hash, &io, &running_vca)
+            .unwrap();
+
+        transcript.append(&hash, &io, b"CERT").unwrap();
+        transcript.append(&hash, &io, b"KEY_EXCHANGE").unwrap();
+
+        let mut snapshot = [0u8; 64];
+        transcript
+            .clone_and_finalize(&hash, &io, &mut snapshot)
+            .unwrap();
+        let expected_snapshot = b"VCACERTKEY_EXCHANGE";
+        assert_eq!(&snapshot[..expected_snapshot.len()], expected_snapshot);
+
+        transcript.append(&hash, &io, b"FINISH").unwrap();
+        let mut final_transcript = [0u8; 64];
+        transcript
+            .finalize(&hash, &io, &mut final_transcript)
+            .unwrap();
+        let expected_final = b"VCACERTKEY_EXCHANGEFINISH";
+        assert_eq!(&final_transcript[..expected_final.len()], expected_final);
+        assert!(transcript.th.is_none());
+    }
+}

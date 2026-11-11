@@ -86,7 +86,7 @@ pub(crate) fn align_send_len<Pal: SpdmPal>(pal: &Pal, len: usize) -> SpdmResult<
 ///   [`SpdmPalAlloc::alloc_bytes`] so the PAL can scope the
 ///   allocation to this exchange.
 /// * `version` — SPDM version to put in the common-header `version`
-///   byte (DSP0274 §10.1).
+///   byte.
 /// * `body` — The response body that will be encoded after the common
 ///   header. Anything implementing [`ResponseBody`] works.
 ///
@@ -232,7 +232,7 @@ pub(crate) fn sign_transcript<Pal: SpdmPal>(
         }
     };
     let sig_len = pal
-        .sign(io, slot_id, asym_algo, signing_input, sig_slot)
+        .sign(io, slot_id, signing_input, sig_slot)
         .map_err(|_| SPDM_UNSPECIFIED)?;
     if sig_len != expected_sig_len {
         return Err(SPDM_UNSPECIFIED);

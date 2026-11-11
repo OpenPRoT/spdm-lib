@@ -1,6 +1,6 @@
 // Licensed under the Apache-2.0 license
 
-//! Error vocabulary for the SPDM-Lite stack — the error type itself plus
+//! Error vocabulary for the SPDM stack — the error type itself plus
 //! the subdomain registry built on it.
 //!
 //! This crate is **library-owned API, not a platform interface**: every trait
@@ -19,7 +19,7 @@
 //!
 //! # Subdomain registry
 //!
-//! Every SPDM-Lite crate that produces errors picks a [subdomain
+//! Every SPDM crate that produces errors picks a [subdomain
 //! byte](#subdomains) from this central registry, then defines its
 //! own concrete [`PalErrorCode`] constants in its own `errors` module
 //! using `PalErrorCode::new(domain::SPDM, SUBDOMAIN_*, code)`.
@@ -185,7 +185,7 @@ impl core::fmt::UpperHex for PalErrorCode {
 /// * `spdm-stack` for dispatch/state-machine errors
 pub const SUBDOMAIN_LOCAL: u8 = 0x00;
 
-/// SPDM wire errors per DSP0274 §10.10.2.
+/// SPDM wire errors per DSP0274.
 ///
 /// The low byte of the resulting [`PalErrorCode::code`] carries the
 /// spec-defined SPDM error byte; responders extract it with
@@ -217,7 +217,7 @@ pub const fn is_vdm_no_response(e: PalErrorCode) -> bool {
 
 // ----- Wire-byte convention --------------------------------------------------
 
-/// Builds an [`PalErrorCode`] from a DSP0274 §10.10.2 SPDM error byte.
+/// Builds an [`PalErrorCode`] from a DSP0274 SPDM error byte.
 ///
 /// The byte is preserved in the low 8 bits of the resulting `code`,
 /// so SPDM responders can recover it via [`as_spdm_wire`] and write
@@ -245,7 +245,7 @@ pub const fn is_spdm_local(e: PalErrorCode) -> bool {
     e.domain() == domain::SPDM && e.subdomain() == SUBDOMAIN_LOCAL
 }
 
-/// `true` if `e` is an SPDM wire error (DSP0274 §10.10.2).
+/// `true` if `e` is an SPDM wire error.
 #[inline]
 pub const fn is_spdm_wire(e: PalErrorCode) -> bool {
     e.domain() == domain::SPDM && e.subdomain() == SUBDOMAIN_WIRE

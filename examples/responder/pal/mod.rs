@@ -59,7 +59,13 @@ impl HostPal {
 
 // All sub-traits are implemented across the submodules, so the marker
 // super-trait is satisfied automatically.
-impl SpdmPal for HostPal {}
+impl SpdmPal for HostPal {
+    fn generate_nonce(&self, _io: &Self::Io<'_>, out: &mut [u8]) -> spdm_errors::PalResult<()> {
+        use rand::RngCore;
+        rand::thread_rng().fill_bytes(out);
+        Ok(())
+    }
+}
 
 impl Drop for HostPal {
     fn drop(&mut self) {

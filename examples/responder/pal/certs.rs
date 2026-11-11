@@ -235,14 +235,13 @@ impl SpdmPalCertStore for HostPal {
         &self,
         _io: &Self::Io<'_>,
         slot: u8,
-        algo: SpdmPalAsymAlgo,
         signing_input: SigningInput<'_>,
         signature: &mut [u8],
     ) -> PalResult<usize> {
         let cert = self.slot0(slot)?;
-        let digest = match (algo, signing_input) {
-            (SpdmPalAsymAlgo::EccP384, SigningInput::EccP384Digest(d)) => d,
-            (SpdmPalAsymAlgo::MlDsa87, SigningInput::Mldsa87RawMessage { context, message }) => {
+        let digest = match signing_input {
+            SigningInput::EccP384Digest(d) => d,
+            SigningInput::Mldsa87RawMessage { context, message } => {
                 let sig = cert
                     .pq_key
                     .expanded_key()
@@ -253,7 +252,6 @@ impl SpdmPalCertStore for HostPal {
                 dst.copy_from_slice(&sig);
                 return Ok(sig.len());
             }
-            _ => return Err(INVARIANT),
         };
         if signature.len() < ECC_P384_SIG_SIZE {
             return Err(INVARIANT);
@@ -475,11 +473,5 @@ impl SpdmPalCertStore for HostPal {
         let _ = algo;
         // challenge_usage | measurement_usage.
         self.certs.meta.borrow().map(|_| 0x0003)
-    }
-
-    fn generate_nonce(&self, _io: &Self::Io<'_>, out: &mut [u8]) -> PalResult<()> {
-        use rand::RngCore;
-        rand::thread_rng().fill_bytes(out);
-        Ok(())
     }
 }

@@ -486,3 +486,51 @@ fn write_bin_str_bytes(buf: &mut [u8], pos: &mut usize, src: &[u8]) -> PalResult
     *pos = end;
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    extern crate std;
+
+    use super::*;
+    use crate::test_support::{TestIo, TestPal};
+    use std::vec;
+
+    fn decrypt(schedule: &mut KeySchedule<u8>, pal: &TestPal, io: &TestIo) -> PalResult<usize> {
+        schedule.decrypt(
+            pal,
+            io,
+            SessionKeyType::RequestDataKey,
+            SpdmVersion::V12.to_u8(),
+            &[],
+            &[1, 2, 3, 4],
+            &[0; 16],
+            &mut [0; 4],
+        )
+    }
+
+    #[test]
+    fn failed_authentication_does_not_advance_receive_sequence() {
+        let pal = TestPal::default();
+        let io = TestIo::message(vec![]);
+        let mut schedule = KeySchedule::new(spdm_version_str(SpdmVersion::V12));
+        schedule.set_dhe_secret(1);
+        schedule
+            .generate_handshake_keys(&pal, &io, &[0; SHA384_HASH_SIZE])
+            .unwrap();
+        schedule
+            .generate_data_keys(&pal, &io, &[0; SHA384_HASH_SIZE])
+            .unwrap();
+
+        decrypt(&mut schedule, &pal, &io).unwrap();
+        assert_eq!(pal.last_aead_decrypt_sequence.get(), Some(0));
+
+        pal.aead_decrypt_error
+            .set(Some(spdm_errors::codes::INVARIANT));
+        assert!(decrypt(&mut schedule, &pal, &io).is_err());
+        assert_eq!(pal.last_aead_decrypt_sequence.get(), Some(1));
+
+        pal.aead_decrypt_error.set(None);
+        decrypt(&mut schedule, &pal, &io).unwrap();
+        assert_eq!(pal.last_aead_decrypt_sequence.get(), Some(1));
+    }
+}
