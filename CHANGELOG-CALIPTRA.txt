@@ -1,3 +1,72 @@
+commit 9dc9ed1ec509b072eb41866ba2d87d30c5484cad
+Author: v-focutter <v-focutter@microsoft.com>
+Date:   Thu Oct 29 21:29:00 2026 -0700
+
+    DOE/SPDM Test coverage (#2253)
+    
+    * MCTP/SPDM Test coverage
+    
+    * DOE/SPDM
+    
+    * Fixing Test Errors
+    
+    * Addressing comments
+    
+    (cherry picked from commit 28b8133b62b16e6c355d5ca7c3c49c5c40f8fb68)
+    
+    Caliptra 2.0 adaptation: Retain DOE framing/recovery tests and harness completion handling. Restrict the live session requester to the supported SPDM 1.3 ECDSA/P-384 DHE tuple, adapt transcript/chunk-fault cases to 1.2/1.3 DHE and smaller chunks, and retain explicit 1.4-session rejection coverage. Omit the unsupported ML-DSA/ML-KEM 1.4 session tuples and certificate-algorithm session mismatch case. 158 selected DOE/SPDM native tests passed (161 unrelated tests filtered out); evidence: target/spdm-test-evidence/20261104T212616Z. No live conformance or session matrix run claimed.
+    
+    Signed-off-by: Parvathi Bhogaraju <bhogaraju.parvathi@gmail.com>
+
+commit 1a24c9f6eb6f301428dd900551ff361d58c70ce1
+Author: v-focutter <v-focutter@microsoft.com>
+Date:   Thu Oct 29 09:32:59 2026 -0700
+
+    MCTP/SPDM Test coverage (#2235)
+    
+    * MCTP/SPDM Test coverage
+    
+    * Addressing comments
+    
+    (cherry picked from commit 97af4f450c1b7c3511ec6715ffa5f53d058f72cf)
+    
+    Caliptra 2.0 adaptation: Keep 2.0 DHE-only interfaces and SPDM 1.2/1.3 sessions. Omit ML-KEM/SPDM 1.4 session tuples, adapting retry/algorithm tests to supported versions and retaining wire assertions instead of absent KeyExSel state. Production capability restrictions stay unchanged. 167 affected native unit tests passed; evidence is target/spdm-test-evidence/20261104T211017Z (not conformance/attestation coverage).
+    
+    Signed-off-by: Parvathi Bhogaraju <bhogaraju.parvathi@gmail.com>
+
+commit 14899d57cb8f337e04fb3990d623c969542d4017
+Author: parvathib <bhogaraju.parvathi@gmail.com>
+Date:   Wed Oct 28 15:36:35 2026 -0700
+
+    spdm: remove SPDM-Lite naming and DSP0274 section references in comments
+    
+    (cherry picked from commit 0456dfae283caa9adc2681cd3fa9689e7f025eb2)
+    
+    Caliptra 2.0 adaptation: Comments and documentation naming only; retain all 2.0 algorithm, signing and secure-session restrictions.
+    
+    Signed-off-by: Parvathi Bhogaraju <bhogaraju.parvathi@gmail.com>
+
+commit ebe4b6809c827ed47aae507ed8e13ac808a7c2df
+Author: parvathib <bhogaraju.parvathi@gmail.com>
+Date:   Wed Oct 28 15:36:35 2026 -0700
+
+    cert-store, spdm: simplify cert-store and SPDM PAL API surface
+    
+    - Consolidate certificate role and algorithm types into CertRole,
+      EndorsementRole, and CertAlgo, and replace duplicated SpdmCertError with
+      PalError::CertError(CertStoreError).
+    - Hold &'static SharedCertStore inside TaskCertStore so task-level APIs only
+      take &mut TaskCertStore, and extract TaskCertCache for per-task cached DPE
+      leaf certificates.
+    - Rename A/B double-buffered flash endorsement internals (active_region /
+      staging_region, ManagedRecord, ManagedReadSnapshot) for clarity.
+    
+    (cherry picked from commit 3f373c126b4dd0e5f070e8f90a2aa7b75a135e37)
+    
+    Caliptra 2.0 adaptation: Carry the approved certificate/PAL simplification and git-mv module relocations. Preserve raw/context ML-DSA signing and the target inline-certificate backend. Update the retained 1.2/1.3 key-exchange signing call for the simplified trait and keep raw-message test variants. 180 certificate-store/PAL/stack native tests and the user-app check passed; SPDM unit evidence: target/spdm-test-evidence/20261104T211543Z.
+    
+    Signed-off-by: Parvathi Bhogaraju <bhogaraju.parvathi@gmail.com>
+
 commit bb95659223df8f890ea1ded8054460b4ed4b4d2a
 Author: Parvathi Bhogaraju <bhogaraju.parvathi@gmail.com>
 Date:   Fri Sep 25 17:46:09 2026 -0700

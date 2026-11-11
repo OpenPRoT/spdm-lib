@@ -370,6 +370,45 @@ mod tests {
         request
     }
 
+    #[test]
+    fn doe_and_mctp_algorithms_append_exact_logical_transcript_bytes() {
+        let request = negotiate_request(
+            SpdmVersion::V14,
+            PqcAsymAlgos::ML_DSA_87,
+            AsymAlgos::ECDSA_ECC_NIST_P384,
+            false,
+        );
+        let mut baseline = None;
+        for (header_size, send_len_alignment) in [(1, 1), (8, 4)] {
+            let pal = TestPal {
+                header_size,
+                send_len_alignment,
+                ..TestPal::default()
+            };
+            let mut state = ConnectionState {
+                phase: Phase::AfterCapabilities,
+                version: SpdmVersion::V14,
+                ..ConnectionState::default()
+            };
+            let io = TestIo::message(request.clone());
+            state.transcript.append_vca(&pal, &io, b"VCA").unwrap();
+            let response = handle_negotiate_algorithms(&mut state, &pal, &io).unwrap();
+            let length =
+                u16::from_le_bytes([response[header_size + 4], response[header_size + 5]]) as usize;
+            let payload = &response[header_size..header_size + length];
+            let expected = [b"VCA".as_slice(), request.as_slice(), payload].concat();
+            assert_eq!(state.transcript.vca.as_ref().unwrap().bytes, expected);
+            assert!(response[header_size + length..]
+                .iter()
+                .all(|&byte| byte == 0));
+            if let Some(expected) = &baseline {
+                assert_eq!(&state.transcript.vca.as_ref().unwrap().bytes, expected);
+            } else {
+                baseline = Some(state.transcript.vca.as_ref().unwrap().bytes.clone());
+            }
+        }
+    }
+
     fn run_negotiate(request: Vec<u8>) -> (ConnectionState<TestHashState, Vec<u8>>, Vec<u8>) {
         let pal = TestPal::default();
         let version = SpdmVersion::from_u8(request[0]).unwrap();
@@ -461,6 +500,16 @@ mod tests {
         pal.hash_finish(&io, state.transcript.vca.as_mut().unwrap(), &mut digest)
             .unwrap();
         assert_eq!(digest, test_digest(response));
+    }
+
+    fn selected_alg(response: &[u8], alg_type: u8) -> Option<u16> {
+        let (_, body) = SpdmMsgHdrPdu::ref_from_prefix(response).unwrap();
+        body[AlgorithmsRspBodyFixed::SIZE..]
+            .chunks_exact(AlgStructEntry::SIZE)
+            .find_map(|entry| {
+                let entry = AlgStructEntry::ref_from_bytes(entry).unwrap();
+                (entry.alg_type == alg_type).then(|| entry.alg_supported.get())
+            })
     }
 
     #[test]
@@ -705,5 +754,93 @@ mod tests {
             fixed.pqc_asym_sel.into_bits(),
             PqcAsymAlgos::EMPTY.into_bits()
         );
+    }
+
+    #[test]
+    fn malformed_negotiation_preserves_state_for_valid_retry() {
+        let pal = TestPal::default();
+        let mut state = ConnectionState {
+            version: SpdmVersion::V13,
+            phase: Phase::AfterCapabilities,
+            ..ConnectionState::default()
+        };
+        let mut malformed = negotiate_request(
+            SpdmVersion::V13,
+            PqcAsymAlgos::EMPTY,
+            AsymAlgos::ECDSA_ECC_NIST_P384,
+            false,
+        );
+        malformed.pop();
+
+        let malformed_io = TestIo::message(malformed);
+        assert_eq!(
+            handle_negotiate_algorithms(&mut state, &pal, &malformed_io),
+            Err(SPDM_INVALID_REQUEST)
+        );
+        assert_eq!(state.phase, Phase::AfterCapabilities);
+        assert!(state.transcript.vca.is_none());
+        assert_eq!(
+            state.negotiated_base_asym_sel.into_bits(),
+            AsymAlgos::EMPTY.into_bits()
+        );
+
+        let valid_io = TestIo::message(negotiate_request(
+            SpdmVersion::V13,
+            PqcAsymAlgos::EMPTY,
+            AsymAlgos::ECDSA_ECC_NIST_P384,
+            false,
+        ));
+        handle_negotiate_algorithms(&mut state, &pal, &valid_io).unwrap();
+
+        assert_eq!(state.phase, Phase::AfterAlgorithms);
+        assert_eq!(
+            state.negotiated_pqc_asym_sel.into_bits(),
+            PqcAsymAlgos::EMPTY.into_bits()
+        );
+        assert!(state.transcript.vca.is_some());
+    }
+
+    #[test]
+    fn supported_session_versions_select_required_algorithms() {
+        for version in [SpdmVersion::V12, SpdmVersion::V13] {
+            let request = negotiate_request(
+                version,
+                PqcAsymAlgos::EMPTY,
+                AsymAlgos::ECDSA_ECC_NIST_P384,
+                false,
+            );
+
+            let (_, response) = run_negotiate(request);
+            let (_, body) = SpdmMsgHdrPdu::ref_from_prefix(&response).unwrap();
+            let fixed = AlgorithmsRspBodyFixed::ref_from_bytes(
+                body.get(..AlgorithmsRspBodyFixed::SIZE).unwrap(),
+            )
+            .unwrap();
+
+            assert_eq!(
+                fixed.base_hash_sel.into_bits(),
+                HashAlgos::SHA_384.into_bits()
+            );
+            assert_eq!(
+                fixed.base_asym_sel.into_bits(),
+                AsymAlgos::ECDSA_ECC_NIST_P384.into_bits()
+            );
+            assert_eq!(
+                fixed.pqc_asym_sel.into_bits(),
+                PqcAsymAlgos::EMPTY.into_bits()
+            );
+            assert_eq!(
+                selected_alg(&response, alg_type::AEAD),
+                Some(AeadAlgos::AES_256_GCM.into_bits())
+            );
+            assert_eq!(
+                selected_alg(&response, alg_type::KEY_SCHEDULE),
+                Some(KeyScheduleAlgos::SPDM.into_bits())
+            );
+            assert_eq!(
+                selected_alg(&response, alg_type::DHE),
+                Some(DheAlgos::SECP_384_R1.into_bits())
+            );
+        }
     }
 }
