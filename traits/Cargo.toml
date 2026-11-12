@@ -1,0 +1,15 @@
+# Licensed under the Apache-2.0 license
+
+[package]
+name = "spdm-traits"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+
+[dependencies]
+spdm-crypto = { workspace = true }
+spdm-errors = { workspace = true }
+
+[features]
+default = []
+set-certificate = []

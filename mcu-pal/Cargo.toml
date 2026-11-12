@@ -1,0 +1,24 @@
+# Licensed under the Apache-2.0 license
+
+[package]
+name = "spdm-mcu-pal"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+
+[dependencies]
+spdm-traits = { workspace = true }
+spdm-codec = { workspace = true }
+spdm-crypto = { workspace = true }
+spdm-errors = { workspace = true }
+spdm-transport-sys = { workspace = true, optional = true }
+spdm-platform = { workspace = true, optional = true }
+zerocopy = { workspace = true }
+
+[features]
+default = []
+set-certificate = [
+  "spdm-traits/set-certificate",
+  "spdm-transport-sys",
+  "spdm-platform",
+]

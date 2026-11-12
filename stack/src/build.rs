@@ -1,0 +1,241 @@
+// Licensed under the Apache-2.0 license
+
+//! Shared response-building helper used by every SPDM handler.
+//!
+//! [`build_response`] allocates one contiguous buffer big enough for
+//! `transport_header || spdm_common_header || body`, asks the body to
+//! encode itself at the right offset, and hands the owning
+//! [`PalBytes`] back to the handler — which returns it unchanged to
+//! the dispatcher.
+//!
+//! Centralising this here means handlers never compute byte offsets,
+//! never touch the PAL allocator directly, and never forget to
+//! reserve the transport-framing header.
+
+use spdm_codec::{
+    ReqRespCode, ResponseBody, SpdmMsgHdrPdu, SpdmVersion, WireWriter, SHA384_HASH_SIZE,
+    SPDM_CONTEXT_LEN, SPDM_SIGNING_CONTEXT_LEN,
+};
+use spdm_traits::{
+    PalBytes, SigningInput, SpdmPal, SpdmPalAsymAlgo, SpdmPalHashAlgo, SpdmPalIoTransport,
+};
+
+use crate::error::{SpdmError, SpdmResult, SPDM_UNSPECIFIED};
+
+/// Copy a fixed-size array `src` into `buf` at `pos`, returning the advanced
+/// cursor.
+///
+/// Bounds are checked once via [`slice::first_chunk_mut`]; the const-`M` copy
+/// then carries no length check. An out-of-range write (unreachable for the
+/// fixed-layout signing-context builders) is a no-op rather than a panic, so
+/// this stays free of `panic_bounds_check` in the RoT codepath.
+pub(crate) fn write_fixed<const M: usize>(buf: &mut [u8], pos: usize, src: &[u8; M]) -> usize {
+    if let Some(slot) = buf.get_mut(pos..).and_then(|s| s.first_chunk_mut::<M>()) {
+        *slot = *src;
+    }
+    pos.saturating_add(M)
+}
+
+/// Allocate a buffer of `raw_len` bytes, rounded up to the transport's
+/// [`send_len_alignment`](SpdmPalIoTransport::send_len_alignment).
+/// Padding bytes are zeroed.
+pub(crate) fn alloc_padded<'a, Pal: SpdmPal>(
+    pal: &'a Pal,
+    io: &Pal::Io<'_>,
+    raw_len: usize,
+) -> SpdmResult<PalBytes<'a, Pal>> {
+    let align = pal.send_len_alignment();
+    debug_assert!(align > 0 && align.is_power_of_two());
+    let alloc_len = (raw_len + align - 1) & !(align - 1);
+    let mut buf = pal.alloc_bytes(io, alloc_len)?;
+    for b in &mut buf[raw_len..alloc_len] {
+        *b = 0;
+    }
+    Ok(buf)
+}
+
+/// Round `len` up to the transport's send-length alignment.
+pub(crate) fn align_send_len<Pal: SpdmPal>(pal: &Pal, len: usize) -> SpdmResult<usize> {
+    let align = pal.send_len_alignment();
+    if align == 0 {
+        return Err(SPDM_UNSPECIFIED);
+    }
+    len.checked_add(align - 1)
+        .map(|n| (n / align) * align)
+        .ok_or(SPDM_UNSPECIFIED)
+}
+
+/// Allocates and encodes an SPDM response.
+///
+/// The returned buffer is laid out as:
+///
+/// ```text
+///   [ transport header | SPDM common header | response body ]
+///         header_size                              body.encoded_size()
+/// ```
+///
+/// The transport header is left uninitialised — the PAL transport
+/// fills it in-place inside `send_response`.
+///
+/// # Parameters
+///
+/// * `pal` — Reference to the responder's [`SpdmPal`]. Used both as
+///   the allocator (for the response buffer) and as the source of
+///   `header_size()`.
+/// * `io` — The current request's I/O handle. Forwarded to
+///   [`SpdmPalAlloc::alloc_bytes`] so the PAL can scope the
+///   allocation to this exchange.
+/// * `version` — SPDM version to put in the common-header `version`
+///   byte.
+/// * `body` — The response body that will be encoded after the common
+///   header. Anything implementing [`ResponseBody`] works.
+///
+/// # Returns
+///
+/// * `Ok(PalBytes)` — Owning handle to the fully-encoded response,
+///   ready to pass to
+///   [`SpdmPalIoTransport::send_response`](spdm_traits::SpdmPalIoTransport::send_response).
+/// * `Err(SpdmError)` — Either the PAL allocator was exhausted (mapped
+///   to [`SPDM_BUSY`](crate::error::SPDM_BUSY)) or the codec failed
+///   while encoding the body (mapped to
+///   [`SPDM_INVALID_REQUEST`](crate::error::SPDM_INVALID_REQUEST));
+///   conversions are handled implicitly by `?`.
+///   Allocates and encodes an SPDM response.
+///
+/// Marked `#[inline(never)]` to keep handler-level code out of the
+/// dispatcher's async state machine. Dynamic body dispatch keeps the
+/// allocation and common-header path in one shared implementation.
+#[inline(never)]
+pub(crate) fn build_response<'a, Pal>(
+    pal: &'a Pal,
+    io: &Pal::Io<'_>,
+    version: SpdmVersion,
+    body: &dyn ResponseBody,
+) -> SpdmResult<PalBytes<'a, Pal>>
+where
+    Pal: SpdmPal,
+{
+    let head = pal.header_size();
+    let raw_len = head + SpdmMsgHdrPdu::SIZE + body.body_size();
+    let mut buf = alloc_padded(pal, io, raw_len)?;
+    let mut writer = WireWriter::new(buf.get_mut(head..).ok_or(SPDM_UNSPECIFIED)?);
+    writer.write(&SpdmMsgHdrPdu::new(version, body.response_code()))?;
+    body.encode_body(&mut writer)?;
+    Ok(buf)
+}
+
+/// Encodes an SPDM ERROR PDU into an existing buffer.
+pub(crate) fn encode_error_response(
+    out: &mut [u8],
+    version: SpdmVersion,
+    error: SpdmError,
+) -> SpdmResult<usize> {
+    let extended_data = error.extended_data();
+    let mut w = WireWriter::new(out);
+    w.write(&SpdmMsgHdrPdu::new(version, ReqRespCode::ERROR))?;
+    w.write(&[error.spec_byte(), error.error_data()])?;
+    w.write(extended_data)?;
+    Ok(SpdmMsgHdrPdu::SIZE + 2 + extended_data.len())
+}
+
+/// Non-generic helper for the error path. Builds an ERROR PDU without going
+/// through the generic [`build_response`], saving one monomorphisation and
+/// keeping the dispatcher's error branch tiny.
+#[inline(never)]
+pub(crate) fn build_error_response<'a, Pal: SpdmPal>(
+    pal: &'a Pal,
+    io: &Pal::Io<'_>,
+    version: SpdmVersion,
+    error: SpdmError,
+) -> SpdmResult<PalBytes<'a, Pal>> {
+    let head = pal.header_size();
+    let raw_len = head + SpdmMsgHdrPdu::SIZE + 2 + error.extended_data().len();
+    let mut buf = alloc_padded(pal, io, raw_len)?;
+    encode_error_response(&mut buf[head..], version, error)?;
+    Ok(buf)
+}
+
+const SPDM_RAW_SIGNING_MESSAGE_LEN: usize = SPDM_SIGNING_CONTEXT_LEN + SHA384_HASH_SIZE;
+
+/// Construct the 100-byte SPDM signing context into `out`.
+///
+/// Layout: 4 × "dmtf-spdm-v<x>.<y>.*" (prefix, 64 B) || zero-pad || op (36 B).
+/// Delegates to [`crate::signing::build_signing_context`], the shared builder
+/// the Requester also uses, so both roles stay byte-identical.
+pub(crate) fn build_spdm_signing_context(
+    version: SpdmVersion,
+    op: &[u8],
+    out: &mut [u8; SPDM_SIGNING_CONTEXT_LEN],
+) -> SpdmResult<()> {
+    if op.len() > SPDM_CONTEXT_LEN {
+        return Err(SPDM_UNSPECIFIED);
+    }
+    *out = crate::signing::build_signing_context(version, op);
+    Ok(())
+}
+
+#[cfg(test)]
+pub(crate) fn spdm_signing_context(
+    version: SpdmVersion,
+    op: &[u8],
+) -> SpdmResult<[u8; SPDM_SIGNING_CONTEXT_LEN]> {
+    let mut ctx = [0u8; SPDM_SIGNING_CONTEXT_LEN];
+    build_spdm_signing_context(version, op, &mut ctx)?;
+    Ok(ctx)
+}
+
+fn compute_tbs_hash<Pal: SpdmPal>(
+    pal: &Pal,
+    io: &<Pal as SpdmPalIoTransport>::Io<'_>,
+    signing_ctx: &[u8; SPDM_SIGNING_CONTEXT_LEN],
+    transcript_hash: &mut [u8; SHA384_HASH_SIZE],
+) -> spdm_errors::PalResult<()> {
+    let mut state = pal.hash_init(io, SpdmPalHashAlgo::Sha384, signing_ctx)?;
+    pal.hash_update(io, &mut state, transcript_hash)?;
+    pal.hash_finish(io, &mut state, transcript_hash)
+}
+
+/// Sign a transcript hash with either ECDSA P-384 or ML-DSA-87.
+///
+/// Computes the TBS hash for ECDSA. Caliptra 2.0 ML-DSA signs the raw
+/// `SPDM signing context || transcript hash` message with the operation string
+/// as the FIPS 204 context.
+#[inline(never)]
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn sign_transcript<Pal: SpdmPal>(
+    pal: &Pal,
+    io: &<Pal as SpdmPalIoTransport>::Io<'_>,
+    slot_id: u8,
+    asym_algo: SpdmPalAsymAlgo,
+    version: SpdmVersion,
+    operation_context: &'static [u8],
+    transcript_hash: &mut [u8; SHA384_HASH_SIZE],
+    sig_slot: &mut [u8],
+    expected_sig_len: usize,
+) -> SpdmResult<()> {
+    let mut signing_ctx = [0u8; SPDM_SIGNING_CONTEXT_LEN];
+    build_spdm_signing_context(version, operation_context, &mut signing_ctx)?;
+    let mut raw_signing_message = [0u8; SPDM_RAW_SIGNING_MESSAGE_LEN];
+    let signing_input = match asym_algo {
+        SpdmPalAsymAlgo::EccP384 => {
+            compute_tbs_hash(pal, io, &signing_ctx, transcript_hash)
+                .map_err(|_| SPDM_UNSPECIFIED)?;
+            SigningInput::EccP384Digest(transcript_hash)
+        }
+        SpdmPalAsymAlgo::MlDsa87 => {
+            raw_signing_message[..SPDM_SIGNING_CONTEXT_LEN].copy_from_slice(&signing_ctx);
+            raw_signing_message[SPDM_SIGNING_CONTEXT_LEN..].copy_from_slice(transcript_hash);
+            SigningInput::Mldsa87RawMessage {
+                context: operation_context,
+                message: &raw_signing_message,
+            }
+        }
+    };
+    let sig_len = pal
+        .sign(io, slot_id, signing_input, sig_slot)
+        .map_err(|_| SPDM_UNSPECIFIED)?;
+    if sig_len != expected_sig_len {
+        return Err(SPDM_UNSPECIFIED);
+    }
+    Ok(())
+}

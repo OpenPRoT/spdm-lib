@@ -1,39 +1,56 @@
-# Licensed under the Apache-2 = 
+# Licensed under the Apache-2.0 license
 
-[package]
-name = "spdm-lib"
+[workspace]
+resolver = "2"
+members = [
+    "errors",
+    "codec",
+    "traits",
+    "stack",
+    "placeholders/spdm-crypto",
+    "placeholders/spdm-transport-sys",
+    "placeholders/spdm-console",
+    "placeholders/spdm-platform",
+    "examples",
+]
+
+# legacy/ is the preserved host-crypto reference monolith. It requires a newer
+# rustc than the pinned 1.85 (uses `is_multiple_of`), so it is excluded from the
+# workspace build. Build it separately with a newer toolchain when needed.
+#
+# mcu-pal/ is the Caliptra-MCU-specific concrete implementation of the SpdmPal
+# trait family. It is a leaf crate — nothing in the workspace depends on it; the
+# stack binds to the SpdmPal *traits* in spdm-traits, not this impl. Kept on disk
+# as a reference for the future platform-impl redesign (see PLAN.md), but
+# excluded from the build; it is also still async and does not compile as-is.
+exclude = ["legacy", "mcu-pal"]
+
+[workspace.package]
 version = "0.1.0"
-authors = ["Caliptra contributors", "OpenPRoT contributors"]
 edition = "2021"
+authors = ["Caliptra contributors", "OpenPRoT contributors"]
 
-[features]
-default = []
-
-[lints.clippy]
+[workspace.lints.clippy]
 too_many_arguments = { level = "allow", priority = 1 }
 type_complexity = { level = "allow", priority = 1 }
 
-[dependencies]
+[workspace.dependencies]
+# External crates (versions copied from caliptra-mcu-sw)
 bitfield = "0.14.0"
+bitfield-struct = "0.13.0"
 zerocopy = { version = "0.8.17", features = ["derive"] }
 
-[dev-dependencies]
-rand = "0.8.5"
-# Cryptographic dependencies
-sha2 = { version = "0.10"}
-p384 = { version = "0.13", features = ["ecdsa", "pem"] }
-digest = { version = "0.10"}
-hex = "0.4.3"
-der = "0.8"
-x509-cert = "0.3.0-rc.4"
-signature = "2"
-clap = { version = "4", features = ["derive"] }
+# Platform-independent placeholders (replacing caliptra-mcu deps)
+spdm-crypto = { path = "placeholders/spdm-crypto" }
+spdm-transport-sys = { path = "placeholders/spdm-transport-sys" }
+spdm-console = { path = "placeholders/spdm-console" }
+spdm-platform = { path = "placeholders/spdm-platform" }
 
-# Examples
-[[example]]
-name = "spdm_responder"
-path = "examples/spdm_responder.rs"
-
-[[example]]
-name = "spdm_requester"
-path = "examples/spdm_requester.rs"
+# Internal spdm-lib crates
+spdm-errors = { path = "errors" }
+spdm-codec = { path = "codec" }
+spdm-traits = { path = "traits" }
+# spdm-mcu-pal is excluded from the workspace build (see exclude above); kept
+# here so the path resolves if mcu-pal/ is re-added later.
+spdm-mcu-pal = { path = "mcu-pal" }
+spdm-stack = { path = "stack" }

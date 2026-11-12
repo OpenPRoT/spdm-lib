@@ -1,0 +1,186 @@
+// Licensed under the Apache-2.0 license
+
+//! GET_DIGESTS → DIGESTS handler.
+//!
+//! Streams each provisioned slot's SPDM cert-chain wire bytes
+//! through the negotiated hash and emits a concatenated digest
+//! array. Chunk buffers come from the per-IO bitmap pool — no
+//! stack-allocated `[u8; N]` arrays for cert content.
+
+use spdm_codec::{DigestsRsp, ResponseBody, SpdmMsgHdrPdu, SHA384_HASH_SIZE};
+use spdm_traits::{
+    PalBytes, SpdmPal, SpdmPalAlloc, SpdmPalAsymAlgo, SpdmPalHashAlgo, SpdmPalIoTransport,
+    MAX_SLOTS,
+};
+use zerocopy::FromBytes;
+
+use crate::build::{build_response, write_fixed};
+use crate::certificate::cert_chain_length_field;
+use crate::error::{SpdmResult, SPDM_INVALID_REQUEST, SPDM_UNEXPECTED_REQUEST, SPDM_UNSPECIFIED};
+use crate::stack::{multi_key_conn_rsp, ConnectionState, Phase};
+
+/// Streaming chunk size when hashing a cert chain — comes from the
+/// per-IO bitmap pool, not the stack.
+const CERT_CHUNK_SIZE: usize = 1024;
+
+pub(crate) fn handle_get_digests<'a, Pal: SpdmPal>(
+    state: &mut ConnectionState<Pal::State, <Pal as SpdmPalAlloc>::LargeBuf>,
+    pal: &'a Pal,
+    io: &<Pal as SpdmPalIoTransport>::Io<'_>,
+    spdm_msg: &[u8],
+) -> SpdmResult<(PalBytes<'a, Pal>, usize)> {
+    if (state.phase as u8) < (Phase::AfterAlgorithms as u8) {
+        return Err(SPDM_UNEXPECTED_REQUEST);
+    }
+
+    // GET_DIGESTS header version shall match the negotiated VCA version.
+    let (hdr, rest) = SpdmMsgHdrPdu::ref_from_prefix(spdm_msg).map_err(|_| SPDM_INVALID_REQUEST)?;
+    if hdr.version != state.version.to_u8() {
+        return Err(crate::error::SPDM_VERSION_MISMATCH);
+    }
+    if rest.len() < 2 || rest[0] != 0 || rest[1] != 0 {
+        return Err(SPDM_INVALID_REQUEST);
+    }
+
+    let asym_algo = state.asym_algo();
+    let supported = pal.supported_slots();
+    let provisioned = pal.provisioned_slots(asym_algo);
+    let digest_size = SpdmPalHashAlgo::Sha384.hash_size();
+    let num_slots = provisioned.count_ones() as usize;
+    let digests_len = num_slots * digest_size;
+    let multi_key = multi_key_conn_rsp(state)?;
+    let multi_key_len = if multi_key { num_slots * 4 } else { 0 };
+
+    // Compute digests directly into a pool-allocated response-tail buffer.
+    // For SPDM 1.3 MultiKeyConnRsp, append KeyPairIDs, CertificateInfos, and
+    // KeyUsageMasks after the digest array without copying DER bytes.
+    let mut tail = pal
+        .alloc_bytes(io, digests_len + multi_key_len)
+        .map_err(|_| SPDM_UNSPECIFIED)?;
+    let mut cursor = 0;
+    for slot in 0..MAX_SLOTS {
+        if provisioned & (1 << slot) == 0 {
+            continue;
+        }
+        let dst = tail
+            .get_mut(cursor..cursor + digest_size)
+            .ok_or(SPDM_UNSPECIFIED)?;
+        if let Some(cached) = pal.cached_chain_digest(slot, asym_algo, SpdmPalHashAlgo::Sha384) {
+            let dst = dst
+                .first_chunk_mut::<SHA384_HASH_SIZE>()
+                .ok_or(SPDM_UNSPECIFIED)?;
+            *dst = cached;
+        } else {
+            cert_chain_hash(pal, io, slot, asym_algo, SpdmPalHashAlgo::Sha384, dst)
+                .map_err(|_| SPDM_UNSPECIFIED)?;
+            pal.cache_chain_digest(slot, asym_algo, SpdmPalHashAlgo::Sha384, dst);
+        }
+        cursor += digest_size;
+    }
+    if multi_key {
+        fill_multi_key_conn_rsp_data(pal, provisioned, asym_algo, &mut tail[digests_len..]);
+    }
+
+    let digests_body = DigestsRsp {
+        supported_slots: supported,
+        provisioned_slots: provisioned,
+        digests: &tail,
+    };
+    let spdm_len = digests_body.encoded_size();
+
+    let resp = build_response(pal, io, state.version, &digests_body)?;
+
+    let head = pal.header_size();
+    state.transcript.append_m1(pal, io, spdm_msg)?;
+    state
+        .transcript
+        .append_m1(pal, io, &resp[head..head + spdm_len])?;
+
+    state.phase = Phase::AfterDigests;
+    Ok((resp, spdm_len))
+}
+
+fn fill_multi_key_conn_rsp_data<Pal: SpdmPal>(
+    pal: &Pal,
+    provisioned: u8,
+    algo: SpdmPalAsymAlgo,
+    dst: &mut [u8],
+) {
+    let slot_cnt = provisioned.count_ones() as usize;
+    debug_assert_eq!(dst.len(), slot_cnt * 4);
+    let (key_pair_ids, rest) = dst.split_at_mut(slot_cnt);
+    let (cert_infos, key_usage_masks) = rest.split_at_mut(slot_cnt);
+
+    let mut index = 0;
+    for slot in 0..MAX_SLOTS {
+        if provisioned & (1 << slot) == 0 {
+            continue;
+        }
+        key_pair_ids[index] = pal.key_pair_id(slot, algo).unwrap_or_default();
+        cert_infos[index] = pal.cert_info(slot, algo).unwrap_or_default() & 0x07;
+        let usage = index * 2;
+        write_fixed(
+            key_usage_masks,
+            usage,
+            &pal.key_usage_mask(slot, algo)
+                .unwrap_or_default()
+                .to_le_bytes(),
+        );
+        index += 1;
+    }
+}
+/// Stream a slot's SPDM cert-chain bytes through the negotiated
+/// hash and write the digest into `out`.
+///
+/// The current SPDM cert-chain wire format is
+/// `Length(4) | RootHash(48) | DER chain[..]`, where `Length` is the
+/// pre-1.4 `Length(2) | Reserved(2)` pair reinterpreted as a 32-bit
+/// value. The header must be byte-identical to the one emitted by
+/// GET_CERTIFICATE or the requester's recomputed digest will not
+/// match.
+#[inline(never)]
+pub(crate) fn cert_chain_hash<Pal: SpdmPal>(
+    pal: &Pal,
+    io: &<Pal as SpdmPalIoTransport>::Io<'_>,
+    slot: u8,
+    asym_algo: SpdmPalAsymAlgo,
+    algo: SpdmPalHashAlgo,
+    out: &mut [u8],
+) -> spdm_errors::PalResult<()> {
+    if (pal.provisioned_slots(asym_algo) & (1 << slot)) == 0 {
+        return Err(spdm_errors::codes::INVARIANT);
+    }
+
+    let der_len = pal.cert_chain_len(io, slot, asym_algo)?;
+    let digest_size = algo.hash_size();
+
+    let mut hdr = [0u8; 4 + 48];
+    let total_len = hdr
+        .len()
+        .checked_add(der_len)
+        .ok_or(spdm_errors::codes::INVARIANT)?;
+    write_fixed(&mut hdr, 0, &cert_chain_length_field(total_len)?);
+    pal.root_cert_hash(io, slot, asym_algo, algo, &mut hdr[4..4 + digest_size])?;
+
+    let mut state = pal.hash_init(io, algo, &hdr)?;
+
+    let mut offset = 0;
+    loop {
+        let mut buf = pal.alloc_bytes(io, CERT_CHUNK_SIZE)?;
+        let n = pal.read_cert_chain(io, slot, asym_algo, offset, &mut buf)?;
+        if n == 0 {
+            break;
+        }
+        pal.hash_update(io, &mut state, &buf[..n])?;
+        offset += n;
+        if n < buf.len() {
+            break;
+        }
+    }
+
+    if (pal.provisioned_slots(asym_algo) & (1 << slot)) == 0 {
+        return Err(spdm_errors::codes::INVARIANT);
+    }
+
+    pal.hash_finish(io, &mut state, out)
+}

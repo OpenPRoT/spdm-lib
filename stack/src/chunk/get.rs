@@ -1,0 +1,221 @@
+// Licensed under the Apache-2.0 license
+
+//! CHUNK_GET large-response transfer.
+
+use spdm_codec::{
+    ChunkGetReqBody, ChunkGetReqBodyV13, ChunkGetReqBodyV14, ChunkResponseBody, ReqRespCode,
+    SpdmMsgHdrPdu, SpdmVersion, WireWriter, CHUNK_ATTR_LAST_CHUNK, CHUNK_RESPONSE_FIXED_BODY_SIZE,
+    LARGE_RESPONSE_SIZE_FIELD_SIZE,
+};
+use spdm_traits::{PalBytes, SpdmPal, SpdmPalAlloc, SpdmPalIoTransport};
+use zerocopy::{little_endian::U16, little_endian::U32, FromBytes};
+
+use crate::build::alloc_padded;
+use crate::error::{
+    SpdmResult, SPDM_INVALID_REQUEST, SPDM_UNEXPECTED_REQUEST, SPDM_VERSION_MISMATCH,
+};
+use crate::stack::{ConnectionState, Phase};
+
+use super::LargeResponse;
+
+pub(crate) fn handle_chunk_get<'a, Pal: SpdmPal>(
+    state: &mut ConnectionState<Pal::State, <Pal as SpdmPalAlloc>::LargeBuf>,
+    pal: &'a Pal,
+    io: &<Pal as SpdmPalIoTransport>::Io<'_>,
+    req: &[u8],
+) -> SpdmResult<PalBytes<'a, Pal>> {
+    if (state.phase as u8) < (Phase::AfterCapabilities as u8) || !state.chunking_enabled() {
+        return Err(SPDM_UNEXPECTED_REQUEST);
+    }
+
+    if req.len() > pal.mtu() {
+        return Err(SPDM_INVALID_REQUEST);
+    }
+
+    let (hdr, body) = SpdmMsgHdrPdu::ref_from_prefix(req).map_err(|_| SPDM_INVALID_REQUEST)?;
+    if hdr.version != state.version.to_u8() {
+        return Err(SPDM_VERSION_MISMATCH);
+    }
+
+    let chunk_req = if state.version <= SpdmVersion::V13 {
+        let (req, _) =
+            ChunkGetReqBodyV13::ref_from_prefix(body).map_err(|_| SPDM_INVALID_REQUEST)?;
+        req as &dyn ChunkGetReqBody
+    } else {
+        let (req, _) =
+            ChunkGetReqBodyV14::ref_from_prefix(body).map_err(|_| SPDM_INVALID_REQUEST)?;
+        req as &dyn ChunkGetReqBody
+    };
+    if chunk_req.get_param1() != 0 {
+        return Err(SPDM_INVALID_REQUEST);
+    }
+
+    let Some(active_rsp) = state.large_msg_ctx.response() else {
+        return Err(SPDM_UNEXPECTED_REQUEST);
+    };
+
+    // A response staged in one context (a secured session, or cleartext) must
+    // not be served in another.
+    if active_rsp.session_id != state.large_msg_ctx.current_session() {
+        return Err(SPDM_UNEXPECTED_REQUEST);
+    }
+
+    let handle = chunk_req.get_handle();
+    let seq_num = chunk_req.get_chunk_seq_num();
+    if handle != active_rsp.handle || seq_num != u32::from(active_rsp.next_seq_num) {
+        return Err(SPDM_INVALID_REQUEST);
+    }
+    let seq_num = active_rsp.next_seq_num;
+
+    let large_response_size = active_rsp.response_size;
+    let extra = if seq_num == 0 {
+        LARGE_RESPONSE_SIZE_FIELD_SIZE
+    } else {
+        0
+    };
+    let max_chunk_size = state
+        .effective_data_transfer_size(pal)
+        .saturating_sub(SpdmMsgHdrPdu::SIZE + CHUNK_RESPONSE_FIXED_BODY_SIZE + extra);
+    let bytes_sent = active_rsp.bytes_sent;
+    if max_chunk_size == 0 || bytes_sent >= large_response_size {
+        return Err(SPDM_INVALID_REQUEST);
+    }
+
+    let remaining = large_response_size - bytes_sent;
+    let chunk_size = remaining.min(max_chunk_size);
+    let last_chunk = chunk_size == remaining;
+    let head = pal.header_size();
+    let raw_len = head + SpdmMsgHdrPdu::SIZE + CHUNK_RESPONSE_FIXED_BODY_SIZE + extra + chunk_size;
+    let mut rsp = alloc_padded(pal, io, raw_len)?;
+
+    {
+        let mut w = WireWriter::new(&mut rsp[head..]);
+        w.write(&SpdmMsgHdrPdu::new(
+            state.version,
+            ReqRespCode::CHUNK_RESPONSE,
+        ))?;
+        w.write(&ChunkResponseBody {
+            chunk_sender_attr: if last_chunk { CHUNK_ATTR_LAST_CHUNK } else { 0 },
+            handle,
+            chunk_seq_num: U16::new(seq_num),
+            reserved: U16::new(0),
+            chunk_size: U32::new(chunk_size as u32),
+        })?;
+        if seq_num == 0 {
+            w.write(&U32::new(large_response_size as u32))?;
+        }
+        let chunk = w.reserve(chunk_size)?;
+        match active_rsp.kind {
+            LargeResponse::Certificate(cert_rsp) => {
+                cert_rsp.fill_chunk(pal, io, state.version, bytes_sent, chunk)?;
+                state.transcript.append_m1(pal, io, chunk)?;
+            }
+            LargeResponse::Buffered => {
+                let large = state
+                    .large_msg_ctx
+                    .buf
+                    .as_deref()
+                    .ok_or(crate::error::SPDM_UNSPECIFIED)?;
+                let end = bytes_sent
+                    .checked_add(chunk_size)
+                    .ok_or(crate::error::SPDM_UNSPECIFIED)?;
+                let src = large
+                    .get(bytes_sent..end)
+                    .ok_or(crate::error::SPDM_UNSPECIFIED)?;
+                for (d, s) in chunk.iter_mut().zip(src) {
+                    *d = *s;
+                }
+            }
+        }
+    }
+
+    state.large_msg_ctx.chunk_sent(chunk_size);
+    Ok(rsp)
+}
+
+#[cfg(test)]
+mod tests {
+    extern crate std;
+
+    use spdm_codec::{ChunkGetReqBodyV14, WireWriter};
+    use zerocopy::little_endian::U32;
+
+    use super::*;
+    use crate::test_support::{chunking_state, TestIo, TestPal};
+
+    #[test]
+    fn plaintext_chunk_get_of_session_staged_response_is_rejected() {
+        let pal = TestPal::default();
+        let mut state = chunking_state();
+        state.version = SpdmVersion::V14;
+        // Stage inside secured session 0x1234_5678.
+        state.large_msg_ctx.set_current_session(Some(0x1234_5678));
+        state
+            .large_msg_ctx
+            .start_response(LargeResponse::Buffered, 1, Some(std::vec![0x5a]))
+            .unwrap();
+        let handle = state.large_msg_ctx.response().unwrap().handle;
+
+        let mut req = [0u8; SpdmMsgHdrPdu::SIZE + ChunkGetReqBodyV14::SIZE];
+        let mut writer = WireWriter::new(&mut req);
+        writer
+            .write(&SpdmMsgHdrPdu::new(
+                SpdmVersion::V14,
+                ReqRespCode::CHUNK_GET,
+            ))
+            .unwrap();
+        writer
+            .write(&ChunkGetReqBodyV14 {
+                param1: 0,
+                handle,
+                chunk_seq_num: U32::new(0),
+            })
+            .unwrap();
+        let io = TestIo::message(req.to_vec());
+
+        // Cleartext context and a different session are both refused.
+        for ctx in [None, Some(0xdead_beef)] {
+            state.large_msg_ctx.set_current_session(ctx);
+            let err = handle_chunk_get(&mut state, &pal, &io, &req).unwrap_err();
+            assert_eq!(err, SPDM_UNEXPECTED_REQUEST);
+        }
+        // Nothing was consumed; the owning session can still retrieve it.
+        assert_eq!(state.large_msg_ctx.response().unwrap().bytes_sent, 0);
+        state.large_msg_ctx.set_current_session(Some(0x1234_5678));
+        assert!(handle_chunk_get(&mut state, &pal, &io, &req).is_ok());
+    }
+
+    #[test]
+    fn out_of_range_sequence_returns_invalid_request() {
+        let pal = TestPal::default();
+        let mut state = chunking_state();
+        state.version = SpdmVersion::V14;
+        state
+            .large_msg_ctx
+            .start_response(LargeResponse::Buffered, 1, Some(std::vec![0x5a]))
+            .unwrap();
+        let handle = state.large_msg_ctx.response().unwrap().handle;
+
+        let mut req = [0u8; SpdmMsgHdrPdu::SIZE + ChunkGetReqBodyV14::SIZE];
+        let mut writer = WireWriter::new(&mut req);
+        writer
+            .write(&SpdmMsgHdrPdu::new(
+                SpdmVersion::V14,
+                ReqRespCode::CHUNK_GET,
+            ))
+            .unwrap();
+        writer
+            .write(&ChunkGetReqBodyV14 {
+                param1: 0,
+                handle,
+                chunk_seq_num: U32::new(u32::from(u16::MAX) + 1),
+            })
+            .unwrap();
+
+        let io = TestIo::message(req.to_vec());
+        let err = handle_chunk_get(&mut state, &pal, &io, &req).unwrap_err();
+
+        assert_eq!(err, SPDM_INVALID_REQUEST);
+        assert!(state.large_msg_ctx.response_in_progress());
+    }
+}

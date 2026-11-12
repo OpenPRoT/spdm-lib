@@ -1,0 +1,243 @@
+// Licensed under the Apache-2.0 license
+
+//! Transcript manager.
+//!
+//! Generic over the [`Hash::State`](spdm_traits::Hash)
+//! associated type so the manager works with any hash backend —
+//! Caliptra mailbox (200-byte ctx), software (sha2 crate), test
+//! mocks (whatever).
+//!
+//! Holds **only running hash states** — never the raw bytes of the
+//! transcript.
+//!
+//! ## Design
+//!
+//! `M1 = A ∥ B ∥ C` and `L1/L2` for MEASUREMENTS starts
+//! with `VCA`, where `A` is the VCA bytes. We keep an always-running
+//! VCA hash and **fork it with a fallible hash-clone operation** the
+//! first time M1 / L1 start contributing. This lets heap-backed hash
+//! states report allocation failure instead of panicking.
+
+use spdm_traits::{PalResult, SpdmPalHash, SpdmPalHashAlgo, SpdmPalIo};
+
+/// One of the running transcripts the responder maintains.
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub enum Slot {
+    /// Always-running VCA hash.
+    Vca,
+    /// `M1` transcript — CHALLENGE_AUTH signature input.
+    M1,
+    /// `L1` transcript — MEASUREMENTS signature input.
+    L1,
+}
+
+/// SPDM transcript state.
+///
+/// `S` is the [`Hash::State`] of the chosen hash backend.
+///
+/// # Heap allocation
+///
+/// When `S = HashState` (the caliptra-api-lite backend), each of
+/// the three `Option<S>` slots allocates 200 bytes on the global
+/// heap via `Box` when initialized — up to 600 bytes total.
+/// See [`HashState`](caliptra_api_lite::sha::HashState) for details.
+pub struct Transcript<S> {
+    pub(crate) vca: Option<S>,
+    pub(crate) m1: Option<S>,
+    pub(crate) l1: Option<S>,
+    /// Session the running L1 belongs to (`None` = outside any session).
+    l1_session: Option<u32>,
+}
+
+impl<S> Default for Transcript<S> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl<S> Transcript<S> {
+    pub const fn new() -> Self {
+        Self {
+            vca: None,
+            m1: None,
+            l1: None,
+            l1_session: None,
+        }
+    }
+
+    /// Drops every connection-scoped transcript context.
+    ///
+    /// Called by the dispatcher on every `GET_VERSION` so a restarted
+    /// negotiation cannot reuse VCA/M1/L1 state from the prior connection.
+    pub fn reset(&mut self) {
+        self.vca = None;
+        self.m1 = None;
+        self.l1 = None;
+        self.l1_session = None;
+    }
+
+    /// Re-initializes the L1/L2 measurement log to null (DSP0274 1.4,
+    /// §10.12.2 "MEASUREMENTS signature generation").
+    pub fn reset_l1(&mut self) {
+        self.l1 = None;
+    }
+
+    /// Binds L1 to the context of the GET_MEASUREMENTS about to be handled.
+    ///
+    /// L1 only accumulates consecutive exchanges from one context, so a log
+    /// built outside a session (or in a different session) is dropped first.
+    pub fn select_l1_session(&mut self, session_id: Option<u32>) {
+        if self.l1_session != session_id {
+            self.l1 = None;
+            self.l1_session = session_id;
+        }
+    }
+
+    /// Whether an L1/L2 measurement log is currently being accumulated.
+    pub fn l1_active(&self) -> bool {
+        self.l1.is_some()
+    }
+
+    pub fn append_vca<'a, H>(
+        &'a mut self,
+        hash: &'a H,
+        io: &'a impl SpdmPalIo,
+        bytes: &'a [u8],
+    ) -> PalResult<()>
+    where
+        H: SpdmPalHash<State = S> + 'a,
+    {
+        self.append(Slot::Vca, hash, io, bytes)
+    }
+
+    pub fn append_m1<'a, H>(
+        &'a mut self,
+        hash: &'a H,
+        io: &'a impl SpdmPalIo,
+        bytes: &'a [u8],
+    ) -> PalResult<()>
+    where
+        H: SpdmPalHash<State = S> + 'a,
+    {
+        self.append(Slot::M1, hash, io, bytes)
+    }
+
+    pub fn append_l1<'a, H>(
+        &'a mut self,
+        hash: &'a H,
+        io: &'a impl SpdmPalIo,
+        bytes: &'a [u8],
+    ) -> PalResult<()>
+    where
+        H: SpdmPalHash<State = S> + 'a,
+    {
+        self.append(Slot::L1, hash, io, bytes)
+    }
+
+    pub fn finalize_m1<'a, H>(
+        &'a mut self,
+        hash: &'a H,
+        io: &'a impl SpdmPalIo,
+        out: &'a mut [u8],
+    ) -> PalResult<()>
+    where
+        H: SpdmPalHash<State = S> + 'a,
+    {
+        self.finalize(Slot::M1, hash, io, out)
+    }
+
+    pub fn finalize_l1<'a, H>(
+        &'a mut self,
+        hash: &'a H,
+        io: &'a impl SpdmPalIo,
+        out: &'a mut [u8],
+    ) -> PalResult<()>
+    where
+        H: SpdmPalHash<State = S> + 'a,
+    {
+        self.finalize(Slot::L1, hash, io, out)
+    }
+
+    // ---- Workhorses (the only `#[inline(never)]` symbols) ---------------
+
+    #[inline(never)]
+    fn append<H>(
+        &mut self,
+        slot: Slot,
+        hash: &H,
+        io: &impl SpdmPalIo,
+        bytes: &[u8],
+    ) -> PalResult<()>
+    where
+        H: SpdmPalHash<State = S>,
+    {
+        // Lazy init / fork on first call after reset.
+        match slot {
+            Slot::Vca if self.vca.is_none() => {
+                self.vca = Some(hash.hash_init(io, SpdmPalHashAlgo::Sha384, bytes)?);
+                return Ok(());
+            }
+            Slot::M1 if self.m1.is_none() => {
+                let vca = self.vca.as_ref().ok_or(spdm_errors::codes::INVARIANT)?;
+                self.m1 = Some(hash.hash_clone(io, vca)?);
+            }
+            Slot::L1 if self.l1.is_none() => {
+                let vca = self.vca.as_ref().ok_or(spdm_errors::codes::INVARIANT)?;
+                self.l1 = Some(hash.hash_clone(io, vca)?);
+            }
+            _ => {}
+        }
+        let state = self.slot_mut(slot).ok_or(spdm_errors::codes::INVARIANT)?;
+        hash.hash_update(io, state, bytes)
+    }
+
+    #[inline(never)]
+    fn finalize<H>(
+        &mut self,
+        slot: Slot,
+        hash: &H,
+        io: &impl SpdmPalIo,
+        out: &mut [u8],
+    ) -> PalResult<()>
+    where
+        H: SpdmPalHash<State = S>,
+    {
+        let state = self.slot_mut(slot).ok_or(spdm_errors::codes::INVARIANT)?;
+        hash.hash_finish(io, state, out)?;
+        *self.slot_opt_mut(slot) = None;
+        Ok(())
+    }
+
+    #[inline]
+    fn slot_mut(&mut self, slot: Slot) -> Option<&mut S> {
+        match slot {
+            Slot::Vca => self.vca.as_mut(),
+            Slot::M1 => self.m1.as_mut(),
+            Slot::L1 => self.l1.as_mut(),
+        }
+    }
+
+    #[inline]
+    fn slot_opt_mut(&mut self, slot: Slot) -> &mut Option<S> {
+        match slot {
+            Slot::Vca => &mut self.vca,
+            Slot::M1 => &mut self.m1,
+            Slot::L1 => &mut self.l1,
+        }
+    }
+
+    /// Clone-and-finalize the VCA state to produce a VCA digest
+    /// without consuming the running state.
+    ///
+    /// This is used to seed per-session TH transcripts: TH starts
+    /// with `hash(VCA)` (the 48-byte SHA-384 digest), not a fork of
+    /// the running VCA hash state.
+    pub fn vca_digest<H>(&self, hash: &H, io: &impl SpdmPalIo, out: &mut [u8]) -> PalResult<()>
+    where
+        H: SpdmPalHash<State = S>,
+    {
+        let vca = self.vca.as_ref().ok_or(spdm_errors::codes::INVARIANT)?;
+        let mut clone = hash.hash_clone(io, vca)?;
+        hash.hash_finish(io, &mut clone, out)
+    }
+}

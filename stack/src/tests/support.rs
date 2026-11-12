@@ -1,0 +1,947 @@
+// Licensed under the Apache-2.0 license
+
+#![allow(dead_code)]
+
+extern crate std;
+
+use core::marker::PhantomData;
+use core::ops::{Deref, DerefMut};
+use spdm_codec::{
+    AsymAlgos, CapFlags, ChunkGetReqBodyV13, ChunkGetReqBodyV14, ChunkResponseBody, HashAlgos,
+    ReqRespCode, SpdmMsgHdrPdu, SpdmVersion, WireWriter, AES_256_GCM_TAG_SIZE,
+    CHUNK_ATTR_LAST_CHUNK, LARGE_RESPONSE_SIZE_FIELD_SIZE, SECURED_MSG_HDR_SIZE,
+};
+use spdm_errors::{PalErrorCode, PalResult};
+use spdm_traits::{
+    MeasurementInfo, Milliseconds, SigningInput, SpdmPalAlloc, SpdmPalAsymAlgo, SpdmPalCertStore,
+    SpdmPalHash, SpdmPalHashAlgo, SpdmPalIo, SpdmPalIoKind, SpdmPalIoTransport,
+    SpdmPalMeasurements, SpdmPalSessionCrypto, SPDM_NONCE_LEN,
+};
+use std::boxed::Box;
+use std::cell::{Cell, RefCell};
+use std::vec;
+use std::vec::Vec;
+use zerocopy::FromBytes;
+
+use crate::stack::{ConnectionState, Phase, Sessions};
+
+pub const SHA384_DIGEST_SIZE: usize = 48;
+pub const SPDM_CERT_CHAIN_HDR_LEN: usize = 4 + SHA384_DIGEST_SIZE;
+pub const TEST_CERT_CHAIN: &[u8] = &[0x30, 0x03, 1, 2, 3, 0x30, 0x01, 4];
+
+#[derive(Clone)]
+pub struct TestHashState {
+    digest: [u8; SHA384_DIGEST_SIZE],
+    pub bytes: Vec<u8>,
+}
+
+pub struct TestIo {
+    pub request: Vec<u8>,
+    kind: SpdmPalIoKind,
+}
+
+impl TestIo {
+    pub fn message(request: Vec<u8>) -> Self {
+        Self {
+            request,
+            kind: SpdmPalIoKind::Message,
+        }
+    }
+
+    pub fn secured(request: Vec<u8>) -> Self {
+        Self {
+            request,
+            kind: SpdmPalIoKind::SecuredMessage,
+        }
+    }
+}
+
+impl SpdmPalIo for TestIo {
+    fn kind(&self) -> SpdmPalIoKind {
+        self.kind
+    }
+
+    fn request(&self) -> &[u8] {
+        &self.request
+    }
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub enum StoreOp {
+    Write {
+        slot: u8,
+        key_pair_id: u8,
+        cert_model: u8,
+        root_hash: [u8; SHA384_DIGEST_SIZE],
+        cert_chain: Vec<u8>,
+    },
+    Erase {
+        slot: u8,
+    },
+}
+
+pub struct TestBox<'a, T: 'a> {
+    value: Box<T>,
+    _lifetime: PhantomData<&'a ()>,
+}
+
+impl<T> Deref for TestBox<'_, T> {
+    type Target = T;
+
+    fn deref(&self) -> &Self::Target {
+        &self.value
+    }
+}
+
+impl<T> DerefMut for TestBox<'_, T> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.value
+    }
+}
+
+pub struct TestPal {
+    pub header_size: usize,
+    pub send_len_alignment: usize,
+    pub mtu: usize,
+    pub secure_message_supported: bool,
+    pub large_buffered_msg_capacity: usize,
+    pub max_inbound_spdm_request_size: usize,
+    pub supported_slots: u8,
+    pub provisioned_slots: u8,
+    pub mldsa_provisioned_slots: Option<u8>,
+    pub authorized: bool,
+    pub validate_error: Option<PalErrorCode>,
+    pub write_error: Option<PalErrorCode>,
+    pub erase_error: Option<PalErrorCode>,
+    pub typed_alloc_error: Option<PalErrorCode>,
+    pub cert_chain: &'static [u8],
+    pub measurement_info: &'static [MeasurementInfo],
+    pub measurement_value: &'static [u8],
+    pub op: RefCell<Option<StoreOp>>,
+    /// Backing store for a streaming SET_CERTIFICATE write transaction.
+    pub stream_cert: RefCell<Vec<u8>>,
+    pub stream_aborts: Cell<usize>,
+    pub now_ms: RefCell<u64>,
+    /// Algorithm the most recent cert-chain write was routed to.
+    pub write_algo: Cell<Option<SpdmPalAsymAlgo>>,
+    /// Algorithm passed to the most recent measurement value retrieval.
+    pub meas_algo: Cell<Option<SpdmPalAsymAlgo>>,
+    pub sign_ops: RefCell<Vec<RecordedSign>>,
+    pub hash_finishes: RefCell<Vec<Vec<u8>>>,
+    pub aead_decrypt_error: Cell<Option<PalErrorCode>>,
+    pub last_aead_decrypt_sequence: Cell<Option<u64>>,
+}
+
+/// Signing input captured by [`TestPal::sign`], owned so tests can assert on it
+/// after the borrow ends.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum RecordedSigningInput {
+    EccP384Digest(Vec<u8>),
+    Mldsa87RawMessage { context: Vec<u8>, message: Vec<u8> },
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RecordedSign {
+    pub input: RecordedSigningInput,
+    pub sig_len: usize,
+}
+
+impl TestPal {
+    /// Advance / set the fake monotonic clock used by `now()`.
+    pub fn set_now_ms(&self, ms: u64) {
+        *self.now_ms.borrow_mut() = ms;
+    }
+}
+
+impl Default for TestPal {
+    fn default() -> Self {
+        Self {
+            header_size: 0,
+            send_len_alignment: 1,
+            mtu: 1024,
+            secure_message_supported: true,
+            large_buffered_msg_capacity: 1024,
+            max_inbound_spdm_request_size: 1024,
+            supported_slots: u8::MAX,
+            provisioned_slots: 1,
+            mldsa_provisioned_slots: None,
+            authorized: true,
+            validate_error: None,
+            write_error: None,
+            erase_error: None,
+            typed_alloc_error: None,
+            cert_chain: TEST_CERT_CHAIN,
+            measurement_info: &[],
+            measurement_value: &[],
+            op: RefCell::new(None),
+            stream_cert: RefCell::new(Vec::new()),
+            stream_aborts: Cell::new(0),
+            now_ms: RefCell::new(0),
+            write_algo: Cell::new(None),
+            meas_algo: Cell::new(None),
+            sign_ops: RefCell::new(Vec::new()),
+            hash_finishes: RefCell::new(Vec::new()),
+            aead_decrypt_error: Cell::new(None),
+            last_aead_decrypt_sequence: Cell::new(None),
+        }
+    }
+}
+
+impl spdm_crypto::ApiAlloc for TestPal {
+    type Buf<'a>
+        = Vec<u8>
+    where
+        Self: 'a;
+
+    fn alloc(&self, len: usize) -> PalResult<Self::Buf<'_>> {
+        Ok(vec![0u8; len])
+    }
+}
+
+impl SpdmPalAlloc for TestPal {
+    type Box<'a, T>
+        = TestBox<'a, T>
+    where
+        Self: 'a,
+        T: 'a;
+    type Bytes<'a>
+        = Vec<u8>
+    where
+        Self: 'a;
+    type LargeBuf = Vec<u8>;
+
+    fn alloc<T: Sized>(&self, _io: &impl SpdmPalIo, value: T) -> PalResult<Self::Box<'_, T>> {
+        if let Some(err) = self.typed_alloc_error {
+            return Err(err);
+        }
+        Ok(TestBox {
+            value: Box::new(value),
+            _lifetime: PhantomData,
+        })
+    }
+
+    fn alloc_bytes(&self, _io: &impl SpdmPalIo, len: usize) -> PalResult<Self::Bytes<'_>> {
+        Ok(vec![0u8; len])
+    }
+
+    fn large_buffered_msg_capacity(&self) -> usize {
+        self.large_buffered_msg_capacity
+    }
+
+    fn alloc_large_buf(&self, len: usize) -> PalResult<Self::LargeBuf> {
+        Ok(vec![0u8; len])
+    }
+
+    fn large_buf_into_bytes(
+        &self,
+        mut buf: Self::LargeBuf,
+        len: usize,
+    ) -> PalResult<Self::Bytes<'_>> {
+        buf.truncate(len);
+        Ok(buf)
+    }
+
+    type PersistentBox<T: Sized + 'static> = Box<T>;
+
+    fn alloc_persistent<T: Sized + 'static>(&self, value: T) -> PalResult<Self::PersistentBox<T>> {
+        Ok(Box::new(value))
+    }
+}
+
+impl SpdmPalIoTransport for TestPal {
+    type Io<'a>
+        = TestIo
+    where
+        Self: 'a;
+
+    fn secure_message_supported(&self) -> bool {
+        self.secure_message_supported
+    }
+
+    fn header_size(&self) -> usize {
+        self.header_size
+    }
+
+    fn send_len_alignment(&self) -> usize {
+        self.send_len_alignment
+    }
+
+    fn mtu(&self) -> usize {
+        self.mtu
+    }
+
+    fn recv_request(&self) -> PalResult<Self::Io<'_>> {
+        Err(spdm_errors::codes::NOT_IMPLEMENTED)
+    }
+
+    fn now(&self) -> Milliseconds {
+        Milliseconds(*self.now_ms.borrow())
+    }
+
+    fn send_response(
+        &self,
+        _io: &Self::Io<'_>,
+        _kind: SpdmPalIoKind,
+        _msg: &mut [u8],
+    ) -> PalResult<()> {
+        Err(spdm_errors::codes::NOT_IMPLEMENTED)
+    }
+}
+
+impl spdm_traits::SpdmPalRng for TestPal {
+    fn fill_random(&self, _io: &impl SpdmPalIo, out: &mut [u8]) -> PalResult<()> {
+        out.fill(0xA5);
+        Ok(())
+    }
+}
+
+impl SpdmPalHash for TestPal {
+    type State = TestHashState;
+
+    fn hash_init(
+        &self,
+        _io: &impl SpdmPalIo,
+        _algo: SpdmPalHashAlgo,
+        seed: &[u8],
+    ) -> PalResult<Self::State> {
+        Ok(TestHashState {
+            digest: test_digest(seed),
+            bytes: seed.to_vec(),
+        })
+    }
+
+    fn hash_update(
+        &self,
+        _io: &impl SpdmPalIo,
+        state: &mut Self::State,
+        data: &[u8],
+    ) -> PalResult<()> {
+        state.digest = test_digest(data);
+        state.bytes.extend_from_slice(data);
+        Ok(())
+    }
+
+    fn hash_clone(&self, _io: &impl SpdmPalIo, state: &Self::State) -> PalResult<Self::State> {
+        Ok(state.clone())
+    }
+
+    fn hash_finish(
+        &self,
+        _io: &impl SpdmPalIo,
+        state: &mut Self::State,
+        out: &mut [u8],
+    ) -> PalResult<()> {
+        self.hash_finishes.borrow_mut().push(state.bytes.clone());
+        out[..SHA384_DIGEST_SIZE].copy_from_slice(&state.digest);
+        Ok(())
+    }
+}
+
+impl SpdmPalCertStore for TestPal {
+    fn provisioned_slots(&self, algo: SpdmPalAsymAlgo) -> u8 {
+        match algo {
+            SpdmPalAsymAlgo::EccP384 => self.provisioned_slots,
+            SpdmPalAsymAlgo::MlDsa87 => self
+                .mldsa_provisioned_slots
+                .unwrap_or(self.provisioned_slots),
+        }
+    }
+
+    fn supported_slots(&self) -> u8 {
+        self.supported_slots
+    }
+
+    #[cfg(feature = "set-certificate")]
+    fn set_certificate_authorized(
+        &self,
+        _io: &Self::Io<'_>,
+        _slot: u8,
+        _key_pair_id: u8,
+        _cert_model: u8,
+        _erase: bool,
+    ) -> bool {
+        self.authorized
+    }
+
+    #[cfg(feature = "set-certificate")]
+    fn validate_set_certificate_chain(
+        &self,
+        _io: &Self::Io<'_>,
+        _slot: u8,
+        _key_pair_id: u8,
+        _cert_model: u8,
+        _root_hash: &[u8; SHA384_DIGEST_SIZE],
+        _cert_chain: &[u8],
+    ) -> PalResult<()> {
+        if let Some(err) = self.validate_error {
+            Err(err)
+        } else {
+            Ok(())
+        }
+    }
+
+    fn cert_chain_len(
+        &self,
+        _io: &Self::Io<'_>,
+        _slot: u8,
+        _algo: SpdmPalAsymAlgo,
+    ) -> PalResult<usize> {
+        Ok(self.cert_chain.len())
+    }
+
+    fn cert_chain_slot_size(
+        &self,
+        _io: &Self::Io<'_>,
+        _slot: u8,
+        _algo: SpdmPalAsymAlgo,
+    ) -> PalResult<usize> {
+        Ok(self.cert_chain.len())
+    }
+
+    fn root_cert_hash(
+        &self,
+        _io: &Self::Io<'_>,
+        _slot: u8,
+        _algo: SpdmPalAsymAlgo,
+        _hash_algo: SpdmPalHashAlgo,
+        out: &mut [u8],
+    ) -> PalResult<()> {
+        out.copy_from_slice(&test_digest(&self.cert_chain[..5]));
+        Ok(())
+    }
+
+    fn read_cert_chain(
+        &self,
+        _io: &Self::Io<'_>,
+        _slot: u8,
+        _algo: SpdmPalAsymAlgo,
+        offset: usize,
+        dst: &mut [u8],
+    ) -> PalResult<usize> {
+        let end = (offset + dst.len()).min(self.cert_chain.len());
+        let src = &self.cert_chain[offset..end];
+        dst[..src.len()].copy_from_slice(src);
+        Ok(src.len())
+    }
+
+    fn sign(
+        &self,
+        _io: &Self::Io<'_>,
+        _slot: u8,
+        signing_input: SigningInput<'_>,
+        signature: &mut [u8],
+    ) -> PalResult<usize> {
+        let input = match signing_input {
+            SigningInput::EccP384Digest(digest) => {
+                RecordedSigningInput::EccP384Digest(digest.to_vec())
+            }
+            SigningInput::Mldsa87RawMessage { context, message } => {
+                RecordedSigningInput::Mldsa87RawMessage {
+                    context: context.to_vec(),
+                    message: message.to_vec(),
+                }
+            }
+        };
+        self.sign_ops.borrow_mut().push(RecordedSign {
+            input,
+            sig_len: signature.len(),
+        });
+        signature.fill(0x77);
+        Ok(signature.len())
+    }
+
+    #[cfg(feature = "set-certificate")]
+    fn write_cert_chain(
+        &self,
+        _io: &Self::Io<'_>,
+        slot: u8,
+        algo: SpdmPalAsymAlgo,
+        key_pair_id: u8,
+        cert_model: u8,
+        root_hash: &[u8; SHA384_DIGEST_SIZE],
+        cert_chain: &[u8],
+    ) -> PalResult<()> {
+        if let Some(err) = self.write_error {
+            return Err(err);
+        }
+        self.write_algo.set(Some(algo));
+        self.op.replace(Some(StoreOp::Write {
+            slot,
+            key_pair_id,
+            cert_model,
+            root_hash: *root_hash,
+            cert_chain: cert_chain.to_vec(),
+        }));
+        Ok(())
+    }
+
+    fn begin_write_cert_chain_stream(
+        &self,
+        _io: &Self::Io<'_>,
+        slot: u8,
+        _algo: SpdmPalAsymAlgo,
+        key_pair_id: u8,
+        cert_model: u8,
+        root_hash: &[u8; SHA384_DIGEST_SIZE],
+        data_len: usize,
+    ) -> PalResult<()> {
+        if let Some(err) = self.write_error {
+            return Err(err);
+        }
+        let mut data = self.stream_cert.borrow_mut();
+        data.clear();
+        data.resize(data_len, 0);
+        let _ = (slot, key_pair_id, cert_model, root_hash);
+        Ok(())
+    }
+
+    fn write_cert_chain_stream_chunk(
+        &self,
+        _io: &Self::Io<'_>,
+        _slot: u8,
+        _algo: SpdmPalAsymAlgo,
+        offset: usize,
+        data: &[u8],
+    ) -> PalResult<()> {
+        let mut cert = self.stream_cert.borrow_mut();
+        cert[offset..offset + data.len()].copy_from_slice(data);
+        Ok(())
+    }
+
+    fn finish_write_cert_chain_stream(
+        &self,
+        _io: &Self::Io<'_>,
+        slot: u8,
+        _algo: SpdmPalAsymAlgo,
+        key_pair_id: u8,
+        cert_model: u8,
+        root_hash: &[u8; SHA384_DIGEST_SIZE],
+        _data_len: usize,
+    ) -> PalResult<()> {
+        if let Some(err) = self.validate_error {
+            return Err(err);
+        }
+        let cert_chain = self.stream_cert.borrow().clone();
+        let first_len = cert_chain
+            .get(1)
+            .copied()
+            .map(|len| len as usize + 2)
+            .unwrap_or(0);
+        if first_len == 0
+            || first_len > cert_chain.len()
+            || test_digest(&cert_chain[..first_len]) != *root_hash
+        {
+            return Err(spdm_errors::codes::INVARIANT);
+        }
+        self.op.replace(Some(StoreOp::Write {
+            slot,
+            key_pair_id,
+            cert_model,
+            root_hash: *root_hash,
+            cert_chain,
+        }));
+        Ok(())
+    }
+
+    fn abort_write_cert_chain_stream(
+        &self,
+        _io: &Self::Io<'_>,
+        _slot: u8,
+        _algo: SpdmPalAsymAlgo,
+    ) -> PalResult<()> {
+        self.stream_aborts.set(self.stream_aborts.get() + 1);
+        self.stream_cert.borrow_mut().clear();
+        Ok(())
+    }
+
+    #[cfg(feature = "set-certificate")]
+    fn erase_cert_chain(
+        &self,
+        _io: &Self::Io<'_>,
+        slot: u8,
+        _algo: SpdmPalAsymAlgo,
+    ) -> PalResult<()> {
+        if let Some(err) = self.erase_error {
+            return Err(err);
+        }
+        self.op.replace(Some(StoreOp::Erase { slot }));
+        Ok(())
+    }
+
+    fn key_pair_id(&self, _slot: u8, _algo: SpdmPalAsymAlgo) -> Option<u8> {
+        None
+    }
+
+    fn cert_info(&self, _slot: u8, _algo: SpdmPalAsymAlgo) -> Option<u8> {
+        None
+    }
+
+    fn key_usage_mask(&self, _slot: u8, _algo: SpdmPalAsymAlgo) -> Option<u16> {
+        None
+    }
+}
+
+impl SpdmPalMeasurements for TestPal {
+    fn measurement_info(&self) -> &[MeasurementInfo] {
+        self.measurement_info
+    }
+
+    fn get_measurement_value(
+        &self,
+        _io: &Self::Io<'_>,
+        index: u8,
+        _nonce: Option<&[u8; SPDM_NONCE_LEN]>,
+        asym_algo: SpdmPalAsymAlgo,
+        out: &mut [u8],
+    ) -> PalResult<usize> {
+        self.meas_algo.set(Some(asym_algo));
+        if !self.measurement_info.iter().any(|info| info.index == index)
+            || self.measurement_value.len() > out.len()
+        {
+            return Err(spdm_errors::codes::NOT_IMPLEMENTED);
+        }
+
+        let dst = out
+            .get_mut(..self.measurement_value.len())
+            .ok_or(spdm_errors::codes::NOT_IMPLEMENTED)?;
+        dst.copy_from_slice(self.measurement_value);
+        Ok(self.measurement_value.len())
+    }
+}
+
+impl SpdmPalSessionCrypto for TestPal {
+    type Key = u8;
+
+    fn ecdh_generate(
+        &self,
+        _io: &impl SpdmPalIo,
+        _context: &mut [u8],
+        exchange_data: &mut [u8],
+    ) -> PalResult<()> {
+        exchange_data.fill(0x4d);
+        Ok(())
+    }
+
+    fn ecdh_finish(
+        &self,
+        _io: &impl SpdmPalIo,
+        _context: &[u8],
+        _peer_exchange_data: &[u8],
+    ) -> PalResult<Self::Key> {
+        Ok(1)
+    }
+
+    fn hkdf_extract_bytes(
+        &self,
+        _io: &impl SpdmPalIo,
+        _salt: &[u8],
+        _ikm: &Self::Key,
+    ) -> PalResult<Self::Key> {
+        Ok(1)
+    }
+
+    fn hkdf_extract_key(
+        &self,
+        _io: &impl SpdmPalIo,
+        _salt: &Self::Key,
+        _ikm: &Self::Key,
+    ) -> PalResult<Self::Key> {
+        Ok(1)
+    }
+
+    fn hkdf_expand(
+        &self,
+        _io: &impl SpdmPalIo,
+        _prk: &Self::Key,
+        _key_size: u32,
+        _info: &[u8],
+    ) -> PalResult<Self::Key> {
+        Ok(1)
+    }
+
+    fn hmac(
+        &self,
+        _io: &impl SpdmPalIo,
+        _key: &Self::Key,
+        data: &[u8],
+        out: &mut [u8],
+    ) -> PalResult<usize> {
+        let n = out.len().min(data.len());
+        out[..n].copy_from_slice(&data[..n]);
+        Ok(n)
+    }
+
+    fn import_key(&self, _io: &impl SpdmPalIo, _data: &[u8]) -> PalResult<Self::Key> {
+        Ok(1)
+    }
+
+    fn aead_encrypt(
+        &self,
+        _io: &impl SpdmPalIo,
+        _key: &Self::Key,
+        _spdm_version: u8,
+        _seq: u64,
+        _aad: &[u8],
+        plaintext: &[u8],
+        ciphertext: &mut [u8],
+    ) -> PalResult<(usize, [u8; 16])> {
+        ciphertext[..plaintext.len()].copy_from_slice(plaintext);
+        Ok((plaintext.len(), [0u8; 16]))
+    }
+
+    fn aead_decrypt(
+        &self,
+        _io: &impl SpdmPalIo,
+        _key: &Self::Key,
+        _spdm_version: u8,
+        seq: u64,
+        _aad: &[u8],
+        ciphertext: &[u8],
+        _tag: &[u8; 16],
+        plaintext: &mut [u8],
+    ) -> PalResult<usize> {
+        self.last_aead_decrypt_sequence.set(Some(seq));
+        if let Some(error) = self.aead_decrypt_error.get() {
+            return Err(error);
+        }
+        plaintext[..ciphertext.len()].copy_from_slice(ciphertext);
+        Ok(ciphertext.len())
+    }
+}
+
+impl spdm_traits::SpdmPal for TestPal {
+    fn max_inbound_spdm_request_size(&self) -> usize {
+        self.max_inbound_spdm_request_size
+    }
+
+    fn generate_nonce(&self, _io: &Self::Io<'_>, out: &mut [u8]) -> PalResult<()> {
+        out.fill(0xA5);
+        Ok(())
+    }
+}
+
+pub fn test_digest(data: &[u8]) -> [u8; SHA384_DIGEST_SIZE] {
+    let mut digest = [0u8; SHA384_DIGEST_SIZE];
+    digest[0] = data.len() as u8;
+    digest[1] = data.first().copied().unwrap_or_default();
+    digest[2] = data.last().copied().unwrap_or_default();
+    digest
+}
+
+pub fn der_chain() -> Vec<u8> {
+    TEST_CERT_CHAIN.to_vec()
+}
+
+pub fn cert_payload(der: &[u8], root_hash: [u8; SHA384_DIGEST_SIZE]) -> Vec<u8> {
+    let len = SPDM_CERT_CHAIN_HDR_LEN + der.len();
+    let mut payload = Vec::with_capacity(len);
+    payload.extend_from_slice(&(len as u16).to_le_bytes());
+    payload.extend_from_slice(&0u16.to_le_bytes());
+    payload.extend_from_slice(&root_hash);
+    payload.extend_from_slice(der);
+    payload
+}
+
+pub fn set_certificate_io(
+    version: SpdmVersion,
+    attributes: u8,
+    key_pair_id: u8,
+    payload: &[u8],
+) -> TestIo {
+    let mut request = vec![
+        version.to_u8(),
+        ReqRespCode::SET_CERTIFICATE.0,
+        attributes,
+        key_pair_id,
+    ];
+    request.extend_from_slice(payload);
+    TestIo::message(request)
+}
+
+pub fn set_certificate_request(pal: &TestPal) -> Vec<u8> {
+    let der = pal.cert_chain;
+    let payload = cert_payload(der, test_digest(&der[..5]));
+    let mut req = vec![
+        SpdmVersion::V12.to_u8(),
+        ReqRespCode::SET_CERTIFICATE.0,
+        1,
+        0,
+    ];
+    req.extend_from_slice(&payload);
+    req
+}
+
+pub fn split_large_request(req: &[u8]) -> (&[u8], &[u8]) {
+    req.split_at(26)
+}
+
+pub fn chunk_send_request(
+    handle: u8,
+    seq: u16,
+    last_chunk: bool,
+    large_msg_size: Option<usize>,
+    chunk: &[u8],
+) -> Vec<u8> {
+    let mut req = vec![
+        SpdmVersion::V12.to_u8(),
+        ReqRespCode::CHUNK_SEND.0,
+        if last_chunk { CHUNK_ATTR_LAST_CHUNK } else { 0 },
+        handle,
+    ];
+    req.extend_from_slice(&seq.to_le_bytes());
+    req.extend_from_slice(&0u16.to_le_bytes());
+    req.extend_from_slice(&(chunk.len() as u32).to_le_bytes());
+    if let Some(size) = large_msg_size {
+        req.extend_from_slice(&(size as u32).to_le_bytes());
+    }
+    req.extend_from_slice(chunk);
+    req
+}
+
+pub fn secured_io(session_id: u32, spdm_msg: &[u8]) -> TestIo {
+    let plaintext_len = 2 + spdm_msg.len();
+    let mut req = Vec::with_capacity(SECURED_MSG_HDR_SIZE + plaintext_len + AES_256_GCM_TAG_SIZE);
+    req.extend_from_slice(&session_id.to_le_bytes());
+    req.extend_from_slice(&((plaintext_len + AES_256_GCM_TAG_SIZE) as u16).to_le_bytes());
+    req.extend_from_slice(&(spdm_msg.len() as u16).to_le_bytes());
+    req.extend_from_slice(spdm_msg);
+    req.extend_from_slice(&[0u8; AES_256_GCM_TAG_SIZE]);
+    TestIo::secured(req)
+}
+
+pub fn secured_spdm_response(rsp: &[u8]) -> &[u8] {
+    let msg_len = u16::from_le_bytes([rsp[6], rsp[7]]) as usize;
+    &rsp[8..8 + msg_len]
+}
+
+pub fn negotiated_state(version: SpdmVersion) -> ConnectionState<TestHashState, Vec<u8>> {
+    let mut state = ConnectionState::default();
+    state.phase = Phase::AfterAlgorithms;
+    state.version = version;
+    state.advertised_cap_flags = state.cap_flags;
+    state.negotiated_base_hash_sel = HashAlgos::SHA_384;
+    state.negotiated_base_asym_sel = AsymAlgos::ECDSA_ECC_NIST_P384;
+    state
+}
+
+pub fn chunking_state() -> ConnectionState<TestHashState, Vec<u8>> {
+    let mut state = negotiated_state(SpdmVersion::V12);
+    state.peer_cap_flags = CapFlags::CHUNK;
+    state.peer_data_transfer_size = 1024;
+    state.peer_max_spdm_msg_size = 1024;
+    state
+}
+
+pub fn handshake_session(
+    pal: &TestPal,
+) -> (
+    ConnectionState<TestHashState, Vec<u8>>,
+    Sessions<TestPal, 1>,
+    u32,
+) {
+    let empty_io = TestIo::message(Vec::new());
+    let state = chunking_state();
+    let mut sessions = crate::session::SessionManager::new();
+    let session_id = sessions
+        .create_session(0x1234, SpdmVersion::V12, |info| pal.alloc_persistent(info))
+        .unwrap();
+    let session = sessions.find_mut(session_id).unwrap();
+    session.key_schedule.set_dhe_secret(1);
+    session
+        .key_schedule
+        .generate_handshake_keys(pal, &empty_io, &[0u8; SHA384_DIGEST_SIZE])
+        .unwrap();
+    (state, sessions, session_id)
+}
+
+pub fn established_session(
+    pal: &TestPal,
+) -> (
+    ConnectionState<TestHashState, Vec<u8>>,
+    Sessions<TestPal, 1>,
+    u32,
+) {
+    let empty_io = TestIo::message(Vec::new());
+    let (state, mut sessions, session_id) = handshake_session(pal);
+    let session = sessions.find_mut(session_id).unwrap();
+
+    session
+        .key_schedule
+        .generate_data_keys(pal, &empty_io, &[0u8; SHA384_DIGEST_SIZE])
+        .unwrap();
+    session.key_schedule.destroy_handshake_secrets();
+    session.state = crate::session::SessionState::Established;
+    (state, sessions, session_id)
+}
+
+/// Drive a multi-chunk `CHUNK_GET` transfer to reassemble a complete SPDM large response message.
+pub fn drain_chunked_response(
+    state: &mut ConnectionState<TestHashState, Vec<u8>>,
+    pal: &TestPal,
+    io: &TestIo,
+    handle: u8,
+) -> Result<Vec<u8>, crate::error::SpdmError> {
+    let mut chunk_seq_num = 0u16;
+    let mut reassembled = Vec::new();
+
+    loop {
+        let mut chunk_get_buf = [0u8; SpdmMsgHdrPdu::SIZE + ChunkGetReqBodyV14::SIZE];
+        let mut writer = WireWriter::new(&mut chunk_get_buf);
+        writer
+            .write(&SpdmMsgHdrPdu::new(state.version, ReqRespCode::CHUNK_GET))
+            .map_err(|_| crate::error::SPDM_INVALID_REQUEST)?;
+
+        if state.version <= SpdmVersion::V13 {
+            writer
+                .write(&ChunkGetReqBodyV13 {
+                    param1: 0,
+                    handle,
+                    chunk_seq_num: zerocopy::little_endian::U16::new(chunk_seq_num),
+                })
+                .map_err(|_| crate::error::SPDM_INVALID_REQUEST)?;
+        } else {
+            writer
+                .write(&ChunkGetReqBodyV14 {
+                    param1: 0,
+                    handle,
+                    chunk_seq_num: zerocopy::little_endian::U32::new(chunk_seq_num as u32),
+                })
+                .map_err(|_| crate::error::SPDM_INVALID_REQUEST)?;
+        }
+
+        let chunk_rsp = crate::chunk::handle_chunk_get(state, pal, io, &chunk_get_buf)?;
+        let head = pal.header_size();
+        assert_eq!(chunk_rsp.len() % pal.send_len_alignment(), 0);
+        let spdm_msg = &chunk_rsp[head..];
+
+        let (hdr, rest) = SpdmMsgHdrPdu::ref_from_prefix(spdm_msg)
+            .map_err(|_| crate::error::SPDM_INVALID_REQUEST)?;
+        assert_eq!(hdr.code, ReqRespCode::CHUNK_RESPONSE);
+
+        let (body, chunk_data) = ChunkResponseBody::ref_from_prefix(rest)
+            .map_err(|_| crate::error::SPDM_INVALID_REQUEST)?;
+        assert_eq!(body.handle, handle);
+        assert_eq!(body.chunk_seq_num.get(), chunk_seq_num);
+
+        let payload = if chunk_seq_num == 0 {
+            // First chunk is prepended with 4-byte large_response_size
+            assert!(chunk_data.len() >= LARGE_RESPONSE_SIZE_FIELD_SIZE);
+            &chunk_data[LARGE_RESPONSE_SIZE_FIELD_SIZE..]
+        } else {
+            chunk_data
+        };
+        let chunk_len = body.chunk_size.get() as usize;
+        assert!(payload[chunk_len..].iter().all(|&byte| byte == 0));
+        reassembled.extend_from_slice(&payload[..chunk_len]);
+
+        let is_last = (body.chunk_sender_attr & CHUNK_ATTR_LAST_CHUNK) != 0;
+        if is_last {
+            break;
+        }
+        chunk_seq_num = chunk_seq_num
+            .checked_add(1)
+            .ok_or(crate::error::SPDM_INVALID_REQUEST)?;
+    }
+
+    Ok(reassembled)
+}

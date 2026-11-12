@@ -1,0 +1,280 @@
+// Licensed under the Apache-2.0 license
+
+//! SPDM cert-store abstraction.
+//!
+//! All cert-chain methods take an [`SpdmPalAsymAlgo`] parameter
+//! so each slot can hold chains and signing keys for multiple algorithms
+//! such as ECC-384 and ML-DSA-87.
+
+use crate::SpdmPalHashAlgo;
+use spdm_errors::PalResult;
+
+/// Size of the SHA-384 digest signed for ECDSA P-384.
+pub const ECC_P384_DIGEST_SIZE: usize = 48;
+
+/// Algorithm-specific input to [`SpdmPalCertStore::sign`].
+///
+/// The stack prepares the input in the form the signature algorithm
+/// requires, so the Integrator never has to infer it from a bare byte slice.
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub enum SigningInput<'a> {
+    /// SHA-384 digest for ECDSA P-384.
+    EccP384Digest(&'a [u8; ECC_P384_DIGEST_SIZE]),
+    /// Raw ML-DSA-87 message and FIPS 204 context.
+    Mldsa87RawMessage {
+        /// FIPS 204 context (the SPDM operation string).
+        context: &'a [u8],
+        /// Message signed under `context`.
+        message: &'a [u8],
+    },
+}
+
+/// Maximum number of cert-chain slots the responder advertises (`SlotMask` is one byte).
+pub const MAX_SLOTS: u8 = 8;
+
+/// Asymmetric algorithm selector.
+///
+/// Passed to cert-store and endorsement methods so the
+/// implementation can select the right cert chain and signing
+/// key for the slot.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SpdmPalAsymAlgo {
+    /// ECDSA P-384 / SHA-384 (96-byte signature: r || s).
+    EccP384,
+    /// ML-DSA-87 (post-quantum).
+    MlDsa87,
+}
+
+impl SpdmPalAsymAlgo {
+    /// `SigLen` for this algorithm.
+    pub const fn signature_size(self) -> usize {
+        match self {
+            Self::EccP384 => 96,
+            Self::MlDsa87 => 4627,
+        }
+    }
+}
+
+/// Slot-indexed cert-store backend.
+pub trait SpdmPalCertStore: crate::SpdmPalIoTransport {
+    /// Bitmask of supported slots, bits 0..=7.
+    fn supported_slots(&self) -> u8;
+
+    /// Bitmask of slots provisioned with a cert chain for `algo`, bits
+    /// 0..=7. Drives DIGESTS's `ProvisionedSlotMask` and gates every
+    /// slot-addressed read path.
+    ///
+    /// A connection negotiates exactly one asymmetric algorithm, so a
+    /// slot holding no chain for `algo` reports as unprovisioned: the
+    /// responder has nothing it can serve for that slot.
+    fn provisioned_slots(&self, algo: SpdmPalAsymAlgo) -> u8;
+
+    /// Raw DER capacity/size for a slot-size query.
+    fn cert_chain_slot_size(
+        &self,
+        io: &Self::Io<'_>,
+        slot: u8,
+        algo: SpdmPalAsymAlgo,
+    ) -> PalResult<usize>;
+
+    /// Check whether a specific SET_CERTIFICATE request is authorized.
+    #[cfg(feature = "set-certificate")]
+    fn set_certificate_authorized(
+        &self,
+        io: &Self::Io<'_>,
+        slot: u8,
+        key_pair_id: u8,
+        cert_model: u8,
+        erase: bool,
+    ) -> bool;
+
+    /// Validate an incoming SET_CERTIFICATE chain before it is committed.
+    ///
+    /// Chains delivered via CHUNK_SEND bypass this method; the same
+    /// obligations then apply to
+    /// [`finish_write_cert_chain_stream`](Self::finish_write_cert_chain_stream).
+    ///
+    /// The PAL implementation **must** verify that `SHA-384(first DER
+    /// certificate in `cert_chain`) == *root_hash`. The stack no longer
+    /// performs this check, since the PAL already has access to hashing
+    /// machinery and avoids a duplicate async hash pass at the SPDM
+    /// responder layer.
+    #[cfg(feature = "set-certificate")]
+    fn validate_set_certificate_chain(
+        &self,
+        io: &Self::Io<'_>,
+        slot: u8,
+        key_pair_id: u8,
+        cert_model: u8,
+        root_hash: &[u8; 48],
+        cert_chain: &[u8],
+    ) -> PalResult<()>;
+
+    /// Length in bytes of slot's raw DER cert chain for the given
+    /// algorithm (excludes the 52-byte SPDM cert-chain header).
+    fn cert_chain_len(
+        &self,
+        io: &Self::Io<'_>,
+        slot: u8,
+        algo: SpdmPalAsymAlgo,
+    ) -> PalResult<usize>;
+
+    /// Write the digest of slot's **root certificate** into `out`.
+    fn root_cert_hash(
+        &self,
+        io: &Self::Io<'_>,
+        slot: u8,
+        algo: SpdmPalAsymAlgo,
+        hash_algo: SpdmPalHashAlgo,
+        out: &mut [u8],
+    ) -> PalResult<()>;
+
+    /// Read at most `dst.len()` bytes from slot's raw cert chain
+    /// for the given algorithm at `offset` into `dst`.
+    fn read_cert_chain(
+        &self,
+        io: &Self::Io<'_>,
+        slot: u8,
+        algo: SpdmPalAsymAlgo,
+        offset: usize,
+        dst: &mut [u8],
+    ) -> PalResult<usize>;
+
+    /// Sign the caller-prepared input using the key in `slot`.
+    fn sign(
+        &self,
+        io: &Self::Io<'_>,
+        slot: u8,
+        signing_input: SigningInput<'_>,
+        signature: &mut [u8],
+    ) -> PalResult<usize>;
+
+    /// Write a cert chain into `slot` for the given algorithm.
+    /// Used by SET_CERTIFICATE.
+    #[cfg(feature = "set-certificate")]
+    #[allow(clippy::too_many_arguments)]
+    fn write_cert_chain(
+        &self,
+        io: &Self::Io<'_>,
+        slot: u8,
+        algo: SpdmPalAsymAlgo,
+        key_pair_id: u8,
+        cert_info: u8,
+        root_hash: &[u8; 48],
+        data: &[u8],
+    ) -> PalResult<()>;
+
+    /// Begins a non-atomic streaming SET_CERTIFICATE write transaction.
+    ///
+    /// Implementations may erase/overwrite target storage at begin time. A
+    /// request becomes valid only after [`finish_write_cert_chain_stream`](Self::finish_write_cert_chain_stream)
+    /// commits metadata; interrupted or invalid requests need not preserve the old chain.
+    #[allow(clippy::too_many_arguments)]
+    fn begin_write_cert_chain_stream(
+        &self,
+        _io: &Self::Io<'_>,
+        _slot: u8,
+        _algo: SpdmPalAsymAlgo,
+        _key_pair_id: u8,
+        _cert_info: u8,
+        _root_hash: &[u8; 48],
+        _data_len: usize,
+    ) -> PalResult<()> {
+        Err(spdm_errors::codes::NOT_IMPLEMENTED)
+    }
+
+    /// Writes one DER chunk at `offset` within the streaming cert-chain data.
+    fn write_cert_chain_stream_chunk(
+        &self,
+        _io: &Self::Io<'_>,
+        _slot: u8,
+        _algo: SpdmPalAsymAlgo,
+        _offset: usize,
+        _data: &[u8],
+    ) -> PalResult<()> {
+        Err(spdm_errors::codes::NOT_IMPLEMENTED)
+    }
+
+    /// Commits a streaming SET_CERTIFICATE write transaction.
+    ///
+    /// This is the streaming counterpart of
+    /// [`validate_set_certificate_chain`](Self::validate_set_certificate_chain)
+    /// and carries the **same hard requirement**: the implementation
+    /// **must** verify that `SHA-384(first DER certificate of the streamed
+    /// chain) == *root_hash`, and apply the same policy it enforces in
+    /// `validate_set_certificate_chain`, before activating the chain. On any
+    /// failure it **must not** commit. The stack only checks DER framing of
+    /// the stream, never the root hash, and a requester chooses between the
+    /// buffered and streamed paths by chunking, so skipping this check lets an
+    /// unvalidated chain become the slot's attestation identity.
+    #[allow(clippy::too_many_arguments)]
+    fn finish_write_cert_chain_stream(
+        &self,
+        _io: &Self::Io<'_>,
+        _slot: u8,
+        _algo: SpdmPalAsymAlgo,
+        _key_pair_id: u8,
+        _cert_info: u8,
+        _root_hash: &[u8; 48],
+        _data_len: usize,
+    ) -> PalResult<()> {
+        Err(spdm_errors::codes::NOT_IMPLEMENTED)
+    }
+
+    /// Aborts a streaming SET_CERTIFICATE write transaction.
+    fn abort_write_cert_chain_stream(
+        &self,
+        _io: &Self::Io<'_>,
+        _slot: u8,
+        _algo: SpdmPalAsymAlgo,
+    ) -> PalResult<()> {
+        Ok(())
+    }
+
+    /// Erase the cert chain in `slot` for the given algorithm.
+    #[cfg(feature = "set-certificate")]
+    fn erase_cert_chain(&self, io: &Self::Io<'_>, slot: u8, algo: SpdmPalAsymAlgo)
+        -> PalResult<()>;
+
+    /// KeyPairID associated with the slot's `algo` chain.
+    ///
+    /// A slot may be provisioned for one algorithm and not another, so
+    /// this is scoped to the connection's negotiated algorithm.
+    /// Returns `None` where that chain is unprovisioned.
+    fn key_pair_id(&self, slot: u8, algo: SpdmPalAsymAlgo) -> Option<u8>;
+
+    /// CertificateInfo for the slot's `algo` chain.
+    /// Returns `None` where that chain is unprovisioned.
+    fn cert_info(&self, slot: u8, algo: SpdmPalAsymAlgo) -> Option<u8>;
+
+    /// KeyUsageMask for the slot's `algo` chain.
+    /// Returns `None` where that chain is unprovisioned.
+    fn key_usage_mask(&self, slot: u8, algo: SpdmPalAsymAlgo) -> Option<u16>;
+
+    /// Optional cache hook: return a previously stored full
+    /// SPDM-cert-chain digest for `(slot, asym_algo, hash_algo)`, or `None` to
+    /// force recomputation. Default impl never caches.
+    #[inline]
+    fn cached_chain_digest(
+        &self,
+        _slot: u8,
+        _asym_algo: SpdmPalAsymAlgo,
+        _hash_algo: SpdmPalHashAlgo,
+    ) -> Option<[u8; 48]> {
+        None
+    }
+
+    /// Optional cache hook: store the freshly computed SPDM
+    /// cert-chain digest for future
+    /// [`cached_chain_digest`](Self::cached_chain_digest) lookups.
+    /// Default impl is a no-op.
+    #[inline]
+    fn cache_chain_digest(
+        &self,
+        _slot: u8,
+        _asym_algo: SpdmPalAsymAlgo,
+        _hash_algo: SpdmPalHashAlgo,
+        _digest: &[u8],
+    ) {
+    }
+}

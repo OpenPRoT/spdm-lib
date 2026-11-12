@@ -1,0 +1,39 @@
+# Licensed under the Apache-2 = 
+
+[package]
+name = "spdm-lib"
+version = "0.1.0"
+authors = ["Caliptra contributors", "OpenPRoT contributors"]
+edition = "2021"
+
+[features]
+default = []
+
+[lints.clippy]
+too_many_arguments = { level = "allow", priority = 1 }
+type_complexity = { level = "allow", priority = 1 }
+
+[dependencies]
+bitfield = "0.14.0"
+zerocopy = { version = "0.8.17", features = ["derive"] }
+
+[dev-dependencies]
+rand = "0.8.5"
+# Cryptographic dependencies
+sha2 = { version = "0.10"}
+p384 = { version = "0.13", features = ["ecdsa", "pem"] }
+digest = { version = "0.10"}
+hex = "0.4.3"
+der = "0.8"
+x509-cert = "0.3.0-rc.4"
+signature = "2"
+clap = { version = "4", features = ["derive"] }
+
+# Examples
+[[example]]
+name = "spdm_responder"
+path = "examples/spdm_responder.rs"
+
+[[example]]
+name = "spdm_requester"
+path = "examples/spdm_requester.rs"

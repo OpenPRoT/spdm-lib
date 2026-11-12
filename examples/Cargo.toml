@@ -1,0 +1,52 @@
+# Licensed under the Apache-2.0 license
+
+[package]
+name = "spdm-examples"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+publish = false
+description = "Host proof-of-concept SPDM Requester and Responder, run against DMTF spdm-emu."
+# Sources live in responder/ and requester/ beside this manifest, not in the
+# default examples/ subdirectory.
+autoexamples = false
+
+# Run from the workspace root, e.g.:
+#   cargo run --example poc-responder -- --port 2323
+#   cargo run --example poc-requester -- --port 2323
+[[example]]
+name = "poc-responder"
+path = "responder/main.rs"
+
+[[example]]
+name = "poc-requester"
+path = "requester/main.rs"
+
+[features]
+default = []
+# Enable the SET_CERTIFICATE responder path. Must move in lockstep with the
+# stack's own feature: the cert-store trait methods it requires are gated on
+# `spdm-traits/set-certificate`.
+set-certificate = ["spdm-stack/set-certificate", "spdm-traits/set-certificate"]
+
+[dependencies]
+spdm-stack = { workspace = true }
+spdm-traits = { workspace = true }
+spdm-codec = { workspace = true }
+spdm-crypto = { workspace = true }
+spdm-errors = { workspace = true }
+sha2 = "0.10"
+p384 = { version = "0.13", features = ["ecdsa", "pem"] }
+rand = "0.8"
+der = "0.8"
+x509-cert = "0.3.0-rc.4"
+signature = "2"
+ml-dsa = "0.1"
+
+# build.rs generates the per-device IDevID → LDevID → leaf chain.
+[build-dependencies]
+p384 = { version = "0.13", features = ["ecdsa", "pkcs8"] }
+rand = "0.8"
+sha2 = "0.10"
+x509-cert = "0.3.0-rc.4"
+ml-dsa = "0.1"

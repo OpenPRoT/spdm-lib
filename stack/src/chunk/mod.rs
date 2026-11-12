@@ -1,0 +1,585 @@
+// Licensed under the Apache-2.0 license
+
+//! SPDM large-message chunking.
+
+mod get;
+mod send;
+
+pub(crate) use get::handle_chunk_get;
+pub(crate) use send::abort_active_streaming_request;
+pub(crate) use send::handle_chunk_send;
+
+use spdm_traits::{PalBytes, SpdmPal, SpdmPalAlloc, SpdmPalIoTransport};
+
+use crate::build::build_error_response;
+use crate::certificate::CertificateLargeResponse;
+use crate::error::{
+    SpdmError, SpdmResult, SPDM_INVALID_REQUEST, SPDM_LARGE_RESPONSE, SPDM_RESPONSE_TOO_LARGE,
+    SPDM_UNEXPECTED_REQUEST, SPDM_UNSPECIFIED,
+};
+use crate::stack::ConnectionState;
+
+/// RAII guard that automatically zero-fills its contained buffer on Drop.
+/// Used to securely erase sensitive reassembled request or response payload data from RAM.
+pub(crate) struct WipeOnDrop<L: core::ops::DerefMut<Target = [u8]>> {
+    pub(crate) buf: Option<L>,
+}
+
+impl<L: core::ops::DerefMut<Target = [u8]>> Drop for WipeOnDrop<L> {
+    fn drop(&mut self) {
+        if let Some(mut buf) = self.buf.take() {
+            buf.fill(0);
+        }
+    }
+}
+
+impl<L: core::ops::DerefMut<Target = [u8]>> WipeOnDrop<L> {
+    pub(crate) fn as_ref(&self) -> SpdmResult<&[u8]> {
+        self.buf.as_deref().ok_or(SPDM_UNSPECIFIED)
+    }
+
+    pub(crate) fn as_mut(&mut self) -> SpdmResult<&mut [u8]> {
+        self.buf.as_deref_mut().ok_or(SPDM_UNSPECIFIED)
+    }
+
+    /// Zero `buf[start..end]`.
+    pub(crate) fn zero_slice(&mut self, start: usize, end: usize) -> SpdmResult<()> {
+        let buf = self.as_mut()?;
+        let dst = buf.get_mut(start..end).ok_or(SPDM_UNSPECIFIED)?;
+        dst.fill(0);
+        Ok(())
+    }
+
+    /// Move `buf[src..src + len]` down to offset 0, dropping transport headroom.
+    pub(crate) fn shift_left(&mut self, src: usize, len: usize) -> SpdmResult<()> {
+        let buf = self.as_mut()?;
+        let end = src.checked_add(len).ok_or(SPDM_UNSPECIFIED)?;
+        if end > buf.len() || len > buf.len() {
+            return Err(SPDM_UNSPECIFIED);
+        }
+
+        buf.copy_within(src..end, 0);
+        Ok(())
+    }
+
+    /// Finish a response allocated in this large buffer: either convert to standard
+    /// response if within transfer size, or start chunking.
+    pub(crate) fn finish_response<'a, Pal>(
+        self,
+        state: &mut ConnectionState<Pal::State, L>,
+        pal: &'a Pal,
+        io: &<Pal as SpdmPalIoTransport>::Io<'_>,
+        head: usize,
+        spdm_len: usize,
+    ) -> SpdmResult<(PalBytes<'a, Pal>, usize)>
+    where
+        Pal: SpdmPal<LargeBuf = L>,
+    {
+        let inline_response_limit = state.effective_data_transfer_size(pal);
+        self.finish_response_with_limit(state, pal, io, head, spdm_len, inline_response_limit)
+    }
+
+    /// Finish a response against a caller-supplied inline payload limit.
+    #[inline(never)]
+    pub(crate) fn finish_response_with_limit<'a, Pal>(
+        mut self,
+        state: &mut ConnectionState<Pal::State, L>,
+        pal: &'a Pal,
+        io: &<Pal as SpdmPalIoTransport>::Io<'_>,
+        head: usize,
+        spdm_len: usize,
+        inline_response_limit: usize,
+    ) -> SpdmResult<(PalBytes<'a, Pal>, usize)>
+    where
+        Pal: SpdmPal<LargeBuf = L>,
+    {
+        let raw_len = head.checked_add(spdm_len).ok_or(SPDM_UNSPECIFIED)?;
+        let use_normal_response = spdm_len <= inline_response_limit;
+
+        if use_normal_response {
+            let padded_len = crate::build::align_send_len(pal, raw_len)?;
+            self.zero_slice(raw_len, padded_len)?;
+            let final_buf = self.buf.take().ok_or(SPDM_UNSPECIFIED)?;
+            let resp = pal
+                .large_buf_into_bytes(final_buf, padded_len)
+                .map_err(|_| SPDM_UNSPECIFIED)?;
+            return Ok((resp, spdm_len));
+        }
+
+        self.shift_left(head, spdm_len)?;
+        let final_buf = self.buf.take().ok_or(SPDM_UNSPECIFIED)?;
+        state.large_msg_ctx.set_buffer(final_buf);
+        let (resp, spdm_len) = match start_buffered_large_response(state, pal, io, spdm_len) {
+            Ok(res) => res,
+            Err(err) => {
+                state.large_msg_ctx.reset();
+                return Err(err);
+            }
+        };
+        Ok((resp, spdm_len))
+    }
+}
+
+#[derive(Copy, Clone)]
+pub(crate) enum LargeResponse {
+    Certificate(CertificateLargeResponse),
+    Buffered,
+}
+
+#[derive(Copy, Clone)]
+pub(crate) struct ActiveLargeResponse {
+    pub(crate) handle: u8,
+    pub(crate) next_seq_num: u16,
+    pub(crate) bytes_sent: usize,
+    pub(crate) response_size: usize,
+    pub(crate) kind: LargeResponse,
+    /// Secured session that staged this response; `None` for a cleartext
+    /// exchange. CHUNK_GET must arrive in the same context.
+    pub(crate) session_id: Option<u32>,
+}
+
+impl ActiveLargeResponse {
+    #[inline]
+    pub(crate) fn chunk_sent(&mut self, n: usize) -> bool {
+        self.bytes_sent += n;
+        self.next_seq_num = self.next_seq_num.wrapping_add(1);
+        self.bytes_sent == self.response_size
+    }
+}
+
+#[derive(Copy, Clone, Default)]
+pub(crate) struct ChunkState {
+    pub(crate) in_use: bool,
+    pub(super) handle: u8,
+    pub(super) seq_num: u16,
+    pub(super) bytes_received: u32,
+    pub(super) large_msg_size: u32,
+    pub(super) session_id: Option<u32>,
+}
+
+impl ChunkState {
+    #[inline]
+    pub(crate) fn reset(&mut self) {
+        *self = Self::default();
+    }
+}
+
+/// Bytes of the reassembled request head that a streaming handler keeps in
+/// place until it has seen enough of the message to decide how to stream the
+/// rest (e.g. the SET_CERTIFICATE header plus root hash).
+#[cfg(feature = "set-certificate")]
+pub(crate) const STREAM_PREFIX_CAPACITY: usize = 56;
+
+#[cfg(feature = "set-certificate")]
+#[derive(Copy, Clone)]
+pub(crate) struct StreamPrefixState {
+    pub(crate) data: [u8; STREAM_PREFIX_CAPACITY],
+    pub(crate) len: usize,
+}
+
+/// Which large-request strategy the in-progress CHUNK_SEND sequence is using.
+#[derive(Copy, Clone)]
+pub(crate) enum ActiveLargeRequest {
+    /// Reassemble the whole request into the large buffer, then dispatch once.
+    #[cfg(any(test, feature = "generic-large-request"))]
+    Buffered,
+    /// Head of a stream is still being accumulated; the target is not yet known.
+    #[cfg(feature = "set-certificate")]
+    Prefix(StreamPrefixState),
+    /// Streaming straight into a cert-store write transaction.
+    #[cfg(feature = "set-certificate")]
+    SetCertificate(crate::set_certificate::SetCertificateStreamState),
+    /// Streaming straight into the VDM backend. Carries the request's registry
+    /// identity so the response envelope can be rebuilt without the stack
+    /// knowing which vendor claimed the request.
+    VdmStream {
+        standard_id: u16,
+        vendor_id: [u8; 4],
+        vendor_id_len: u8,
+        /// Whether the request used the SPDM 1.4 large VENDOR_DEFINED form.
+        is_large: bool,
+    },
+}
+
+#[derive(Copy, Clone)]
+pub(crate) enum LargeMessageMode {
+    Idle,
+    Request(ActiveLargeRequest),
+    Response(ActiveLargeResponse),
+}
+
+pub(crate) struct LargeMessageCtx<L> {
+    pub(crate) state: ChunkState,
+    pub(crate) mode: LargeMessageMode,
+    buf: Option<L>,
+    pub(crate) next_handle: u8,
+    /// Context of the request being dispatched: the authenticated session ID
+    /// for a secured message, `None` for cleartext. Set by the dispatcher.
+    current_session: Option<u32>,
+}
+
+impl<L> LargeMessageCtx<L> {
+    pub fn new() -> Self {
+        Self {
+            state: ChunkState::default(),
+            mode: LargeMessageMode::Idle,
+            buf: None,
+            next_handle: 1,
+            current_session: None,
+        }
+    }
+
+    pub(crate) fn set_current_session(&mut self, session_id: Option<u32>) {
+        self.current_session = session_id;
+    }
+
+    pub(crate) fn current_session(&self) -> Option<u32> {
+        self.current_session
+    }
+}
+
+impl<L: core::ops::DerefMut<Target = [u8]>> LargeMessageCtx<L> {
+    pub fn reset(&mut self) {
+        self.state.reset();
+        self.mode = LargeMessageMode::Idle;
+        if let Some(mut backing) = self.buf.take() {
+            backing.fill(0);
+        }
+    }
+
+    /// Securely replaces the held buffer with `buf`, ensuring any previous buffer is securely zero-wiped first.
+    pub fn set_buffer(&mut self, buf: L) {
+        self.reset();
+        self.buf = Some(buf);
+    }
+
+    /// Securely takes the held buffer, returning it if present.
+    pub fn take_buffer(&mut self) -> Option<L> {
+        self.buf.take()
+    }
+
+    /// Access the underlying buffer to read or inspect.
+    pub fn get_buffer(&self) -> Option<&L> {
+        self.buf.as_ref()
+    }
+
+    pub fn request_in_progress(&self) -> bool {
+        matches!(self.mode, LargeMessageMode::Request(_)) && self.state.in_use
+    }
+
+    pub(crate) fn active_request(&self) -> Option<&ActiveLargeRequest> {
+        match &self.mode {
+            LargeMessageMode::Request(active) if self.state.in_use => Some(active),
+            _ => None,
+        }
+    }
+
+    pub(crate) fn active_request_mut(&mut self) -> Option<&mut ActiveLargeRequest> {
+        match &mut self.mode {
+            LargeMessageMode::Request(active) if self.state.in_use => Some(active),
+            _ => None,
+        }
+    }
+
+    pub fn response_in_progress(&self) -> bool {
+        matches!(self.mode, LargeMessageMode::Response(_))
+    }
+
+    pub fn is_idle(&self) -> bool {
+        matches!(self.mode, LargeMessageMode::Idle)
+    }
+
+    #[cfg(any(test, feature = "generic-large-request"))]
+    pub fn init_request(
+        &mut self,
+        handle: u8,
+        total_size: usize,
+        initial_chunk: &[u8],
+        mut rent_buf: L,
+        session_id: Option<u32>,
+    ) -> Result<(), SpdmError> {
+        if !self.is_idle() {
+            return Err(SPDM_UNEXPECTED_REQUEST);
+        }
+
+        self.mode = LargeMessageMode::Request(ActiveLargeRequest::Buffered);
+        self.state = ChunkState {
+            in_use: true,
+            handle,
+            seq_num: 0,
+            bytes_received: initial_chunk.len() as u32,
+            large_msg_size: total_size as u32,
+            session_id,
+        };
+        let dest = rent_buf
+            .get_mut(..initial_chunk.len())
+            .ok_or(SPDM_INVALID_REQUEST)?;
+        for (d, s) in dest.iter_mut().zip(initial_chunk) {
+            *d = *s;
+        }
+        self.buf = Some(rent_buf);
+        Ok(())
+    }
+
+    pub(crate) fn init_streaming_request(
+        &mut self,
+        handle: u8,
+        total_size: usize,
+        initial_chunk_len: usize,
+        active: ActiveLargeRequest,
+        session_id: Option<u32>,
+    ) -> Result<(), SpdmError> {
+        if !self.is_idle() {
+            return Err(SPDM_UNEXPECTED_REQUEST);
+        }
+        self.mode = LargeMessageMode::Request(active);
+        self.state = ChunkState {
+            in_use: true,
+            handle,
+            seq_num: 0,
+            bytes_received: initial_chunk_len as u32,
+            large_msg_size: total_size as u32,
+            session_id,
+        };
+        Ok(())
+    }
+
+    #[cfg(feature = "set-certificate")]
+    pub(crate) fn replace_active_request(
+        &mut self,
+        active: ActiveLargeRequest,
+    ) -> Result<(), SpdmError> {
+        if !self.request_in_progress() {
+            return Err(SPDM_INVALID_REQUEST);
+        }
+        self.mode = LargeMessageMode::Request(active);
+        Ok(())
+    }
+
+    /// Advances the chunk bookkeeping for a streamed fragment. Unlike
+    /// [`append_request`](Self::append_request) the payload is not copied — the
+    /// caller has already handed it to the stream sink.
+    pub(crate) fn append_streaming_request(
+        &mut self,
+        handle: u8,
+        seq_num: u16,
+        chunk_len: usize,
+    ) -> Result<(), SpdmError> {
+        if !self.request_in_progress()
+            || self.state.handle != handle
+            || self.state.seq_num.wrapping_add(1) != seq_num
+        {
+            return Err(SPDM_INVALID_REQUEST);
+        }
+        let end = (self.state.bytes_received as usize)
+            .checked_add(chunk_len)
+            .ok_or(SPDM_UNSPECIFIED)?;
+        if end > self.state.large_msg_size as usize {
+            return Err(SPDM_INVALID_REQUEST);
+        }
+        self.state.bytes_received = end as u32;
+        self.state.seq_num = seq_num;
+        Ok(())
+    }
+
+    #[cfg(any(test, feature = "generic-large-request"))]
+    pub fn append_request(
+        &mut self,
+        handle: u8,
+        seq_num: u16,
+        chunk: &[u8],
+    ) -> Result<(), SpdmError> {
+        if !self.request_in_progress()
+            || self.state.handle != handle
+            || self.state.seq_num.wrapping_add(1) != seq_num
+        {
+            return Err(SPDM_INVALID_REQUEST);
+        }
+        let start = self.state.bytes_received as usize;
+        let end = start.checked_add(chunk.len()).ok_or(SPDM_UNSPECIFIED)?;
+
+        if end > self.state.large_msg_size as usize {
+            return Err(SPDM_INVALID_REQUEST);
+        }
+
+        let buf = self.buf.as_deref_mut().ok_or(SPDM_UNSPECIFIED)?;
+        let destination = buf.get_mut(start..end).ok_or(SPDM_UNSPECIFIED)?;
+        for (d, s) in destination.iter_mut().zip(chunk) {
+            *d = *s;
+        }
+
+        self.state.bytes_received = end as u32;
+        self.state.seq_num = seq_num;
+        Ok(())
+    }
+
+    pub(crate) fn next_handle(&self) -> u8 {
+        self.next_handle
+    }
+
+    pub(crate) fn start_response(
+        &mut self,
+        kind: LargeResponse,
+        response_size: usize,
+        response_buf: Option<L>,
+    ) -> Result<(), SpdmError> {
+        if !self.is_idle() {
+            return Err(SPDM_UNEXPECTED_REQUEST);
+        }
+        let handle = self.next_handle;
+        self.mode = LargeMessageMode::Response(ActiveLargeResponse {
+            handle,
+            next_seq_num: 0,
+            bytes_sent: 0,
+            response_size,
+            kind,
+            session_id: self.current_session,
+        });
+        self.buf = response_buf;
+
+        self.advance_handle();
+        Ok(())
+    }
+
+    #[inline]
+    pub(crate) fn response(&self) -> Option<&ActiveLargeResponse> {
+        match &self.mode {
+            LargeMessageMode::Response(active) => Some(active),
+            _ => None,
+        }
+    }
+
+    pub(crate) fn chunk_sent(&mut self, n: usize) {
+        let complete = match &mut self.mode {
+            LargeMessageMode::Response(active) => active.chunk_sent(n),
+            _ => return,
+        };
+        if complete {
+            self.reset();
+        }
+    }
+
+    fn advance_handle(&mut self) {
+        self.next_handle = self.next_handle.wrapping_add(1);
+        if self.next_handle == 0 {
+            self.next_handle = 1;
+        }
+    }
+}
+
+pub(crate) fn validate_buffered_large_response<Pal: SpdmPal>(
+    state: &ConnectionState<Pal::State, <Pal as SpdmPalAlloc>::LargeBuf>,
+    pal: &Pal,
+    large_resp_len: usize,
+) -> SpdmResult<()> {
+    // Check against allocated buffer capacity if already active, else check remaining PAL capacity.
+    // We don't double-revalidate against remaining free pool once rented.
+    let capacity = if let Some(buf) = state.large_msg_ctx.get_buffer() {
+        buf.len()
+    } else {
+        pal.large_buffered_msg_capacity()
+    };
+
+    validate_buffered_large_response_with_capacity(state, large_resp_len, capacity)
+}
+
+/// Same check as [`validate_buffered_large_response`], but against an explicit
+/// capacity — used by streaming paths that have not rented the large buffer and
+/// so cannot infer capacity from it.
+pub(crate) fn validate_buffered_large_response_with_capacity<
+    S,
+    L: core::ops::DerefMut<Target = [u8]>,
+>(
+    state: &ConnectionState<S, L>,
+    large_resp_len: usize,
+    capacity: usize,
+) -> SpdmResult<()> {
+    if state.large_msg_ctx.request_in_progress()
+        || state.large_msg_ctx.response_in_progress()
+        || !state.chunking_enabled()
+    {
+        return Err(SPDM_UNSPECIFIED);
+    }
+
+    // ResponseTooLarge applies only when the response exceeds the requester's
+    // advertised MaxSPDMmsgSize.
+    if large_resp_len > state.peer_max_spdm_message_size()? {
+        let actual_size = u32::try_from(large_resp_len).map_err(|_| SPDM_UNSPECIFIED)?;
+        return Err(SPDM_RESPONSE_TOO_LARGE.with_extended_data(actual_size.to_le_bytes()));
+    }
+
+    // Exceeding Caliptra's buffer is a local capacity failure.
+    if large_resp_len > capacity {
+        return Err(SPDM_UNSPECIFIED);
+    }
+    Ok(())
+}
+
+pub(crate) fn start_buffered_large_response<'a, Pal: SpdmPal>(
+    state: &mut ConnectionState<Pal::State, <Pal as SpdmPalAlloc>::LargeBuf>,
+    pal: &'a Pal,
+    io: &<Pal as SpdmPalIoTransport>::Io<'_>,
+    large_resp_len: usize,
+) -> SpdmResult<(PalBytes<'a, Pal>, usize)> {
+    validate_buffered_large_response(state, pal, large_resp_len)?;
+    let handle = state.large_msg_ctx.next_handle();
+    let resp = build_error_response(
+        pal,
+        io,
+        state.version,
+        SPDM_LARGE_RESPONSE.with_extended_data([handle]),
+    )?;
+    let spdm_len = resp.len() - pal.header_size();
+    let rent_buf = state.large_msg_ctx.take_buffer();
+    state
+        .large_msg_ctx
+        .start_response(LargeResponse::Buffered, large_resp_len, rent_buf)?;
+    Ok((resp, spdm_len))
+}
+
+#[cfg(test)]
+mod tests {
+    extern crate alloc;
+
+    use alloc::vec::Vec;
+    use spdm_codec::{CapFlags, ReqRespCode, SpdmVersion};
+
+    use super::*;
+    use crate::build::encode_error_response;
+
+    #[test]
+    fn buffered_response_distinguishes_peer_and_local_limits() {
+        let mut state: ConnectionState<(), Vec<u8>> = ConnectionState {
+            peer_cap_flags: CapFlags::CHUNK,
+            peer_max_spdm_msg_size: 1024,
+            ..ConnectionState::default()
+        };
+
+        let err = validate_buffered_large_response_with_capacity(&state, 1025, 2048).unwrap_err();
+        assert_eq!(err.spec_byte(), SPDM_RESPONSE_TOO_LARGE.spec_byte());
+        assert_eq!(err.error_data(), 0);
+        assert_eq!(err.extended_data(), 1025u32.to_le_bytes());
+
+        let mut error_rsp = [0u8; 8];
+        let error_rsp_len = encode_error_response(&mut error_rsp, SpdmVersion::V12, err).unwrap();
+        assert_eq!(error_rsp_len, error_rsp.len());
+        assert_eq!(
+            error_rsp,
+            [
+                SpdmVersion::V12.to_u8(),
+                ReqRespCode::ERROR.0,
+                SPDM_RESPONSE_TOO_LARGE.spec_byte(),
+                0,
+                1,
+                4,
+                0,
+                0,
+            ]
+        );
+
+        state.peer_max_spdm_msg_size = 2048;
+        let err = validate_buffered_large_response_with_capacity(&state, 1025, 1024).unwrap_err();
+        assert_eq!(err, SPDM_UNSPECIFIED);
+        assert!(err.extended_data().is_empty());
+    }
+}

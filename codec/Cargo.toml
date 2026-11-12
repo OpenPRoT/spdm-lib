@@ -1,0 +1,13 @@
+# Licensed under the Apache-2.0 license
+
+[package]
+name = "spdm-codec"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+
+[dependencies]
+zerocopy = { workspace = true }
+spdm-traits = { workspace = true }
+spdm-errors = { workspace = true }
+bitfield-struct = { workspace = true }
