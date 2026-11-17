@@ -36,6 +36,10 @@ pub type PalBytes<'a, Pal> = <Pal as SpdmPalAlloc>::Bytes<'a>;
 /// - Large-message and persistent allocations deliberately outlive an
 ///   exchange; see their sections below for who is expected to hold them.
 pub trait SpdmPalAlloc: spdm_crypto::ApiAlloc {
+    // TODO: Avoid this construction and define a better story for handling
+    // arbitrary platform and crypto data; a follow-on change is acceptable.
+    // See https://github.com/OpenPRoT/spdm-lib/pull/10#discussion_r4590383552
+    // And https://github.com/OpenPRoT/spdm-lib/issues/11
     /// RAII guard type returned by [`Self::alloc`].
     ///
     /// Implementors return any owning handle that derefs to `T` (e.g.,
