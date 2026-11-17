@@ -202,7 +202,10 @@ mod tests {
 
     #[test]
     fn test_wire_bytes_are_little_endian() {
-        assert_eq!(F32::from_bits(0x1234_5678).as_bytes(), &[0x78, 0x56, 0x34, 0x12]);
+        assert_eq!(
+            F32::from_bits(0x1234_5678).as_bytes(),
+            &[0x78, 0x56, 0x34, 0x12]
+        );
         assert_eq!(F16::from_bits(0x1234).as_bytes(), &[0x34, 0x12]);
         assert_eq!(F8::from_bits(0xAB).as_bytes(), &[0xAB]);
 

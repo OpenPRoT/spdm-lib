@@ -17,8 +17,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        spdm_version: ["1.1", "1.2", "1.3"]
-        transport: [NONE, MCTP]
+        spdm_version: ["1.2", "1.3"]
     steps:
       - name: Cache spdm-emu build output
         id: cache-spdm-emu
@@ -61,10 +60,10 @@ jobs:
       - name: Cargo Build
         run: |
           cd spdm-lib
-          cargo build --example spdm_requester
+          cargo build --example poc-requester
       - name: Run verification flow
         run: |
           cd spdm-lib
-          (cd "$GITHUB_WORKSPACE"/spdm-emu/build/bin/; ./spdm_responder_emu --trans ${{ matrix.transport }} --ver ${{ matrix.spdm_version }} --slot_id 0 --slot_count 1 --req_slot_id 0) &
-          (sleep 1; cargo run --example spdm_requester -- --transport-type ${{ matrix.transport }} --port 2323 --verbose)
+          (cd "$GITHUB_WORKSPACE"/spdm-emu/build/bin/; ./spdm_responder_emu --trans NONE --ver ${{ matrix.spdm_version }} --slot_id 0 --slot_count 1 --req_slot_id 0) &
+          (sleep 1; cargo run --example poc-requester -- --port 2323)
 

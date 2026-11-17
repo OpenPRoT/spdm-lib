@@ -57,7 +57,7 @@ jobs:
       run: cargo build --examples
     - name: Run tests
       run: |
-        cargo run --example spdm_responder -- --port 2323 &
-        (sleep 1; cargo run --example spdm_requester -- --port 2323 )
+        cargo run --example poc-responder -- --port 2323 &
+        (sleep 1; cargo run --example poc-requester -- --port 2323 )
       
 

@@ -330,7 +330,10 @@ mod tests {
 
         let parsed = CapabilitiesBody::parse(&buf[HDR..]).unwrap();
         assert_eq!(parsed.ct_exponent, 10);
-        assert_eq!(parsed.ext_flags.into_bits(), ExtCapFlags::SLOT_MGMT.into_bits());
+        assert_eq!(
+            parsed.ext_flags.into_bits(),
+            ExtCapFlags::SLOT_MGMT.into_bits()
+        );
         assert_eq!(parsed.flags.into_bits(), flags.into_bits());
         assert_eq!(parsed.data_transfer_size.get(), 0x400);
         assert_eq!(parsed.max_spdm_msg_size.get(), 0x800);

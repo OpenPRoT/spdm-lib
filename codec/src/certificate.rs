@@ -796,7 +796,9 @@ mod tests {
     fn test_parse_certificate_rsp_ignores_trailing_bytes() {
         // Pins current leniency: bytes beyond PortionLength are not rejected; the
         // returned portion is limited to the claimed 2 bytes of the 5 present.
-        let body = [0x00, 0x00, 0x02, 0x00, 0x00, 0x00, 0x11, 0x22, 0x33, 0x44, 0x55];
+        let body = [
+            0x00, 0x00, 0x02, 0x00, 0x00, 0x00, 0x11, 0x22, 0x33, 0x44, 0x55,
+        ];
         let parsed = ParsedCertificateRsp::parse(&body).unwrap();
         assert_eq!(parsed.portion, &[0x11, 0x22]);
     }
