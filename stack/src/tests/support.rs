@@ -26,8 +26,11 @@ use zerocopy::FromBytes;
 use crate::stack::{ConnectionState, Phase, Sessions};
 
 pub const SHA384_DIGEST_SIZE: usize = 48;
-pub const SPDM_CERT_CHAIN_HDR_LEN: usize = 4 + SHA384_DIGEST_SIZE;
+pub const SPDM_CERT_CHAIN_HDR_LEN: usize = 2 * size_of::<u16>() + SHA384_DIGEST_SIZE;
 pub const TEST_CERT_CHAIN: &[u8] = &[0x30, 0x03, 1, 2, 3, 0x30, 0x01, 4];
+const DER_HEADER_LEN: usize = 2;
+/// Length of the first (root) certificate in `TEST_CERT_CHAIN`.
+pub const TEST_ROOT_CERT_LEN: usize = DER_HEADER_LEN + TEST_CERT_CHAIN[1] as usize;
 
 #[derive(Clone)]
 pub struct TestHashState {
@@ -406,7 +409,7 @@ impl SpdmPalCertStore for TestPal {
         _hash_algo: SpdmPalHashAlgo,
         out: &mut [u8],
     ) -> PalResult<()> {
-        out.copy_from_slice(&test_digest(&self.cert_chain[..5]));
+        out.copy_from_slice(&test_digest(&self.cert_chain[..TEST_ROOT_CERT_LEN]));
         Ok(())
     }
 
@@ -525,7 +528,7 @@ impl SpdmPalCertStore for TestPal {
         let first_len = cert_chain
             .get(1)
             .copied()
-            .map(|len| len as usize + 2)
+            .map(|len| len as usize + DER_HEADER_LEN)
             .unwrap_or(0);
         if first_len == 0
             || first_len > cert_chain.len()
@@ -684,9 +687,9 @@ impl SpdmPalSessionCrypto for TestPal {
         _aad: &[u8],
         plaintext: &[u8],
         ciphertext: &mut [u8],
-    ) -> PalResult<(usize, [u8; 16])> {
+    ) -> PalResult<(usize, [u8; AES_256_GCM_TAG_SIZE])> {
         ciphertext[..plaintext.len()].copy_from_slice(plaintext);
-        Ok((plaintext.len(), [0u8; 16]))
+        Ok((plaintext.len(), [0u8; AES_256_GCM_TAG_SIZE]))
     }
 
     fn aead_decrypt(
@@ -697,7 +700,7 @@ impl SpdmPalSessionCrypto for TestPal {
         seq: u64,
         _aad: &[u8],
         ciphertext: &[u8],
-        _tag: &[u8; 16],
+        _tag: &[u8; AES_256_GCM_TAG_SIZE],
         plaintext: &mut [u8],
     ) -> PalResult<usize> {
         self.last_aead_decrypt_sequence.set(Some(seq));
@@ -760,7 +763,7 @@ pub fn set_certificate_io(
 
 pub fn set_certificate_request(pal: &TestPal) -> Vec<u8> {
     let der = pal.cert_chain;
-    let payload = cert_payload(der, test_digest(&der[..5]));
+    let payload = cert_payload(der, test_digest(&der[..TEST_ROOT_CERT_LEN]));
     let mut req = vec![
         SpdmVersion::V12.to_u8(),
         ReqRespCode::SET_CERTIFICATE.0,
@@ -799,7 +802,7 @@ pub fn chunk_send_request(
 }
 
 pub fn secured_io(session_id: u32, spdm_msg: &[u8]) -> TestIo {
-    let plaintext_len = 2 + spdm_msg.len();
+    let plaintext_len = size_of::<u16>() + spdm_msg.len();
     let mut req = Vec::with_capacity(SECURED_MSG_HDR_SIZE + plaintext_len + AES_256_GCM_TAG_SIZE);
     req.extend_from_slice(&session_id.to_le_bytes());
     req.extend_from_slice(&((plaintext_len + AES_256_GCM_TAG_SIZE) as u16).to_le_bytes());
@@ -810,8 +813,10 @@ pub fn secured_io(session_id: u32, spdm_msg: &[u8]) -> TestIo {
 }
 
 pub fn secured_spdm_response(rsp: &[u8]) -> &[u8] {
-    let msg_len = u16::from_le_bytes([rsp[6], rsp[7]]) as usize;
-    &rsp[8..8 + msg_len]
+    let len_start = SECURED_MSG_HDR_SIZE;
+    let msg_start = len_start + size_of::<u16>();
+    let msg_len = u16::from_le_bytes(rsp[len_start..msg_start].try_into().unwrap()) as usize;
+    &rsp[msg_start..msg_start + msg_len]
 }
 
 pub fn negotiated_state(version: SpdmVersion) -> ConnectionState<TestHashState, Vec<u8>> {
@@ -924,7 +929,7 @@ pub fn drain_chunked_response(
         assert_eq!(body.chunk_seq_num.get(), chunk_seq_num);
 
         let payload = if chunk_seq_num == 0 {
-            // First chunk is prepended with 4-byte large_response_size
+            // First chunk is prepended with large_response_size
             assert!(chunk_data.len() >= LARGE_RESPONSE_SIZE_FIELD_SIZE);
             &chunk_data[LARGE_RESPONSE_SIZE_FIELD_SIZE..]
         } else {

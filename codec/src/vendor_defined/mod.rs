@@ -247,69 +247,88 @@ impl ResponseBody for VendorDefinedRspBody<'_> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::SpdmVersion;
+    use crate::{SpdmMsgHdrPdu, SpdmVersion};
+
+    const HDR: usize = SpdmMsgHdrPdu::SIZE;
+    const VENDOR_ID: [u8; 4] = [1, 2, 3, 4];
+    const PAYLOAD: [u8; 3] = [0xAA, 0xBB, 0xCC];
+    /// Param1, Param2, StandardID, VendorIDLen.
+    const PREFIX: usize = 2 + size_of::<u16>() + size_of::<u8>();
+    const REQ_LEN_FIELD: usize = size_of::<u16>();
+    /// Reserved, then LargeReqLen.
+    const LARGE_LEN_FIELDS: usize = size_of::<u16>() + size_of::<u32>();
+    const VID_END: usize = PREFIX + VENDOR_ID.len();
+    const STD_LEN_END: usize = VID_END + REQ_LEN_FIELD;
+    const LARGE_LEN_END: usize = VID_END + LARGE_LEN_FIELDS;
+    const STD_BODY: usize = STD_LEN_END + PAYLOAD.len();
+    const LARGE_BODY: usize = LARGE_LEN_END + PAYLOAD.len();
 
     #[test]
     fn test_standard_vdm_decode() {
-        // param1=0, param2=0, standard_id=0x0004, vendor_id_len=4, vendor_id=[1,2,3,4], req_len=3, payload=[0xAA, 0xBB, 0xCC]
-        let mut body = [0u8; 5 + 4 + 2 + 3];
+        let mut body = [0u8; STD_BODY];
         body[0] = 0x00; // param1
         body[1] = 0x00; // param2
         body[2..4].copy_from_slice(&4u16.to_le_bytes()); // standard_id = IANA
-        body[4] = 4; // vendor_id_len
-        body[5..9].copy_from_slice(&[1, 2, 3, 4]); // vendor_id
-        body[9..11].copy_from_slice(&3u16.to_le_bytes()); // req_len
-        body[11..14].copy_from_slice(&[0xAA, 0xBB, 0xCC]); // payload
+        body[PREFIX - 1] = VENDOR_ID.len() as u8; // vendor_id_len
+        body[PREFIX..VID_END].copy_from_slice(&VENDOR_ID);
+        body[VID_END..STD_LEN_END].copy_from_slice(&(PAYLOAD.len() as u16).to_le_bytes()); // req_len
+        body[STD_LEN_END..].copy_from_slice(&PAYLOAD);
 
         let req = decode_vendor_defined_req(&body).unwrap();
         assert_eq!(
             req,
             VendorDefinedReq {
                 standard_id: 0x0004,
-                vendor_id: &[1, 2, 3, 4],
-                payload: &[0xAA, 0xBB, 0xCC],
+                vendor_id: &VENDOR_ID,
+                payload: &PAYLOAD,
                 is_large: false,
             }
         );
-        assert_eq!(req.rsp_header_body_size(), 7 + 4);
+        assert_eq!(
+            req.rsp_header_body_size(),
+            PREFIX + REQ_LEN_FIELD + VENDOR_ID.len()
+        );
         assert_eq!(req.max_length_cap(), u16::MAX as usize);
     }
 
     #[test]
     fn test_large_vdm_decode() {
-        // param1=0x80, param2=0, standard_id=0x0004, vendor_id_len=4, vendor_id=[1,2,3,4],
-        // reserved=0x0000, large_req_len=3, payload=[0xAA, 0xBB, 0xCC]
-        let mut body = [0u8; 5 + 4 + 2 + 4 + 3];
+        let mut body = [0u8; LARGE_BODY];
         body[0] = 0x80; // param1: large=true
         body[1] = 0x00; // param2
         body[2..4].copy_from_slice(&4u16.to_le_bytes()); // standard_id = IANA
-        body[4] = 4; // vendor_id_len
-        body[5..9].copy_from_slice(&[1, 2, 3, 4]); // vendor_id
-        body[9..11].copy_from_slice(&0u16.to_le_bytes()); // reserved
-        body[11..15].copy_from_slice(&3u32.to_le_bytes()); // large_req_len
-        body[15..18].copy_from_slice(&[0xAA, 0xBB, 0xCC]); // payload
+        body[PREFIX - 1] = VENDOR_ID.len() as u8; // vendor_id_len
+        body[PREFIX..VID_END].copy_from_slice(&VENDOR_ID);
+        body[VID_END..VID_END + size_of::<u16>()].copy_from_slice(&0u16.to_le_bytes()); // reserved
+        body[VID_END + size_of::<u16>()..LARGE_LEN_END]
+            .copy_from_slice(&(PAYLOAD.len() as u32).to_le_bytes()); // large_req_len
+        body[LARGE_LEN_END..].copy_from_slice(&PAYLOAD);
 
         let req = decode_vendor_defined_req(&body).unwrap();
         assert_eq!(
             req,
             VendorDefinedReq {
                 standard_id: 0x0004,
-                vendor_id: &[1, 2, 3, 4],
-                payload: &[0xAA, 0xBB, 0xCC],
+                vendor_id: &VENDOR_ID,
+                payload: &PAYLOAD,
                 is_large: true,
             }
         );
-        assert_eq!(req.rsp_header_body_size(), 11 + 4);
+        assert_eq!(
+            req.rsp_header_body_size(),
+            PREFIX + LARGE_LEN_FIELDS + VENDOR_ID.len()
+        );
         assert_eq!(req.max_length_cap(), u32::MAX as usize);
     }
 
     #[test]
     fn test_decode_non_zero_reserved_fails() {
-        let mut body = [0u8; 5 + 4 + 2 + 4 + 3];
+        let mut body = [0u8; LARGE_BODY];
         body[0] = 0x80; // param1: large=true
         body[2..4].copy_from_slice(&4u16.to_le_bytes());
-        body[4] = 4;
-        body[11..15].copy_from_slice(&3u32.to_le_bytes());
+        body[PREFIX - 1] = VENDOR_ID.len() as u8;
+        body[VID_END + size_of::<u16>()..LARGE_LEN_END]
+            .copy_from_slice(&(PAYLOAD.len() as u32).to_le_bytes());
 
         // 1. Non-zero reserved in param1 (bits 0..=6)
         body[0] = 0x81;
@@ -322,13 +341,13 @@ mod tests {
         body[1] = 0x00;
 
         // 3. Non-zero reserved in large header
-        body[9..11].copy_from_slice(&1u16.to_le_bytes());
+        body[VID_END..VID_END + size_of::<u16>()].copy_from_slice(&1u16.to_le_bytes());
         assert!(decode_vendor_defined_req(&body).is_err());
     }
 
     #[test]
     fn test_encode_standard_and_large_rsp_body() {
-        let vendor_id = [1, 2, 3, 4];
+        let vendor_id = VENDOR_ID;
         let payload = [0x10, 0x20, 0x30];
 
         // Standard response
@@ -338,12 +357,12 @@ mod tests {
             payload: &payload,
             is_large: false,
         };
-        let mut std_buf = [0u8; 16];
+        let mut std_buf = [0u8; HDR + STD_BODY];
         let mut std_w = WireWriter::new(&mut std_buf);
         std_rsp
             .encode_with_header(SpdmVersion::V13, &mut std_w)
             .unwrap();
-        assert_eq!(std_rsp.encoded_size(), 16);
+        assert_eq!(std_rsp.encoded_size(), std_buf.len());
         assert_eq!(
             std_buf,
             [
@@ -373,12 +392,12 @@ mod tests {
             payload: &payload,
             is_large: true,
         };
-        let mut large_buf = [0u8; 20];
+        let mut large_buf = [0u8; HDR + LARGE_BODY];
         let mut large_w = WireWriter::new(&mut large_buf);
         large_rsp
             .encode_with_header(SpdmVersion::V14, &mut large_w)
             .unwrap();
-        assert_eq!(large_rsp.encoded_size(), 20);
+        assert_eq!(large_rsp.encoded_size(), large_buf.len());
         assert_eq!(
             large_buf,
             [
@@ -408,10 +427,11 @@ mod tests {
 
     #[test]
     fn test_decode_truncated_input() {
-        let mut body = [0u8; 5 + 4 + 2 + 4 + 3];
+        let mut body = [0u8; LARGE_BODY];
         body[0] = 0x80;
-        body[4] = 4;
-        body[11..15].copy_from_slice(&3u32.to_le_bytes());
+        body[PREFIX - 1] = VENDOR_ID.len() as u8;
+        body[VID_END + size_of::<u16>()..LARGE_LEN_END]
+            .copy_from_slice(&(PAYLOAD.len() as u32).to_le_bytes());
 
         // Truncate at every length up to full size
         for len in 0..body.len() - 1 {

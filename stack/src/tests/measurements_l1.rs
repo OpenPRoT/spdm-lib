@@ -56,7 +56,7 @@ fn signed_request(op: u8) -> Vec<u8> {
         0x01,
         op,
     ];
-    req.extend_from_slice(&[0xA5; 32]); // requester nonce
+    req.extend_from_slice(&[0xA5; SPDM_NONCE_LEN]);
     req.push(0); // SlotIDParam
     req
 }

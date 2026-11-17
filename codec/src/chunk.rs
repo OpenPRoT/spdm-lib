@@ -180,17 +180,18 @@ mod tests {
 
     #[test]
     fn test_chunk_sizes_and_constants() {
-        // CHUNK_SEND / CHUNK_RESPONSE: attr(1) + handle(1) + seq(2) + reserved(2) + size(4) = 10.
-        assert_eq!(ChunkSendReqBody::SIZE, 10);
-        assert_eq!(ChunkResponseBody::SIZE, 10);
-        assert_eq!(CHUNK_RESPONSE_FIXED_BODY_SIZE, 10);
-        // CHUNK_SEND_ACK: attr(1) + handle(1) + seq(2 in V1.3, 4 in V1.4) = 4 / 6.
-        assert_eq!(ChunkSendAckBodyV13::SIZE, 4);
-        assert_eq!(ChunkSendAckBodyV14::SIZE, 6);
-        // CHUNK_GET: param1(1) + handle(1) + seq(2 in V1.3, 4 in V1.4) = 4 / 6.
-        assert_eq!(ChunkGetReqBodyV13::SIZE, 4);
-        assert_eq!(ChunkGetReqBodyV14::SIZE, 6);
-        assert_eq!(LARGE_RESPONSE_SIZE_FIELD_SIZE, 4);
+        use core::mem::size_of;
+        assert_eq!(ChunkSendReqBody::SIZE, size_of::<ChunkSendReqBody>());
+        assert_eq!(ChunkResponseBody::SIZE, size_of::<ChunkResponseBody>());
+        assert_eq!(
+            CHUNK_RESPONSE_FIXED_BODY_SIZE,
+            size_of::<ChunkResponseBody>()
+        );
+        assert_eq!(ChunkSendAckBodyV13::SIZE, size_of::<ChunkSendAckBodyV13>());
+        assert_eq!(ChunkSendAckBodyV14::SIZE, size_of::<ChunkSendAckBodyV14>());
+        assert_eq!(ChunkGetReqBodyV13::SIZE, size_of::<ChunkGetReqBodyV13>());
+        assert_eq!(ChunkGetReqBodyV14::SIZE, size_of::<ChunkGetReqBodyV14>());
+        assert_eq!(LARGE_RESPONSE_SIZE_FIELD_SIZE, size_of::<U32>());
         assert_eq!(CHUNK_ATTR_LAST_CHUNK, 0x01);
         assert_eq!(CHUNK_ACK_ATTR_EARLY_ERROR, 0x01);
     }
@@ -223,7 +224,7 @@ mod tests {
 
     #[test]
     fn test_chunk_send_req_max_values() {
-        let bytes = [0xFF; 10];
+        let bytes = [0xFF; ChunkSendReqBody::SIZE];
         let parsed = ChunkSendReqBody::ref_from_bytes(&bytes).unwrap();
         assert_eq!(parsed.chunk_seq_num.get(), u16::MAX);
         assert_eq!(parsed.chunk_size.get(), u32::MAX);
@@ -231,14 +232,16 @@ mod tests {
 
     #[test]
     fn test_chunk_send_req_rejects_truncated() {
-        // One byte short of the 10-byte body.
-        assert!(WireReader::new(&[0u8; 9]).read::<ChunkSendReqBody>().is_err());
+        // One byte short of the body.
+        assert!(WireReader::new(&[0u8; ChunkSendReqBody::SIZE - 1])
+            .read::<ChunkSendReqBody>()
+            .is_err());
         assert!(WireReader::new(&[]).read::<ChunkSendReqBody>().is_err());
     }
 
     #[test]
     fn test_chunk_send_req_chunk_data_tail() {
-        // Body (10) + 4 bytes of chunk data. The reader consumes only the body;
+        // Body + 4 bytes of chunk data. The reader consumes only the body;
         // the data stays in `rest()`.
         let buf = [
             0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x04, 0x00, 0x00, 0x00, // chunk_size = 4
@@ -293,7 +296,9 @@ mod tests {
         assert_eq!(parsed.chunk_receiver_attr & CHUNK_ACK_ATTR_EARLY_ERROR, 1);
         assert_eq!(parsed.chunk_seq_num.get(), 0xABCD);
 
-        assert!(WireReader::new(&[0u8; 3]).read::<ChunkSendAckBodyV13>().is_err());
+        assert!(WireReader::new(&[0u8; ChunkSendAckBodyV13::SIZE - 1])
+            .read::<ChunkSendAckBodyV13>()
+            .is_err());
     }
 
     #[test]
@@ -308,7 +313,9 @@ mod tests {
         let parsed = ChunkSendAckBodyV14::ref_from_bytes(ack.as_bytes()).unwrap();
         assert_eq!(parsed.chunk_seq_num.get(), 0x0001_0002);
 
-        assert!(WireReader::new(&[0u8; 5]).read::<ChunkSendAckBodyV14>().is_err());
+        assert!(WireReader::new(&[0u8; ChunkSendAckBodyV14::SIZE - 1])
+            .read::<ChunkSendAckBodyV14>()
+            .is_err());
     }
 
     #[test]
@@ -316,7 +323,7 @@ mod tests {
         let bytes = [0x00, 0x05, 0xFF, 0xFF]; // param1, handle, seq = 0xFFFF
         let req = ChunkGetReqBodyV13::ref_from_bytes(&bytes).unwrap();
         let dyn_req: &dyn ChunkGetReqBody = req;
-        assert_eq!(dyn_req.size(), 4);
+        assert_eq!(dyn_req.size(), ChunkGetReqBodyV13::SIZE);
         assert_eq!(dyn_req.get_param1(), 0);
         assert_eq!(dyn_req.get_handle(), 5);
         // 16-bit seq widens to u32 without sign extension or overflow.
@@ -328,7 +335,7 @@ mod tests {
         let bytes = [0x00, 0x05, 0xFF, 0xFF, 0xFF, 0xFF]; // seq = 0xFFFF_FFFF
         let req = ChunkGetReqBodyV14::ref_from_bytes(&bytes).unwrap();
         let dyn_req: &dyn ChunkGetReqBody = req;
-        assert_eq!(dyn_req.size(), 6);
+        assert_eq!(dyn_req.size(), ChunkGetReqBodyV14::SIZE);
         assert_eq!(dyn_req.get_handle(), 5);
         assert_eq!(dyn_req.get_chunk_seq_num(), u32::MAX);
     }
@@ -345,20 +352,23 @@ mod tests {
 
         let d13 = ChunkGetReqBodyV13::default();
         let d14 = ChunkGetReqBodyV14::default();
-        assert_eq!(d13.as_bytes(), &[0u8; 4]);
-        assert_eq!(d14.as_bytes(), &[0u8; 6]);
+        assert_eq!(d13.as_bytes(), &[0u8; ChunkGetReqBodyV13::SIZE]);
+        assert_eq!(d14.as_bytes(), &[0u8; ChunkGetReqBodyV14::SIZE]);
     }
 
     #[test]
     fn test_chunk_get_rejects_truncated() {
-        assert!(WireReader::new(&[0u8; 3]).read::<ChunkGetReqBodyV13>().is_err());
-        assert!(WireReader::new(&[0u8; 5]).read::<ChunkGetReqBodyV14>().is_err());
+        assert!(WireReader::new(&[0u8; ChunkGetReqBodyV13::SIZE - 1])
+            .read::<ChunkGetReqBodyV13>()
+            .is_err());
+        assert!(WireReader::new(&[0u8; ChunkGetReqBodyV14::SIZE - 1])
+            .read::<ChunkGetReqBodyV14>()
+            .is_err());
     }
 
     #[test]
     fn test_chunk_response_first_chunk_with_large_response_size() {
-        // First CHUNK_RESPONSE (seq 0) = fixed body (10) + LargeResponseSize (4) + data (8).
-        // Body total = 10 + 4 + 8 = 22 bytes.
+        // First CHUNK_RESPONSE (seq 0) = fixed body + LargeResponseSize + data.
         let buf = [
             0x00, 0x03, // attr, handle
             0x00, 0x00, // seq = 0
@@ -369,7 +379,7 @@ mod tests {
         ];
         assert_eq!(
             buf.len(),
-            CHUNK_RESPONSE_FIXED_BODY_SIZE + LARGE_RESPONSE_SIZE_FIELD_SIZE + 8
+            CHUNK_RESPONSE_FIXED_BODY_SIZE + LARGE_RESPONSE_SIZE_FIELD_SIZE + 8 // chunk data
         );
 
         let mut r = WireReader::new(&buf);
@@ -395,8 +405,10 @@ mod tests {
             body.as_bytes(),
             &[0x01, 0x02, 0x03, 0x00, 0x00, 0x00, 0x10, 0x00, 0x00, 0x00]
         );
-        assert!(WireReader::new(&body.as_bytes()[..9])
-            .read::<ChunkResponseBody>()
-            .is_err());
+        assert!(
+            WireReader::new(&body.as_bytes()[..ChunkResponseBody::SIZE - 1])
+                .read::<ChunkResponseBody>()
+                .is_err()
+        );
     }
 }

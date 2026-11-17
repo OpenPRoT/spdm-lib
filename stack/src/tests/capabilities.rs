@@ -5,13 +5,25 @@
 extern crate std;
 
 use super::*;
-use spdm_codec::{CapFlags, ReqRespCode, SpdmVersion};
+use core::mem::offset_of;
+use spdm_codec::{
+    CapFlags, CapabilitiesBody, ExtCapFlags, ReqRespCode, SpdmMsgHdrPdu, SpdmVersion,
+};
 use spdm_traits::NoVdmBackend;
 use std::vec;
 use std::vec::Vec;
 
 use crate::test_support as support;
 use support::{TestHashState, TestIo, TestPal};
+
+const BODY_OFFSET: usize = SpdmMsgHdrPdu::SIZE;
+const EXT_FLAGS_OFFSET: usize = BODY_OFFSET + offset_of!(CapabilitiesBody, ext_flags);
+const FLAGS_OFFSET: usize = BODY_OFFSET + offset_of!(CapabilitiesBody, flags);
+const MAX_MSG_SIZE_OFFSET: usize = BODY_OFFSET + offset_of!(CapabilitiesBody, max_spdm_msg_size);
+
+fn rsp_flags(rsp: &[u8]) -> u32 {
+    u32::from_le_bytes(rsp[FLAGS_OFFSET..][..size_of::<u32>()].try_into().unwrap())
+}
 
 fn capabilities_request(
     version: SpdmVersion,
@@ -77,15 +89,22 @@ fn get_capabilities_negotiates_v14_and_encodes_ext_flags() {
     )
     .unwrap();
 
-    assert_eq!(rsp.len(), 20);
+    assert_eq!(rsp.len(), SpdmMsgHdrPdu::SIZE + CapabilitiesBody::SIZE);
     assert_eq!(rsp[0], SpdmVersion::V14.to_u8());
     assert_eq!(rsp[1], ReqRespCode::CAPABILITIES.0);
-    assert_eq!(&rsp[6..8], &[0, 0]);
     assert_eq!(
-        u32::from_le_bytes(rsp[8..12].try_into().unwrap()),
-        state.advertised_cap_flags.into_bits()
+        &rsp[EXT_FLAGS_OFFSET..][..size_of::<ExtCapFlags>()],
+        &[0; size_of::<ExtCapFlags>()]
     );
-    assert_eq!(u32::from_le_bytes(rsp[16..20].try_into().unwrap()), 4096);
+    assert_eq!(rsp_flags(&rsp), state.advertised_cap_flags.into_bits());
+    assert_eq!(
+        u32::from_le_bytes(
+            rsp[MAX_MSG_SIZE_OFFSET..][..size_of::<u32>()]
+                .try_into()
+                .unwrap()
+        ),
+        4096
+    );
     assert_eq!(state.version, SpdmVersion::V14);
     assert_eq!(state.phase, Phase::AfterCapabilities);
     assert_eq!(state.peer_cap_flags.into_bits(), peer_flags.into_bits());
@@ -110,7 +129,7 @@ fn get_capabilities_masks_flags_added_after_v12() {
         capabilities_request(SpdmVersion::V12, 0, 0, peer_flags, 1024, 1024),
     )
     .unwrap();
-    let advertised = CapFlags::from_bits(u32::from_le_bytes(rsp[8..12].try_into().unwrap()));
+    let advertised = CapFlags::from_bits(rsp_flags(&rsp));
 
     assert!(!advertised.contains(CapFlags::GET_KEY_PAIR_INFO));
     assert!(!advertised.contains(CapFlags::LARGE_RESP));
@@ -197,7 +216,7 @@ fn v13_capabilities_masks_v14_responder_flags() {
         capabilities_request(SpdmVersion::V13, 0, 0, peer_flags, 1024, 1024),
     )
     .unwrap();
-    let advertised = CapFlags::from_bits(u32::from_le_bytes(rsp[8..12].try_into().unwrap()));
+    let advertised = CapFlags::from_bits(rsp_flags(&rsp));
 
     assert!(!advertised.contains(CapFlags::SET_KEY_PAIR_RESET));
     assert!(!advertised.contains(CapFlags::LARGE_RESP));
@@ -231,7 +250,7 @@ fn v14_capabilities_excludes_sessions_and_preserves_attestation() {
         capabilities_request(SpdmVersion::V14, 0, 0, CapFlags::CHUNK, 1024, 1024),
     )
     .unwrap();
-    let advertised = CapFlags::from_bits(u32::from_le_bytes(rsp[8..12].try_into().unwrap()));
+    let advertised = CapFlags::from_bits(rsp_flags(&rsp));
 
     assert_eq!(advertised.into_bits() & session_caps.into_bits(), 0);
     assert!(advertised.contains(attestation_caps));
@@ -262,8 +281,7 @@ fn earlier_versions_preserve_supported_session_capabilities() {
                 capabilities_request(version, 0, 0, CapFlags::CHUNK, 1024, 1024),
             )
             .unwrap();
-            let advertised =
-                CapFlags::from_bits(u32::from_le_bytes(rsp[8..12].try_into().unwrap()));
+            let advertised = CapFlags::from_bits(rsp_flags(&rsp));
 
             assert_eq!(
                 advertised.into_bits() & session_caps.into_bits(),

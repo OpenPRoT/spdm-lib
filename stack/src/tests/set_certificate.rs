@@ -27,7 +27,7 @@ fn test_handle_set_certificate_v12_writes_cert_chain() {
     let pal = TestPal::default();
     let mut state = state(SpdmVersion::V12);
     let der = der_chain();
-    let root_hash = test_digest(&der[..5]);
+    let root_hash = test_digest(&der[..TEST_ROOT_CERT_LEN]);
     let payload = cert_payload(&der, root_hash);
     let io = set_certificate_io(SpdmVersion::V12, 1, 0, &payload);
 
@@ -61,7 +61,7 @@ fn test_handle_set_certificate_v12_uses_device_cert_without_alias_cap() {
     state.advertised_cap_flags =
         CapFlags::CERT | CapFlags::CHAL | CapFlags::MEAS_SIG | CapFlags::SET_CERT;
     let der = der_chain();
-    let root_hash = test_digest(&der[..5]);
+    let root_hash = test_digest(&der[..TEST_ROOT_CERT_LEN]);
     let payload = cert_payload(&der, root_hash);
     let io = set_certificate_io(SpdmVersion::V12, 1, 0, &payload);
 
@@ -84,7 +84,7 @@ fn test_handle_set_certificate_v13_non_multi_key_uses_alias_cert() {
     let pal = TestPal::default();
     let mut state = state(SpdmVersion::V13);
     let der = der_chain();
-    let root_hash = test_digest(&der[..5]);
+    let root_hash = test_digest(&der[..TEST_ROOT_CERT_LEN]);
     let payload = cert_payload(&der, root_hash);
     let io = set_certificate_io(SpdmVersion::V13, 2, 0, &payload);
 
@@ -112,7 +112,7 @@ fn test_handle_set_certificate_v13_rejects_multikey_when_not_advertised() {
         | CapFlags::ALIAS_CERT
         | CapFlags::SET_CERT;
     let der = der_chain();
-    let root_hash = test_digest(&der[..5]);
+    let root_hash = test_digest(&der[..TEST_ROOT_CERT_LEN]);
     let payload = cert_payload(&der, root_hash);
     let attributes = 2 | (CERT_MODEL_GENERIC_CERT << 4);
     let io = set_certificate_io(SpdmVersion::V13, attributes, 7, &payload);
@@ -128,7 +128,7 @@ fn test_handle_set_certificate_v13_multi_key_writes_cert_chain() {
     let pal = TestPal::default();
     let mut state = state_v13_multi_key();
     let der = der_chain();
-    let root_hash = test_digest(&der[..5]);
+    let root_hash = test_digest(&der[..TEST_ROOT_CERT_LEN]);
     let payload = cert_payload(&der, root_hash);
     let attributes = 2 | (CERT_MODEL_GENERIC_CERT << 4);
     let io = set_certificate_io(SpdmVersion::V13, attributes, 7, &payload);
@@ -164,7 +164,7 @@ fn test_handle_set_certificate_v13_multi_key_cap_one_writes_cert_chain() {
         (state.advertised_cap_flags.into_bits() & !(0b11 << 26)) | (0b01 << 26),
     );
     let der = der_chain();
-    let root_hash = test_digest(&der[..5]);
+    let root_hash = test_digest(&der[..TEST_ROOT_CERT_LEN]);
     let payload = cert_payload(&der, root_hash);
     let attributes = 2 | (CERT_MODEL_GENERIC_CERT << 4);
     let io = set_certificate_io(SpdmVersion::V13, attributes, 7, &payload);
@@ -211,7 +211,7 @@ fn test_handle_set_certificate_rejects_unadvertised_capability() {
         state.advertised_cap_flags.into_bits() & !CapFlags::SET_CERT.into_bits(),
     );
     let der = der_chain();
-    let payload = cert_payload(&der, test_digest(&der[..5]));
+    let payload = cert_payload(&der, test_digest(&der[..TEST_ROOT_CERT_LEN]));
     let io = set_certificate_io(SpdmVersion::V12, 1, 0, &payload);
 
     let err = handle_set_certificate(&mut state, &pal, &io).unwrap_err();
@@ -223,7 +223,7 @@ fn test_handle_set_certificate_rejects_unadvertised_capability() {
 #[test]
 fn test_handle_set_certificate_rejects_request_larger_than_mtu() {
     let der = der_chain();
-    let payload = cert_payload(&der, test_digest(&der[..5]));
+    let payload = cert_payload(&der, test_digest(&der[..TEST_ROOT_CERT_LEN]));
     let io = set_certificate_io(SpdmVersion::V12, 1, 0, &payload);
     let pal = TestPal {
         mtu: io.request.len() - 1,
@@ -245,7 +245,7 @@ fn test_handle_set_certificate_rejects_unsupported_slot() {
     };
     let mut state = state(SpdmVersion::V12);
     let der = der_chain();
-    let payload = cert_payload(&der, test_digest(&der[..5]));
+    let payload = cert_payload(&der, test_digest(&der[..TEST_ROOT_CERT_LEN]));
     let io = set_certificate_io(SpdmVersion::V12, 2, 0, &payload);
 
     let err = handle_set_certificate(&mut state, &pal, &io).unwrap_err();
@@ -275,7 +275,7 @@ fn test_handle_set_certificate_rejects_unnegotiated_hash_algo() {
     let mut state = state(SpdmVersion::V12);
     state.negotiated_base_hash_sel = HashAlgos::EMPTY;
     let der = der_chain();
-    let payload = cert_payload(&der, test_digest(&der[..5]));
+    let payload = cert_payload(&der, test_digest(&der[..TEST_ROOT_CERT_LEN]));
     let io = set_certificate_io(SpdmVersion::V12, 1, 0, &payload);
 
     let err = handle_set_certificate(&mut state, &pal, &io).unwrap_err();
@@ -290,7 +290,7 @@ fn test_handle_set_certificate_rejects_unnegotiated_base_asym_algo() {
     let mut state = state(SpdmVersion::V12);
     state.negotiated_base_asym_sel = AsymAlgos::EMPTY;
     let der = der_chain();
-    let payload = cert_payload(&der, test_digest(&der[..5]));
+    let payload = cert_payload(&der, test_digest(&der[..TEST_ROOT_CERT_LEN]));
     let io = set_certificate_io(SpdmVersion::V12, 1, 0, &payload);
 
     let err = handle_set_certificate(&mut state, &pal, &io).unwrap_err();
@@ -310,7 +310,7 @@ fn test_handle_set_certificate_accepts_mldsa_negotiation() {
     state.negotiated_base_asym_sel = AsymAlgos::EMPTY;
     state.negotiated_pqc_asym_sel = PqcAsymAlgos::ML_DSA_87;
     let der = der_chain();
-    let root_hash = test_digest(&der[..5]);
+    let root_hash = test_digest(&der[..TEST_ROOT_CERT_LEN]);
     let payload = cert_payload(&der, root_hash);
     let io = set_certificate_io(SpdmVersion::V14, 1, 0, &payload);
 
@@ -338,7 +338,7 @@ fn test_handle_set_certificate_rejects_v14_with_no_asym_selection() {
     state.negotiated_base_asym_sel = AsymAlgos::EMPTY;
     state.negotiated_pqc_asym_sel = PqcAsymAlgos::EMPTY;
     let der = der_chain();
-    let payload = cert_payload(&der, test_digest(&der[..5]));
+    let payload = cert_payload(&der, test_digest(&der[..TEST_ROOT_CERT_LEN]));
     let io = set_certificate_io(SpdmVersion::V14, 1, 0, &payload);
 
     let err = handle_set_certificate(&mut state, &pal, &io).unwrap_err();
@@ -356,7 +356,7 @@ fn test_handle_set_certificate_checks_authorization_before_algorithms() {
     let mut state = state(SpdmVersion::V12);
     state.negotiated_base_hash_sel = HashAlgos::EMPTY;
     let der = der_chain();
-    let payload = cert_payload(&der, test_digest(&der[..5]));
+    let payload = cert_payload(&der, test_digest(&der[..TEST_ROOT_CERT_LEN]));
     let io = set_certificate_io(SpdmVersion::V12, 1, 0, &payload);
 
     let err = handle_set_certificate(&mut state, &pal, &io).unwrap_err();
@@ -393,7 +393,7 @@ fn test_handle_set_certificate_rejects_unauthorized_request() {
     };
     let mut state = state(SpdmVersion::V12);
     let der = der_chain();
-    let payload = cert_payload(&der, test_digest(&der[..5]));
+    let payload = cert_payload(&der, test_digest(&der[..TEST_ROOT_CERT_LEN]));
     let io = set_certificate_io(SpdmVersion::V12, 1, 0, &payload);
 
     let err = handle_set_certificate(&mut state, &pal, &io).unwrap_err();
@@ -438,7 +438,7 @@ fn test_handle_set_certificate_calls_pal_validation_before_write() {
     };
     let mut state = state(SpdmVersion::V12);
     let der = der_chain();
-    let payload = cert_payload(&der, test_digest(&der[..5]));
+    let payload = cert_payload(&der, test_digest(&der[..TEST_ROOT_CERT_LEN]));
     let io = set_certificate_io(SpdmVersion::V12, 1, 0, &payload);
 
     let err = handle_set_certificate(&mut state, &pal, &io).unwrap_err();
@@ -455,7 +455,7 @@ fn test_handle_set_certificate_preserves_wire_validation_error() {
     };
     let mut state = state(SpdmVersion::V12);
     let der = der_chain();
-    let payload = cert_payload(&der, test_digest(&der[..5]));
+    let payload = cert_payload(&der, test_digest(&der[..TEST_ROOT_CERT_LEN]));
     let io = set_certificate_io(SpdmVersion::V12, 1, 0, &payload);
 
     let err = handle_set_certificate(&mut state, &pal, &io).unwrap_err();
@@ -472,7 +472,7 @@ fn test_handle_set_certificate_preserves_wire_write_error() {
     };
     let mut state = state(SpdmVersion::V12);
     let der = der_chain();
-    let payload = cert_payload(&der, test_digest(&der[..5]));
+    let payload = cert_payload(&der, test_digest(&der[..TEST_ROOT_CERT_LEN]));
     let io = set_certificate_io(SpdmVersion::V12, 1, 0, &payload);
 
     let err = handle_set_certificate(&mut state, &pal, &io).unwrap_err();

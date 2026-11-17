@@ -199,7 +199,10 @@ impl CapabilitiesBody {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::SpdmVersion;
+    use crate::{SpdmMsgHdrPdu, SpdmVersion};
+
+    const HDR: usize = SpdmMsgHdrPdu::SIZE;
+    const BODY: usize = CapabilitiesBody::SIZE;
 
     #[test]
     fn test_get_capabilities_req_all_flags_roundtrip() {
@@ -222,12 +225,9 @@ mod tests {
             max_spdm_msg_size: 0x1200,
         };
 
-        // Body = Param1, Param2, Reserved, CTExponent (4) + ExtFlags (2)
-        //      + Flags (4) + DataTransferSize (4) + MaxSPDMmsgSize (4) = 18.
-        assert_eq!(req.body_size(), 18);
+        assert_eq!(req.body_size(), BODY);
 
-        // Buffer = 2-byte common header + 18-byte body = 20 bytes.
-        let mut buf = [0u8; 2 + 18];
+        let mut buf = [0u8; HDR + BODY];
         let mut w = WireWriter::new(&mut buf);
         req.encode_with_header(SpdmVersion::V14, &mut w).unwrap();
 
@@ -243,7 +243,7 @@ mod tests {
             ]
         );
 
-        let parsed = CapabilitiesBody::parse(&buf[2..]).unwrap();
+        let parsed = CapabilitiesBody::parse(&buf[HDR..]).unwrap();
         assert_eq!(parsed.ct_exponent, 10);
         assert!(parsed.ext_flags.is_empty());
         assert_eq!(parsed.flags.into_bits(), u32::MAX);
@@ -309,11 +309,10 @@ mod tests {
             max_spdm_msg_size: 0x800,
         };
 
-        // Body is the same 18-byte CapabilitiesBody as the request.
-        assert_eq!(rsp.body_size(), 18);
+        // Body is the same CapabilitiesBody as the request.
+        assert_eq!(rsp.body_size(), BODY);
 
-        // Buffer = 2-byte common header + 18-byte body = 20 bytes.
-        let mut buf = [0u8; 2 + 18];
+        let mut buf = [0u8; HDR + BODY];
         let mut w = WireWriter::new(&mut buf);
         rsp.encode_with_header(SpdmVersion::V14, &mut w).unwrap();
 
@@ -329,7 +328,7 @@ mod tests {
             ]
         );
 
-        let parsed = CapabilitiesBody::parse(&buf[2..]).unwrap();
+        let parsed = CapabilitiesBody::parse(&buf[HDR..]).unwrap();
         assert_eq!(parsed.ct_exponent, 10);
         assert_eq!(parsed.ext_flags.into_bits(), ExtCapFlags::SLOT_MGMT.into_bits());
         assert_eq!(parsed.flags.into_bits(), flags.into_bits());

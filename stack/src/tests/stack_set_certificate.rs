@@ -103,7 +103,7 @@ fn plaintext_chunked_set_certificate_succeeds() {
             slot: 1,
             key_pair_id: 0,
             cert_model: 2,
-            root_hash: test_digest(&pal.cert_chain[..5]),
+            root_hash: test_digest(&pal.cert_chain[..TEST_ROOT_CERT_LEN]),
             cert_chain: pal.cert_chain.to_vec(),
         })
     );
@@ -122,11 +122,12 @@ fn plaintext_chunked_set_certificate_can_stream_beyond_8k_buffer() {
     let mut sessions = crate::session::SessionManager::new();
 
     let mut der = Vec::new();
-    for _ in 0..8185 {
+    const CHAIN_REPEATS: usize = 8185;
+    for _ in 0..CHAIN_REPEATS {
         der.extend_from_slice(TEST_CERT_CHAIN);
     }
     der.extend_from_slice(&[0x30, 0x01, 4]);
-    let payload = cert_payload(&der, test_digest(&der[..5]));
+    let payload = cert_payload(&der, test_digest(&der[..TEST_ROOT_CERT_LEN]));
     let mut large_req = vec![
         SpdmVersion::V12.to_u8(),
         ReqRespCode::SET_CERTIFICATE.0,
@@ -141,8 +142,9 @@ fn plaintext_chunked_set_certificate_can_stream_beyond_8k_buffer() {
     let mut offset = 0;
     let mut seq = 0u16;
     while offset < large_req.len() {
-        let overhead =
-            SpdmMsgHdrPdu::SIZE + spdm_codec::ChunkSendReqBody::SIZE + usize::from(seq == 0) * 4;
+        let overhead = SpdmMsgHdrPdu::SIZE
+            + spdm_codec::ChunkSendReqBody::SIZE
+            + usize::from(seq == 0) * spdm_codec::LARGE_RESPONSE_SIZE_FIELD_SIZE;
         let end = (offset + pal.mtu() - overhead).min(large_req.len());
         let last = end == large_req.len();
         let chunk = chunk_send_request(
@@ -178,7 +180,7 @@ fn plaintext_chunked_set_certificate_can_stream_beyond_8k_buffer() {
             slot: 1,
             key_pair_id: 0,
             cert_model: 2,
-            root_hash: test_digest(&der[..5]),
+            root_hash: test_digest(&der[..TEST_ROOT_CERT_LEN]),
             cert_chain: der,
         })
     );
@@ -301,7 +303,7 @@ fn secured_chunked_set_certificate_succeeds() {
             slot: 1,
             key_pair_id: 0,
             cert_model: 2,
-            root_hash: test_digest(&pal.cert_chain[..5]),
+            root_hash: test_digest(&pal.cert_chain[..TEST_ROOT_CERT_LEN]),
             cert_chain: pal.cert_chain.to_vec(),
         })
     );

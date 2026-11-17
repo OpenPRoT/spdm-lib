@@ -136,10 +136,10 @@ fn test_get_certificate_v14_large_success_pagination() {
     state.advertised_cap_flags |= CapFlags::LARGE_RESP;
     let mut sessions = SessionManager::new();
 
-    let total_len = SPDM_CERT_CHAIN_HDR_LEN + TEST_CERT_CHAIN.len(); // 52 + 8 = 60
+    let total_len = SPDM_CERT_CHAIN_HDR_LEN + TEST_CERT_CHAIN.len();
+    let first_portion = 32;
 
-    // Fetch chunk 1: 32 bytes
-    let req1 = large_cert_request(SpdmVersion::V14, 0, 0, 0, 32);
+    let req1 = large_cert_request(SpdmVersion::V14, 0, 0, 0, first_portion);
     let rsp1 = dispatch_cert_request(&mut state, &mut sessions, &pal, req1).unwrap();
 
     let (hdr1, rest1) = SpdmMsgHdrPdu::ref_from_prefix(&rsp1).unwrap();
@@ -152,14 +152,14 @@ fn test_get_certificate_v14_large_success_pagination() {
         param2: 0,
         portion_length: U16::new(0),
         remainder_length: U16::new(0),
-        large_portion_length: U32::new(32),
-        large_remainder_length: U32::new((total_len - 32) as u32),
+        large_portion_length: U32::new(first_portion),
+        large_remainder_length: U32::new(total_len as u32 - first_portion),
     };
     assert_eq!(body1, &wanted_body1);
-    assert_eq!(payload1.len(), 32);
+    assert_eq!(payload1.len(), first_portion as usize);
 
     // Fetch chunk 2: remainder
-    let req2 = large_cert_request(SpdmVersion::V14, 0, 0, 32, 0xFFFFFFFF);
+    let req2 = large_cert_request(SpdmVersion::V14, 0, 0, first_portion, u32::MAX);
     let rsp2 = dispatch_cert_request(&mut state, &mut sessions, &pal, req2).unwrap();
 
     let (hdr2, rest2) = SpdmMsgHdrPdu::ref_from_prefix(&rsp2).unwrap();
@@ -172,7 +172,7 @@ fn test_get_certificate_v14_large_success_pagination() {
         param2: 0,
         portion_length: U16::new(0),
         remainder_length: U16::new(0),
-        large_portion_length: U32::new((total_len - 32) as u32),
+        large_portion_length: U32::new(total_len as u32 - first_portion),
         large_remainder_length: U32::new(0),
     };
     assert_eq!(body2, &wanted_body2);
@@ -258,7 +258,7 @@ fn test_get_certificate_composed_chain_length_limits() {
     // The served header must encode the full length as a LE u32; the
     // pre-1.4 truncation to u16 would have written 0x0000 here.
     assert!(actual_size > u16::MAX as u32);
-    assert_eq!(&payload[..4], &actual_size.to_le_bytes());
+    assert_eq!(&payload[..size_of::<u32>()], &actual_size.to_le_bytes());
 }
 
 /// A chain of exactly `u16::MAX` total bytes is still served by the
@@ -288,7 +288,10 @@ fn test_get_certificate_chain_at_u16_boundary_uses_identical_header() {
         );
         // Upper two bytes are zero, which is exactly the pre-1.4
         // `Reserved = 0` encoding.
-        assert_eq!(&payload[..4], &(total_len as u32).to_le_bytes());
+        assert_eq!(
+            &payload[..size_of::<u32>()],
+            &(total_len as u32).to_le_bytes()
+        );
     }
 }
 

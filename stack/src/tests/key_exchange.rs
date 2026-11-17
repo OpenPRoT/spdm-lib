@@ -6,6 +6,7 @@ use super::*;
 use spdm_codec::{
     CapFlags, KeyExchangeReqBodyFixed, PqcAsymAlgos, ReqRespCode, SpdmVersion,
     ECC_P384_SIGNATURE_SIZE, ECDH_P384_EXCHANGE_DATA_SIZE, KEY_EXCHANGE_RSP_FIXED_BODY_SIZE,
+    OPAQUE_DATA_LEN_FIELD_SIZE,
 };
 use spdm_traits::SpdmPalHash;
 use std::vec::Vec;
@@ -44,9 +45,13 @@ fn run_key_exchange(opaque_data: &[u8]) -> Vec<u8> {
 fn response_opaque_data(response: &[u8]) -> &[u8] {
     let opaque_len_offset =
         SpdmMsgHdrPdu::SIZE + KEY_EXCHANGE_RSP_FIXED_BODY_SIZE + ECDH_P384_EXCHANGE_DATA_SIZE;
-    let opaque_len =
-        u16::from_le_bytes([response[opaque_len_offset], response[opaque_len_offset + 1]]) as usize;
-    &response[opaque_len_offset + 2..opaque_len_offset + 2 + opaque_len]
+    let opaque_len = u16::from_le_bytes(
+        response[opaque_len_offset..][..OPAQUE_DATA_LEN_FIELD_SIZE]
+            .try_into()
+            .unwrap(),
+    ) as usize;
+    let opaque_start = opaque_len_offset + OPAQUE_DATA_LEN_FIELD_SIZE;
+    &response[opaque_start..opaque_start + opaque_len]
 }
 
 #[test]
@@ -107,8 +112,10 @@ fn ecdsa_response_can_be_chunked() {
     let (rsp_hdr, _) = SpdmMsgHdrPdu::ref_from_prefix(&response).unwrap();
     assert_eq!(rsp_hdr.code, ReqRespCode::KEY_EXCHANGE_RSP);
 
-    let signature_start =
-        SpdmMsgHdrPdu::SIZE + KEY_EXCHANGE_RSP_FIXED_BODY_SIZE + ECDH_P384_EXCHANGE_DATA_SIZE + 2;
+    let signature_start = SpdmMsgHdrPdu::SIZE
+        + KEY_EXCHANGE_RSP_FIXED_BODY_SIZE
+        + ECDH_P384_EXCHANGE_DATA_SIZE
+        + OPAQUE_DATA_LEN_FIELD_SIZE;
     let signature = &response[signature_start..signature_start + ECC_P384_SIGNATURE_SIZE];
     assert!(signature.iter().all(|&byte| byte == 0x77));
 }
@@ -227,7 +234,7 @@ fn doe_and_mctp_supported_key_exchange_has_identical_payloads_and_signing_inputs
             let mut request = key_exchange_request(&[]);
             request[0] = version.to_u8();
             if send_len_alignment == 4 {
-                request.resize(request.len().next_multiple_of(4), 0);
+                request.resize(request.len().next_multiple_of(send_len_alignment), 0);
             }
             let io = TestIo::message(request);
             state.transcript.append_vca(&pal, &io, b"VCA").unwrap();
@@ -236,7 +243,7 @@ fn doe_and_mctp_supported_key_exchange_has_identical_payloads_and_signing_inputs
             let spdm_len = SpdmMsgHdrPdu::SIZE
                 + KEY_EXCHANGE_RSP_FIXED_BODY_SIZE
                 + ECDH_P384_EXCHANGE_DATA_SIZE
-                + 2
+                + OPAQUE_DATA_LEN_FIELD_SIZE
                 + ECC_P384_SIGNATURE_SIZE
                 + support::SHA384_DIGEST_SIZE;
             assert_eq!(

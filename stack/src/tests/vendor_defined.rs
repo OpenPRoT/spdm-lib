@@ -26,6 +26,13 @@ use support::{drain_chunked_response, negotiated_state, TestHashState, TestIo, T
 
 const TEST_STANDARD_ID: u16 = 0x0004; // IANA
 const TEST_VENDOR_ID: [u8; 4] = [0x01, 0x02, 0x03, 0x04];
+const LARGE_LEN_RESERVED: [u8; 2] = [0; 2];
+const LARGE_LEN_OFFSET: usize = TEST_VENDOR_ID.len() + LARGE_LEN_RESERVED.len();
+const LARGE_ENVELOPE_LEN: usize = SpdmMsgHdrPdu::SIZE
+    + VendorDefinedRspPdu::SIZE
+    + TEST_VENDOR_ID.len()
+    + LARGE_LEN_RESERVED.len()
+    + size_of::<u32>();
 
 struct TestVdmBackend {
     payload: Vec<u8>,
@@ -76,9 +83,19 @@ fn init_vdm_test_state(
 }
 
 fn vdm_request(version: SpdmVersion, is_large: bool, payload: &[u8]) -> Vec<u8> {
-    let extra_hdr = if is_large { 6 } else { 2 };
-    let mut buf =
-        vec![0u8; SpdmMsgHdrPdu::SIZE + 5 + TEST_VENDOR_ID.len() + extra_hdr + payload.len()];
+    let len_field = if is_large {
+        LARGE_LEN_RESERVED.len() + size_of::<u32>()
+    } else {
+        size_of::<u16>()
+    };
+    let mut buf = vec![
+        0u8;
+        SpdmMsgHdrPdu::SIZE
+            + size_of::<VendorDefinedReqPdu>()
+            + TEST_VENDOR_ID.len()
+            + len_field
+            + payload.len()
+    ];
     let mut w = WireWriter::new(&mut buf);
     w.write(&SpdmMsgHdrPdu::new(
         version,
@@ -94,7 +111,7 @@ fn vdm_request(version: SpdmVersion, is_large: bool, payload: &[u8]) -> Vec<u8> 
     .unwrap();
     w.write_bytes(&TEST_VENDOR_ID).unwrap();
     if is_large {
-        w.write(&[0u8, 0u8]).unwrap();
+        w.write(&LARGE_LEN_RESERVED).unwrap();
         w.write(&U32::new(payload.len() as u32)).unwrap();
     } else {
         w.write(&U16::new(payload.len() as u16)).unwrap();
@@ -147,11 +164,20 @@ fn test_vdm_v14_large_request_success() {
         VendorDefinedParam1::LARGE_RESP
     );
     assert_eq!(vdm_rsp_hdr.standard_id.get(), TEST_STANDARD_ID);
-    assert_eq!(vdm_rsp_hdr.vendor_id_len, 4);
-    assert_eq!(&rest2[..4], &TEST_VENDOR_ID);
-    assert_eq!(&rest2[4..6], &[0, 0]); // reserved
-    assert_eq!(&rest2[6..10], &(rsp_payload.len() as u32).to_le_bytes());
-    assert_eq!(&rest2[10..], &rsp_payload[..]);
+    assert_eq!(vdm_rsp_hdr.vendor_id_len as usize, TEST_VENDOR_ID.len());
+    assert_eq!(&rest2[..TEST_VENDOR_ID.len()], &TEST_VENDOR_ID);
+    assert_eq!(
+        &rest2[TEST_VENDOR_ID.len()..LARGE_LEN_OFFSET],
+        &LARGE_LEN_RESERVED
+    );
+    assert_eq!(
+        &rest2[LARGE_LEN_OFFSET..][..size_of::<u32>()],
+        &(rsp_payload.len() as u32).to_le_bytes()
+    );
+    assert_eq!(
+        &rest2[LARGE_LEN_OFFSET + size_of::<u32>()..],
+        &rsp_payload[..]
+    );
 }
 
 #[test]
@@ -189,16 +215,17 @@ fn test_vdm_large_negotiation_gates() {
 
 #[test]
 fn test_vdm_standard_overflow_returns_data_too_large() {
-    let overflow_size = 65536 + 10;
+    const CAPACITY_SLACK: usize = 1024;
+    let overflow_size = usize::from(u16::MAX) + 1 + 10;
     let pal = TestPal {
-        large_buffered_msg_capacity: overflow_size + 1024,
+        large_buffered_msg_capacity: overflow_size + CAPACITY_SLACK,
         ..TestPal::default()
     };
     let mut state = init_vdm_test_state(SpdmVersion::V14, &pal);
     state.cap_flags |= CapFlags::CHUNK | CapFlags::LARGE_RESP;
     state.peer_cap_flags |= CapFlags::CHUNK | CapFlags::LARGE_RESP;
     state.advertised_cap_flags |= CapFlags::CHUNK | CapFlags::LARGE_RESP;
-    state.peer_max_spdm_msg_size = (overflow_size + 1024) as u32;
+    state.peer_max_spdm_msg_size = (overflow_size + CAPACITY_SLACK) as u32;
     let mut sessions = SessionManager::new();
 
     let vdm = TestVdmBackend {
@@ -245,8 +272,7 @@ fn test_vdm_large_response_chunked_transfer() {
     let io = TestIo::message(Vec::new());
     let reassembled = drain_chunked_response(&mut state, &pal, &io, handle).unwrap();
 
-    // Large envelope = 2 (SPDM hdr) + 11 (VdmPdu + rsvd + u32 len) + 4 (vendor_id) = 17
-    assert_eq!(reassembled.len(), 17 + payload_len);
+    assert_eq!(reassembled.len(), LARGE_ENVELOPE_LEN + payload_len);
     let (rsp_hdr, rsp_rest) = SpdmMsgHdrPdu::ref_from_prefix(&reassembled).unwrap();
     assert_eq!(rsp_hdr.code, ReqRespCode::VENDOR_DEFINED_RESPONSE);
 
@@ -255,8 +281,14 @@ fn test_vdm_large_response_chunked_transfer() {
         vdm_rsp_hdr.param1.into_bits(),
         VendorDefinedParam1::LARGE_RESP
     );
-    assert_eq!(&rest2[..4], &TEST_VENDOR_ID);
-    assert_eq!(&rest2[4..6], &[0, 0]); // reserved
-    assert_eq!(&rest2[6..10], &(payload_len as u32).to_le_bytes());
+    assert_eq!(&rest2[..TEST_VENDOR_ID.len()], &TEST_VENDOR_ID);
+    assert_eq!(
+        &rest2[TEST_VENDOR_ID.len()..LARGE_LEN_OFFSET],
+        &LARGE_LEN_RESERVED
+    );
+    assert_eq!(
+        &rest2[LARGE_LEN_OFFSET..][..size_of::<u32>()],
+        &(payload_len as u32).to_le_bytes()
+    );
     assert_eq!(&rest2[10..], &rsp_payload[..]);
 }

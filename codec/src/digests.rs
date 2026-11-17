@@ -121,16 +121,18 @@ impl<'a> ParsedDigestsRsp<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::SpdmVersion;
+    use crate::{SpdmMsgHdrPdu, SpdmVersion, SHA384_HASH_SIZE};
+
+    const HDR: usize = SpdmMsgHdrPdu::SIZE;
+    const MASKS: usize = DigestsRspBody::SIZE;
 
     #[test]
     fn test_get_digests_req_structure() {
         let req = GetDigestsReqBody::default();
-        // Body = Param1 (1) + Param2 (1) = 2; wire = 2-byte header + 2 = 4 bytes.
-        assert_eq!(req.body_size(), 2);
-        assert_eq!(req.encoded_size(), 4);
+        assert_eq!(req.body_size(), GetDigestsReqBody::SIZE);
+        assert_eq!(req.encoded_size(), HDR + GetDigestsReqBody::SIZE);
 
-        let mut buf = [0xFFu8; 4];
+        let mut buf = [0xFFu8; HDR + GetDigestsReqBody::SIZE];
         let mut w = WireWriter::new(&mut buf);
         req.encode_with_header(SpdmVersion::V13, &mut w).unwrap();
         assert_eq!(buf, [0x13, 0x81, 0x00, 0x00]);
@@ -139,31 +141,32 @@ mod tests {
     #[test]
     fn test_digests_rsp_two_slots_roundtrip() {
         // Slots 0 and 1 supported and provisioned (mask 0b11).
-        // One SHA-384 digest (48 bytes) per provisioned slot:
-        //   popcount(0b11) * 48 = 2 * 48 = 96 digest bytes.
-        let mut digests = [0u8; 96];
-        digests[..48].fill(0xAA);
-        digests[48..].fill(0xBB);
-        assert_eq!(digests.len(), 0b11u8.count_ones() as usize * 48);
+        // One SHA-384 digest per provisioned slot.
+        let mut digests = [0u8; 2 * SHA384_HASH_SIZE];
+        digests[..SHA384_HASH_SIZE].fill(0xAA);
+        digests[SHA384_HASH_SIZE..].fill(0xBB);
+        assert_eq!(
+            digests.len(),
+            0b11u8.count_ones() as usize * SHA384_HASH_SIZE
+        );
 
         let rsp = DigestsRsp {
             supported_slots: 0x03,
             provisioned_slots: 0x03,
             digests: &digests,
         };
-        // Body = 2-byte mask header + 96 digest bytes = 98.
-        assert_eq!(rsp.body_size(), 98);
+        assert_eq!(rsp.body_size(), MASKS + digests.len());
 
-        // Buffer = 2-byte common header + 98-byte body = 100 bytes.
-        let mut buf = [0u8; 2 + 98];
+        let mut buf = [0u8; HDR + MASKS + 2 * SHA384_HASH_SIZE];
         let mut w = WireWriter::new(&mut buf);
         rsp.encode_with_header(SpdmVersion::V13, &mut w).unwrap();
 
-        assert_eq!(&buf[..4], &[0x13, 0x01, 0x03, 0x03]); // V1.3, DIGESTS, masks
-        assert_eq!(&buf[4..52], &[0xAA; 48]);
-        assert_eq!(&buf[52..100], &[0xBB; 48]);
+        let first_end = HDR + MASKS + SHA384_HASH_SIZE;
+        assert_eq!(&buf[..HDR + MASKS], &[0x13, 0x01, 0x03, 0x03]); // V1.3, DIGESTS, masks
+        assert_eq!(&buf[HDR + MASKS..first_end], &[0xAA; SHA384_HASH_SIZE]);
+        assert_eq!(&buf[first_end..], &[0xBB; SHA384_HASH_SIZE]);
 
-        let parsed = ParsedDigestsRsp::parse(&buf[2..]).unwrap();
+        let parsed = ParsedDigestsRsp::parse(&buf[HDR..]).unwrap();
         assert_eq!(parsed.supported_slots, 0x03);
         assert_eq!(parsed.provisioned_slots, 0x03);
         assert_eq!(parsed.digests, &digests[..]);
@@ -172,18 +175,17 @@ mod tests {
     #[test]
     fn test_digests_rsp_sparse_slots() {
         // Slots 0-3 supported but only slot 2 provisioned: one digest.
-        let digest = [0x5A; 32];
+        let digest = [0x5A; SHA384_HASH_SIZE];
         let rsp = DigestsRsp {
             supported_slots: 0b0000_1111,
             provisioned_slots: 0b0000_0100,
             digests: &digest,
         };
-        // Buffer = 2 header + 2 masks + 32 digest = 36 bytes.
-        let mut buf = [0u8; 2 + 2 + 32];
+        let mut buf = [0u8; HDR + MASKS + SHA384_HASH_SIZE];
         let mut w = WireWriter::new(&mut buf);
         rsp.encode_with_header(SpdmVersion::V13, &mut w).unwrap();
 
-        let parsed = ParsedDigestsRsp::parse(&buf[2..]).unwrap();
+        let parsed = ParsedDigestsRsp::parse(&buf[HDR..]).unwrap();
         assert_eq!(parsed.supported_slots, 0x0F);
         assert_eq!(parsed.provisioned_slots, 0x04);
         assert_eq!(parsed.digests, &digest[..]);
@@ -196,34 +198,33 @@ mod tests {
             provisioned_slots: 0x00,
             digests: &[],
         };
-        let mut buf = [0xFFu8; 2 + 2];
+        let mut buf = [0xFFu8; HDR + MASKS];
         let mut w = WireWriter::new(&mut buf);
         rsp.encode_with_header(SpdmVersion::V13, &mut w).unwrap();
         assert_eq!(buf, [0x13, 0x01, 0x01, 0x00]);
 
-        let parsed = ParsedDigestsRsp::parse(&buf[2..]).unwrap();
+        let parsed = ParsedDigestsRsp::parse(&buf[HDR..]).unwrap();
         assert!(parsed.digests.is_empty());
     }
 
     #[test]
     fn test_digests_rsp_buffer_too_small() {
-        let digests = [0u8; 48];
+        let digests = [0u8; SHA384_HASH_SIZE];
         let rsp = DigestsRsp {
             supported_slots: 0x01,
             provisioned_slots: 0x01,
             digests: &digests,
         };
-        // Needs 2 + 2 + 48 = 52 bytes; 51 is one short.
-        let mut buf = [0u8; 51];
+        // One byte short.
+        let mut buf = [0u8; HDR + MASKS + SHA384_HASH_SIZE - 1];
         let mut w = WireWriter::new(&mut buf);
         assert!(rsp.encode_with_header(SpdmVersion::V13, &mut w).is_err());
     }
 
     #[test]
     fn test_parse_digests_rejects_short_header() {
-        // Mask header is 2 bytes.
         assert!(ParsedDigestsRsp::parse(&[]).is_err());
-        assert!(ParsedDigestsRsp::parse(&[0x01]).is_err());
+        assert!(ParsedDigestsRsp::parse(&[0x01; MASKS - 1]).is_err());
     }
 
     #[test]

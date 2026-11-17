@@ -181,11 +181,17 @@ mod tests {
 
     #[test]
     fn v14_finish_request_skips_opaque_data_before_verify_data() {
-        let payload = finish_payload(SpdmVersion::V14, &[1, 2, 3]);
+        let opaque_data = [1, 2, 3];
+        let payload = finish_payload(SpdmVersion::V14, &opaque_data);
         let (_, verify_data, prefix_len) =
             split_finish_request_payload(SpdmVersion::V14, &payload).unwrap();
 
-        assert_eq!(prefix_len, core::mem::size_of::<FinishReqBody>() + 2 + 3);
+        assert_eq!(
+            prefix_len,
+            core::mem::size_of::<FinishReqBody>()
+                + spdm_codec::OPAQUE_DATA_LEN_FIELD_SIZE
+                + opaque_data.len()
+        );
         assert_eq!(verify_data, &[0xa5; SHA384_HASH_SIZE]);
     }
 

@@ -169,21 +169,21 @@ mod tests {
 
     #[test]
     fn test_writer_write_advances_position_and_tracks_remaining() {
-        let mut buf = [0xFFu8; 8];
+        const CAPACITY: usize = 8;
+        const RAW: [u8; 3] = [1, 2, 3];
+        let mut buf = [0xFFu8; CAPACITY];
         let mut w = WireWriter::new(&mut buf);
         assert_eq!(w.position(), 0);
-        assert_eq!(w.remaining(), 8);
+        assert_eq!(w.remaining(), CAPACITY);
 
-        // Common header is 2 bytes: 8 - 2 = 6 remaining.
         w.write(&SpdmMsgHdrPdu::new(SpdmVersion::V12, ReqRespCode::VERSION))
             .unwrap();
-        assert_eq!(w.position(), 2);
-        assert_eq!(w.remaining(), 6);
+        assert_eq!(w.position(), SpdmMsgHdrPdu::SIZE);
+        assert_eq!(w.remaining(), CAPACITY - SpdmMsgHdrPdu::SIZE);
 
-        // 3 more raw bytes: position 2 + 3 = 5, remaining 8 - 5 = 3.
-        w.write_bytes(&[1, 2, 3]).unwrap();
-        assert_eq!(w.position(), 5);
-        assert_eq!(w.remaining(), 3);
+        w.write_bytes(&RAW).unwrap();
+        assert_eq!(w.position(), SpdmMsgHdrPdu::SIZE + RAW.len());
+        assert_eq!(w.remaining(), CAPACITY - SpdmMsgHdrPdu::SIZE - RAW.len());
 
         assert_eq!(w.into_bytes(), &[0x12, 0x04, 1, 2, 3]);
     }
@@ -315,13 +315,12 @@ mod tests {
         let hdr: &SpdmMsgHdrPdu = r.read().unwrap();
         assert_eq!(hdr.version, 0x12);
         assert_eq!(hdr.code, ReqRespCode::VERSION);
-        // Header is 2 bytes: position 2, remaining 3 - 2 = 1.
-        assert_eq!(r.position(), 2);
-        assert_eq!(r.remaining(), 1);
+        assert_eq!(r.position(), SpdmMsgHdrPdu::SIZE);
+        assert_eq!(r.remaining(), buf.len() - SpdmMsgHdrPdu::SIZE);
 
-        // A second 2-byte read needs 2 but only 1 is left: error, cursor stays.
+        // A second header read needs more than is left: error, cursor stays.
         assert!(r.read::<SpdmMsgHdrPdu>().is_err());
-        assert_eq!(r.position(), 2);
+        assert_eq!(r.position(), SpdmMsgHdrPdu::SIZE);
         assert_eq!(r.rest(), &[0xAA]);
 
         assert_eq!(r.take(1).unwrap(), &[0xAA]);
@@ -371,19 +370,19 @@ mod tests {
 
     #[test]
     fn test_writer_reader_roundtrip() {
-        let mut buf = [0u8; 6];
+        const PAYLOAD: [u8; 4] = [0xDE, 0xAD, 0xBE, 0xEF];
+        let mut buf = [0u8; SpdmMsgHdrPdu::SIZE + PAYLOAD.len()];
         let mut w = WireWriter::new(&mut buf);
         w.write(&SpdmMsgHdrPdu::new(SpdmVersion::V13, ReqRespCode::DIGESTS))
             .unwrap();
-        w.write_bytes(&[0xDE, 0xAD, 0xBE, 0xEF]).unwrap();
+        w.write_bytes(&PAYLOAD).unwrap();
         let written = w.into_bytes();
-        // 2-byte header + 4 payload bytes = 6.
-        assert_eq!(written.len(), 6);
+        assert_eq!(written.len(), SpdmMsgHdrPdu::SIZE + PAYLOAD.len());
 
         let mut r = WireReader::new(written);
         let hdr: &SpdmMsgHdrPdu = r.read().unwrap();
         assert_eq!(hdr.version, 0x13);
         assert_eq!(hdr.code, ReqRespCode::DIGESTS);
-        assert_eq!(r.rest(), &[0xDE, 0xAD, 0xBE, 0xEF]);
+        assert_eq!(r.rest(), &PAYLOAD);
     }
 }

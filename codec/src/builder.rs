@@ -95,6 +95,8 @@ pub trait RequestBody {
 mod tests {
     use super::*;
 
+    const HDR: usize = SpdmMsgHdrPdu::SIZE;
+
     struct Rsp<'a>(&'a [u8]);
 
     impl ResponseBody for Rsp<'_> {
@@ -123,11 +125,11 @@ mod tests {
 
     #[test]
     fn test_response_encode_with_header_layout_and_size() {
-        let rsp = Rsp(&[0xAA, 0xBB, 0xCC]);
-        // Wire size = 2-byte common header + 3-byte body = 5.
-        assert_eq!(rsp.encoded_size(), 5);
+        const BODY: [u8; 3] = [0xAA, 0xBB, 0xCC];
+        let rsp = Rsp(&BODY);
+        assert_eq!(rsp.encoded_size(), HDR + BODY.len());
 
-        let mut buf = [0xFFu8; 5];
+        let mut buf = [0xFFu8; HDR + BODY.len()];
         let mut w = WireWriter::new(&mut buf);
         rsp.encode_with_header(SpdmVersion::V12, &mut w).unwrap();
         assert_eq!(w.position(), rsp.encoded_size());
@@ -137,11 +139,11 @@ mod tests {
 
     #[test]
     fn test_request_encode_with_header_layout_and_size() {
-        let req = Req(&[0x01, 0x02]);
-        // Wire size = 2-byte common header + 2-byte body = 4.
-        assert_eq!(req.encoded_size(), 4);
+        const BODY: [u8; 2] = [0x01, 0x02];
+        let req = Req(&BODY);
+        assert_eq!(req.encoded_size(), HDR + BODY.len());
 
-        let mut buf = [0xFFu8; 4];
+        let mut buf = [0xFFu8; HDR + BODY.len()];
         let mut w = WireWriter::new(&mut buf);
         req.encode_with_header(SpdmVersion::V10, &mut w).unwrap();
         assert_eq!(buf, [0x10, 0x84, 0x01, 0x02]);
@@ -149,27 +151,33 @@ mod tests {
 
     #[test]
     fn test_empty_body_is_header_only() {
-        assert_eq!(Rsp(&[]).encoded_size(), 2);
-        assert_eq!(Req(&[]).encoded_size(), 2);
+        assert_eq!(Rsp(&[]).encoded_size(), HDR);
+        assert_eq!(Req(&[]).encoded_size(), HDR);
 
-        let mut buf = [0xFFu8; 2];
+        let mut buf = [0xFFu8; HDR];
         let mut w = WireWriter::new(&mut buf);
-        Rsp(&[]).encode_with_header(SpdmVersion::V14, &mut w).unwrap();
+        Rsp(&[])
+            .encode_with_header(SpdmVersion::V14, &mut w)
+            .unwrap();
         assert_eq!(buf, [0x14, 0x04]);
     }
 
     #[test]
     fn test_encode_with_header_rejects_buffer_too_small_for_header() {
-        // Header needs 2 bytes; 1 is too small and nothing is written.
-        let mut buf = [0xFFu8; 1];
+        // One byte short of the header: nothing is written.
+        let mut buf = [0xFFu8; HDR - 1];
         let mut w = WireWriter::new(&mut buf);
-        assert!(Rsp(&[1]).encode_with_header(SpdmVersion::V12, &mut w).is_err());
+        assert!(Rsp(&[1])
+            .encode_with_header(SpdmVersion::V12, &mut w)
+            .is_err());
         assert_eq!(w.position(), 0);
-        assert_eq!(buf, [0xFF]);
+        assert_eq!(buf, [0xFF; HDR - 1]);
 
-        let mut buf = [0xFFu8; 1];
+        let mut buf = [0xFFu8; HDR - 1];
         let mut w = WireWriter::new(&mut buf);
-        assert!(Req(&[1]).encode_with_header(SpdmVersion::V12, &mut w).is_err());
+        assert!(Req(&[1])
+            .encode_with_header(SpdmVersion::V12, &mut w)
+            .is_err());
         assert_eq!(w.position(), 0);
     }
 
@@ -178,11 +186,14 @@ mod tests {
     // The caller must discard or `truncate` the writer after an error.
     #[test]
     fn test_encode_with_header_body_failure_leaves_partial_header() {
-        // Needs 2 + 3 = 5 bytes; 4 is one short.
-        let mut buf = [0xFFu8; 4];
+        const BODY: [u8; 3] = [1, 2, 3];
+        // One byte short of header + body.
+        let mut buf = [0xFFu8; HDR + BODY.len() - 1];
         let mut w = WireWriter::new(&mut buf);
-        assert!(Rsp(&[1, 2, 3]).encode_with_header(SpdmVersion::V12, &mut w).is_err());
-        assert_eq!(w.position(), 2);
-        assert_eq!(&buf[..2], &[0x12, 0x04]);
+        assert!(Rsp(&BODY)
+            .encode_with_header(SpdmVersion::V12, &mut w)
+            .is_err());
+        assert_eq!(w.position(), HDR);
+        assert_eq!(&buf[..HDR], &[0x12, 0x04]);
     }
 }

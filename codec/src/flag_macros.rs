@@ -192,9 +192,9 @@ mod tests {
 
     #[test]
     fn test_layout_is_unaligned_and_native_sized() {
-        assert_eq!(core::mem::size_of::<F32>(), 4);
+        assert_eq!(core::mem::size_of::<F32>(), core::mem::size_of::<u32>());
         assert_eq!(core::mem::align_of::<F32>(), 1);
-        assert_eq!(core::mem::size_of::<F16>(), 2);
+        assert_eq!(core::mem::size_of::<F16>(), core::mem::size_of::<u16>());
         assert_eq!(core::mem::align_of::<F16>(), 1);
         assert_eq!(core::mem::size_of::<F8>(), 1);
         assert_eq!(core::mem::align_of::<F8>(), 1);
