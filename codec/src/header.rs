@@ -145,7 +145,10 @@ mod tests {
             (SpdmVersion::V13, 0x13),
             (SpdmVersion::V14, 0x14),
         ] {
-            assert_eq!(SpdmMsgHdrPdu::new(v, ReqRespCode::ERROR).as_bytes(), &[byte, 0x7F]);
+            assert_eq!(
+                SpdmMsgHdrPdu::new(v, ReqRespCode::ERROR).as_bytes(),
+                &[byte, 0x7F]
+            );
         }
     }
 
@@ -193,30 +196,105 @@ mod tests {
         // Every response code is its request code with the top bit cleared.
         let pairs = [
             (ReqRespCode::GET_DIGESTS, 0x81, ReqRespCode::DIGESTS, 0x01),
-            (ReqRespCode::GET_CERTIFICATE, 0x82, ReqRespCode::CERTIFICATE, 0x02),
-            (ReqRespCode::CHALLENGE, 0x83, ReqRespCode::CHALLENGE_AUTH, 0x03),
+            (
+                ReqRespCode::GET_CERTIFICATE,
+                0x82,
+                ReqRespCode::CERTIFICATE,
+                0x02,
+            ),
+            (
+                ReqRespCode::CHALLENGE,
+                0x83,
+                ReqRespCode::CHALLENGE_AUTH,
+                0x03,
+            ),
             (ReqRespCode::GET_VERSION, 0x84, ReqRespCode::VERSION, 0x04),
-            (ReqRespCode::CHUNK_SEND, 0x85, ReqRespCode::CHUNK_SEND_ACK, 0x05),
-            (ReqRespCode::CHUNK_GET, 0x86, ReqRespCode::CHUNK_RESPONSE, 0x06),
-            (ReqRespCode::GET_MEASUREMENTS, 0xE0, ReqRespCode::MEASUREMENTS, 0x60),
-            (ReqRespCode::GET_CAPABILITIES, 0xE1, ReqRespCode::CAPABILITIES, 0x61),
-            (ReqRespCode::NEGOTIATE_ALGORITHMS, 0xE3, ReqRespCode::ALGORITHMS, 0x63),
-            (ReqRespCode::KEY_EXCHANGE, 0xE4, ReqRespCode::KEY_EXCHANGE_RSP, 0x64),
+            (
+                ReqRespCode::CHUNK_SEND,
+                0x85,
+                ReqRespCode::CHUNK_SEND_ACK,
+                0x05,
+            ),
+            (
+                ReqRespCode::CHUNK_GET,
+                0x86,
+                ReqRespCode::CHUNK_RESPONSE,
+                0x06,
+            ),
+            (
+                ReqRespCode::GET_MEASUREMENTS,
+                0xE0,
+                ReqRespCode::MEASUREMENTS,
+                0x60,
+            ),
+            (
+                ReqRespCode::GET_CAPABILITIES,
+                0xE1,
+                ReqRespCode::CAPABILITIES,
+                0x61,
+            ),
+            (
+                ReqRespCode::NEGOTIATE_ALGORITHMS,
+                0xE3,
+                ReqRespCode::ALGORITHMS,
+                0x63,
+            ),
+            (
+                ReqRespCode::KEY_EXCHANGE,
+                0xE4,
+                ReqRespCode::KEY_EXCHANGE_RSP,
+                0x64,
+            ),
             (ReqRespCode::FINISH, 0xE5, ReqRespCode::FINISH_RSP, 0x65),
-            (ReqRespCode::PSK_EXCHANGE, 0xE6, ReqRespCode::PSK_EXCHANGE_RSP, 0x66),
-            (ReqRespCode::PSK_FINISH, 0xE7, ReqRespCode::PSK_FINISH_RSP, 0x67),
-            (ReqRespCode::HEARTBEAT, 0xE8, ReqRespCode::HEARTBEAT_ACK, 0x68),
-            (ReqRespCode::KEY_UPDATE, 0xE9, ReqRespCode::KEY_UPDATE_ACK, 0x69),
-            (ReqRespCode::GET_ENCAPSULATED_REQUEST, 0xEA, ReqRespCode::ENCAPSULATED_REQUEST, 0x6A),
+            (
+                ReqRespCode::PSK_EXCHANGE,
+                0xE6,
+                ReqRespCode::PSK_EXCHANGE_RSP,
+                0x66,
+            ),
+            (
+                ReqRespCode::PSK_FINISH,
+                0xE7,
+                ReqRespCode::PSK_FINISH_RSP,
+                0x67,
+            ),
+            (
+                ReqRespCode::HEARTBEAT,
+                0xE8,
+                ReqRespCode::HEARTBEAT_ACK,
+                0x68,
+            ),
+            (
+                ReqRespCode::KEY_UPDATE,
+                0xE9,
+                ReqRespCode::KEY_UPDATE_ACK,
+                0x69,
+            ),
+            (
+                ReqRespCode::GET_ENCAPSULATED_REQUEST,
+                0xEA,
+                ReqRespCode::ENCAPSULATED_REQUEST,
+                0x6A,
+            ),
             (
                 ReqRespCode::DELIVER_ENCAPSULATED_RESPONSE,
                 0xEB,
                 ReqRespCode::ENCAPSULATED_RESPONSE_ACK,
                 0x6B,
             ),
-            (ReqRespCode::END_SESSION, 0xEC, ReqRespCode::END_SESSION_ACK, 0x6C),
+            (
+                ReqRespCode::END_SESSION,
+                0xEC,
+                ReqRespCode::END_SESSION_ACK,
+                0x6C,
+            ),
             (ReqRespCode::GET_CSR, 0xED, ReqRespCode::CSR, 0x6D),
-            (ReqRespCode::SET_CERTIFICATE, 0xEE, ReqRespCode::SET_CERTIFICATE_RSP, 0x6E),
+            (
+                ReqRespCode::SET_CERTIFICATE,
+                0xEE,
+                ReqRespCode::SET_CERTIFICATE_RSP,
+                0x6E,
+            ),
             (
                 ReqRespCode::VENDOR_DEFINED_REQUEST,
                 0xFE,

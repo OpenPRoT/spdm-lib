@@ -114,7 +114,11 @@ mod tests {
 
     #[test]
     fn test_local_errors_are_local_and_never_wire() {
-        for (err, code) in [(SHORT_HEADER, 0x0001), (BAD_VERSION, 0x0002), (WIRE, 0x0003)] {
+        for (err, code) in [
+            (SHORT_HEADER, 0x0001),
+            (BAD_VERSION, 0x0002),
+            (WIRE, 0x0003),
+        ] {
             assert!(is_spdm_local(err));
             assert!(!is_spdm_wire(err));
             // A local error must not be mistaken for an SPDM ERROR-PDU byte.

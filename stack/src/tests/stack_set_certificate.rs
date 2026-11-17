@@ -3,7 +3,7 @@
 extern crate std;
 
 use super::*;
-use spdm_codec::{SetCertificateReqBody, CHUNK_ACK_ATTR_EARLY_ERROR};
+use spdm_codec::SetCertificateReqBody;
 use spdm_traits::NoVdmBackend;
 use std::vec;
 use std::vec::Vec;
@@ -322,14 +322,8 @@ fn handshake_session_chunked_set_certificate_is_rejected() {
         secured_spdm_response(&rsp),
         &[
             SpdmVersion::V12.to_u8(),
-            ReqRespCode::CHUNK_SEND_ACK.0,
-            CHUNK_ACK_ATTR_EARLY_ERROR,
-            7,
-            0,
-            0,
-            SpdmVersion::V12.to_u8(),
             ReqRespCode::ERROR.0,
-            SPDM_INVALID_REQUEST.spec_byte(),
+            SPDM_UNEXPECTED_REQUEST.spec_byte(),
             0,
         ]
     );
