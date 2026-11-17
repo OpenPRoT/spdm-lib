@@ -69,7 +69,16 @@ impl ResponseBody for FinishRsp {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{SpdmVersion, WireReader};
+    use crate::{
+        SpdmMsgHdrPdu, SpdmVersion, WireReader, ECC_P384_SIGNATURE_SIZE,
+        OPAQUE_DATA_LEN_FIELD_SIZE, SHA384_HASH_SIZE,
+    };
+
+    const HDR: usize = SpdmMsgHdrPdu::SIZE;
+    const REQ: usize = core::mem::size_of::<FinishReqBody>();
+    /// Two reserved bytes.
+    const RSP: usize = 2;
+    const RSP_WITH_OPAQUE: usize = RSP + OPAQUE_DATA_LEN_FIELD_SIZE;
 
     #[test]
     fn test_finish_req_signature_present_bit() {
@@ -92,34 +101,34 @@ mod tests {
 
     #[test]
     fn test_finish_req_parse_without_signature() {
-        // Body (2) + HMAC verify data (48, SHA-384) = 50 bytes after the common header.
-        let mut buf = [0u8; 2 + 48];
+        let mut buf = [0u8; REQ + SHA384_HASH_SIZE];
         buf[0] = 0x00; // no requester signature
         let mut r = WireReader::new(&buf);
         let body: &FinishReqBody = r.read().unwrap();
         assert!(!body.signature_present());
         assert_eq!(body.req_slot_id, 0);
         // What follows the fixed body is exactly the HMAC.
-        assert_eq!(r.remaining(), 48);
+        assert_eq!(r.remaining(), SHA384_HASH_SIZE);
     }
 
     #[test]
     fn test_finish_req_parse_with_signature_and_slot() {
-        // Body (2) + signature (96, ECC P-384) + HMAC (48) = 146 bytes.
-        let mut buf = [0u8; 2 + 96 + 48];
+        let mut buf = [0u8; REQ + ECC_P384_SIGNATURE_SIZE + SHA384_HASH_SIZE];
         buf[0] = 0x01;
         buf[1] = 0x03; // requester slot 3
         let mut r = WireReader::new(&buf);
         let body: &FinishReqBody = r.read().unwrap();
         assert!(body.signature_present());
         assert_eq!(body.req_slot_id, 3);
-        // 96 + 48 = 144 bytes remain for the caller to split.
-        assert_eq!(r.remaining(), 144);
+        // The signature and HMAC remain for the caller to split.
+        assert_eq!(r.remaining(), ECC_P384_SIGNATURE_SIZE + SHA384_HASH_SIZE);
     }
 
     #[test]
     fn test_finish_req_rejects_truncated() {
-        assert!(WireReader::new(&[0x01]).read::<FinishReqBody>().is_err());
+        assert!(WireReader::new(&[0x01; REQ - 1])
+            .read::<FinishReqBody>()
+            .is_err());
         assert!(WireReader::new(&[]).read::<FinishReqBody>().is_err());
     }
 
@@ -128,12 +137,11 @@ mod tests {
         let rsp = FinishRsp {
             include_opaque: false,
         };
-        // Body = reserved(1) + reserved(1) = 2; wire = 2 + 2 = 4 bytes.
-        assert_eq!(rsp.body_size(), 2);
-        assert_eq!(rsp.encoded_size(), 4);
+        assert_eq!(rsp.body_size(), RSP);
+        assert_eq!(rsp.encoded_size(), HDR + RSP);
 
         for v in [SpdmVersion::V12, SpdmVersion::V13] {
-            let mut buf = [0xFFu8; 4];
+            let mut buf = [0xFFu8; HDR + RSP];
             let mut w = WireWriter::new(&mut buf);
             rsp.encode_with_header(v, &mut w).unwrap();
             // header: version, FINISH_RSP (0x65); body: two reserved zero bytes.
@@ -146,11 +154,10 @@ mod tests {
         let rsp = FinishRsp {
             include_opaque: true,
         };
-        // Body = reserved(2) + opaque_length(2) = 4; wire = 2 + 4 = 6 bytes.
-        assert_eq!(rsp.body_size(), 4);
-        assert_eq!(rsp.encoded_size(), 6);
+        assert_eq!(rsp.body_size(), RSP_WITH_OPAQUE);
+        assert_eq!(rsp.encoded_size(), HDR + RSP_WITH_OPAQUE);
 
-        let mut buf = [0xFFu8; 6];
+        let mut buf = [0xFFu8; HDR + RSP_WITH_OPAQUE];
         let mut w = WireWriter::new(&mut buf);
         rsp.encode_with_header(SpdmVersion::V14, &mut w).unwrap();
         assert_eq!(
@@ -171,7 +178,7 @@ mod tests {
         let rsp = FinishRsp {
             include_opaque: true,
         };
-        let mut buf = [0xFFu8; 6];
+        let mut buf = [0xFFu8; HDR + RSP_WITH_OPAQUE];
         let mut w = WireWriter::new(&mut buf);
         rsp.encode_with_header(SpdmVersion::V12, &mut w).unwrap();
         assert_eq!(buf, [0x12, 0x65, 0x00, 0x00, 0x00, 0x00]);
@@ -179,9 +186,9 @@ mod tests {
 
     #[test]
     fn test_finish_rsp_buffer_too_small() {
-        // Without opaque: needs 4 bytes.
-        for len in 0..4 {
-            let mut buf = [0u8; 4];
+        // Without opaque.
+        for len in 0..HDR + RSP {
+            let mut buf = [0u8; HDR + RSP];
             let mut w = WireWriter::new(&mut buf[..len]);
             let rsp = FinishRsp {
                 include_opaque: false,
@@ -191,9 +198,9 @@ mod tests {
                 "no-opaque len {len}"
             );
         }
-        // With opaque: needs 6 bytes; 5 fails on the trailing opaque_length.
-        for len in 0..6 {
-            let mut buf = [0u8; 6];
+        // With opaque: one byte short fails on the trailing opaque_length.
+        for len in 0..HDR + RSP_WITH_OPAQUE {
+            let mut buf = [0u8; HDR + RSP_WITH_OPAQUE];
             let mut w = WireWriter::new(&mut buf[..len]);
             let rsp = FinishRsp {
                 include_opaque: true,

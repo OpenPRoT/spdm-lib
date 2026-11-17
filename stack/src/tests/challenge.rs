@@ -14,7 +14,8 @@ extern crate std;
 use super::*;
 use spdm_codec::SPDM_SIGNING_CONTEXT_LEN;
 use spdm_codec::{
-    AsymAlgos, CapFlags, PqcAsymAlgos, ReqRespCode, ECC_P384_SIGNATURE_SIZE, MLDSA87_SIGNATURE_SIZE,
+    AsymAlgos, CapFlags, PqcAsymAlgos, ReqRespCode, ECC_P384_SIGNATURE_SIZE,
+    MLDSA87_SIGNATURE_SIZE, OPAQUE_DATA_LEN_FIELD_SIZE,
 };
 use std::vec::Vec;
 
@@ -24,6 +25,13 @@ use crate::test_support as support;
 use support::{
     drain_chunked_response, negotiated_state, RecordedSigningInput, TestHashState, TestIo, TestPal,
 };
+
+/// Header, slot-id and slot-mask params, hash, nonce, and opaque-data length field.
+const CHALLENGE_AUTH_PREFIX_LEN: usize = SpdmMsgHdrPdu::SIZE
+    + 2 * size_of::<u8>()
+    + SHA384_HASH_SIZE
+    + SPDM_NONCE_LEN
+    + OPAQUE_DATA_LEN_FIELD_SIZE;
 
 const REQ_CTX: [u8; REQUESTER_CONTEXT_LEN] = [0x11; REQUESTER_CONTEXT_LEN];
 
@@ -72,7 +80,7 @@ fn run_challenge(
 
 /// Split a CHALLENGE_AUTH message into its pre-signature prefix and signature.
 fn split_signature(msg: &[u8], has_req_ctx: bool, sig_len: usize) -> (&[u8], &[u8]) {
-    let mut no_sig = SpdmMsgHdrPdu::SIZE + 1 + 1 + SHA384_HASH_SIZE + SPDM_NONCE_LEN + 2;
+    let mut no_sig = CHALLENGE_AUTH_PREFIX_LEN;
     if has_req_ctx {
         no_sig += REQUESTER_CONTEXT_LEN;
     }
@@ -269,14 +277,7 @@ fn doe_and_mctp_challenge_chunking_preserves_payload_and_signing_transcript() {
             } else {
                 ECC_P384_SIGNATURE_SIZE
             };
-            let spdm_len = SpdmMsgHdrPdu::SIZE
-                + 1
-                + 1
-                + SHA384_HASH_SIZE
-                + SPDM_NONCE_LEN
-                + 2
-                + REQUESTER_CONTEXT_LEN
-                + signature_size;
+            let spdm_len = CHALLENGE_AUTH_PREFIX_LEN + REQUESTER_CONTEXT_LEN + signature_size;
             let payload = if response[header_size + 1] == ReqRespCode::ERROR.0 {
                 let handle = response[header_size + 4];
                 for (bad_handle, sequence) in [(handle.wrapping_add(1), 0u32), (handle, 1u32)] {

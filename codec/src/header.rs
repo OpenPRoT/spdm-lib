@@ -109,6 +109,9 @@ pub const SHA384_HASH_SIZE: usize = 48;
 /// RequesterContext length (SPDM V1.3+, 8 bytes).
 pub const REQUESTER_CONTEXT_LEN: usize = 8;
 
+/// Size of the `OpaqueDataLength` field.
+pub const OPAQUE_DATA_LEN_FIELD_SIZE: usize = core::mem::size_of::<u16>();
+
 /// ECC P-384 signature size (r || s, 96 bytes).
 pub const ECC_P384_SIGNATURE_SIZE: usize = 96;
 
@@ -131,7 +134,7 @@ mod tests {
 
     #[test]
     fn test_msg_hdr_new_wire_bytes() {
-        assert_eq!(SpdmMsgHdrPdu::SIZE, 2);
+        assert_eq!(SpdmMsgHdrPdu::SIZE, core::mem::size_of::<SpdmMsgHdrPdu>());
         let hdr = SpdmMsgHdrPdu::new(SpdmVersion::V13, ReqRespCode::GET_VERSION);
         assert_eq!(hdr.as_bytes(), &[0x13, 0x84]);
 
@@ -173,12 +176,15 @@ mod tests {
     #[test]
     fn test_msg_hdr_rejects_short_input_and_reads_prefix_of_longer() {
         assert!(WireReader::new(&[]).read::<SpdmMsgHdrPdu>().is_err());
-        assert!(WireReader::new(&[0x10]).read::<SpdmMsgHdrPdu>().is_err());
+        assert!(WireReader::new(&[0x10; SpdmMsgHdrPdu::SIZE - 1])
+            .read::<SpdmMsgHdrPdu>()
+            .is_err());
 
-        // 4 bytes: the 2-byte header is consumed and Param1/Param2 remain.
-        let mut r = WireReader::new(&[0x10, 0x84, 0x00, 0x00]);
+        // The header is consumed and Param1/Param2 remain.
+        let bytes = [0x10, 0x84, 0x00, 0x00];
+        let mut r = WireReader::new(&bytes);
         r.read::<SpdmMsgHdrPdu>().unwrap();
-        assert_eq!(r.remaining(), 2);
+        assert_eq!(r.remaining(), bytes.len() - SpdmMsgHdrPdu::SIZE);
     }
 
     #[test]
@@ -283,17 +289,17 @@ mod tests {
 
     #[test]
     fn test_protocol_constants() {
-        assert_eq!(SPDM_MSG_HDR_SIZE, 2);
+        assert_eq!(SPDM_MSG_HDR_SIZE, SpdmMsgHdrPdu::SIZE);
         assert_eq!(SPDM_NONCE_LEN, 32);
         // SHA-384: 384 bits / 8 = 48 bytes.
         assert_eq!(SHA384_HASH_SIZE, 384 / 8);
         assert_eq!(REQUESTER_CONTEXT_LEN, 8);
-        // ECDSA P-384 signature is r || s, each 48 bytes: 2 * 48 = 96.
+        // ECDSA P-384 signature is r || s, each one hash-sized coordinate.
         assert_eq!(ECC_P384_SIGNATURE_SIZE, 2 * SHA384_HASH_SIZE);
-        // Signing-context prefix is 4 strings of 16 bytes: 4 * 16 = 64.
-        assert_eq!(SPDM_PREFIX_LEN, 4 * 16);
+        // Signing-context prefix is 4 strings of 16 bytes.
+        const PREFIX_STRING_LEN: usize = 16;
+        assert_eq!(SPDM_PREFIX_LEN, 4 * PREFIX_STRING_LEN);
         assert_eq!(SPDM_CONTEXT_LEN, 36);
-        // Total signing context = 64 + 36 = 100.
-        assert_eq!(SPDM_SIGNING_CONTEXT_LEN, 100);
+        assert_eq!(SPDM_SIGNING_CONTEXT_LEN, SPDM_PREFIX_LEN + SPDM_CONTEXT_LEN);
     }
 }

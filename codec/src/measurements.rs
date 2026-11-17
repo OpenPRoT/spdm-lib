@@ -332,8 +332,17 @@ impl<'a> ParsedMeasurementsRsp<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::SpdmVersion;
+    use crate::{SpdmMsgHdrPdu, SpdmVersion, OPAQUE_DATA_LEN_FIELD_SIZE, SHA384_HASH_SIZE};
 
+    const HDR: usize = SpdmMsgHdrPdu::SIZE;
+    const REQ_FIXED: usize = core::mem::size_of::<GetMeasurementsReqBody>();
+    const SLOT_ID_LEN: usize = 1;
+    const REQ_SIGNED: usize = REQ_FIXED + SPDM_NONCE_LEN + SLOT_ID_LEN;
+    const RECORD_LEN_FIELD: usize = 3;
+    /// Param1, Param2, NumberOfBlocks, then the MeasurementRecordLength field.
+    const RSP_FIXED: usize = 3 + RECORD_LEN_FIELD;
+    /// Smallest valid unsigned MEASUREMENTS body: no record, no opaque data.
+    const RSP_MIN: usize = RSP_FIXED + SPDM_NONCE_LEN + OPAQUE_DATA_LEN_FIELD_SIZE;
     const NONCE: [u8; SPDM_NONCE_LEN] = [0xA5; SPDM_NONCE_LEN];
     const CTX: [u8; REQUESTER_CONTEXT_LEN] = [0xC0; REQUESTER_CONTEXT_LEN];
     const SIG: [u8; ECC_P384_SIGNATURE_SIZE] = [0x5A; ECC_P384_SIGNATURE_SIZE];
@@ -360,10 +369,9 @@ mod tests {
             slot_id: 0,
             requester_context: None,
         };
-        // Body = Attributes (1) + MeasurementOperation (1) = 2; wire = 2 + 2 = 4.
-        assert_eq!(req.body_size(), 2);
-        assert_eq!(req.encoded_size(), 4);
-        let mut buf = [0xFFu8; 4];
+        assert_eq!(req.body_size(), REQ_FIXED);
+        assert_eq!(req.encoded_size(), HDR + REQ_FIXED);
+        let mut buf = [0xFFu8; HDR + REQ_FIXED];
         let mut w = WireWriter::new(&mut buf);
         req.encode_with_header(SpdmVersion::V12, &mut w).unwrap();
         assert_eq!(buf, [0x12, 0xE0, 0x00, 0x00]);
@@ -378,14 +386,16 @@ mod tests {
             slot_id: 2,
             requester_context: None,
         };
-        // Body = 2 fixed + Nonce (32) + SlotID (1) = 35; wire = 2 + 35 = 37.
-        assert_eq!(req.body_size(), 35);
-        let mut buf = [0u8; 37];
+        assert_eq!(req.body_size(), REQ_SIGNED);
+        let mut buf = [0u8; HDR + REQ_SIGNED];
         let mut w = WireWriter::new(&mut buf);
         req.encode_with_header(SpdmVersion::V12, &mut w).unwrap();
         assert_eq!(&buf[..4], &[0x12, 0xE0, 0x03, 0xFF]);
-        assert_eq!(&buf[4..36], &NONCE);
-        assert_eq!(buf[36], 0x02);
+        assert_eq!(
+            &buf[HDR + REQ_FIXED..HDR + REQ_SIGNED - SLOT_ID_LEN],
+            &NONCE
+        );
+        assert_eq!(buf[HDR + REQ_SIGNED - SLOT_ID_LEN], 0x02);
     }
 
     #[test]
@@ -397,14 +407,13 @@ mod tests {
             slot_id: 0x1F, // only the low nibble is sent
             requester_context: Some(CTX),
         };
-        // Body = 2 + 32 + 1 + RequesterContext (8) = 43; wire = 2 + 43 = 45.
-        assert_eq!(req.body_size(), 43);
-        let mut buf = [0u8; 45];
+        assert_eq!(req.body_size(), REQ_SIGNED + REQUESTER_CONTEXT_LEN);
+        let mut buf = [0u8; HDR + REQ_SIGNED + REQUESTER_CONTEXT_LEN];
         let mut w = WireWriter::new(&mut buf);
         req.encode_with_header(SpdmVersion::V13, &mut w).unwrap();
         assert_eq!(&buf[..4], &[0x13, 0xE0, 0x01, 0x01]);
-        assert_eq!(buf[36], 0x0F); // 0x1F & 0x0F
-        assert_eq!(&buf[37..], &CTX);
+        assert_eq!(buf[HDR + REQ_SIGNED - SLOT_ID_LEN], 0x0F); // 0x1F & 0x0F
+        assert_eq!(&buf[HDR + REQ_SIGNED..], &CTX);
     }
 
     #[test]
@@ -419,10 +428,10 @@ mod tests {
                 slot_id: 0,
                 requester_context: None,
             };
-            let mut buf = [0u8; 4];
+            let mut buf = [0u8; HDR + REQ_FIXED];
             let mut w = WireWriter::new(&mut buf);
             req.encode_with_header(SpdmVersion::V12, &mut w).unwrap();
-            assert_eq!(buf[3], op);
+            assert_eq!(buf[HDR + 1], op);
         }
     }
 
@@ -431,7 +440,7 @@ mod tests {
         // Pins leniency: the builder never ties attribute bit 0 to the presence of
         // the Nonce/SlotID fields, so the caller can build a request whose
         // attributes disagree with its length.
-        // Signature requested but no nonce: 2-byte body.
+        // Signature requested but no nonce: fixed fields only.
         let no_nonce = GetMeasurementsReq {
             attributes: MEAS_ATTR_SIGNATURE_REQUESTED,
             measurement_operation: MEAS_OP_ALL,
@@ -439,9 +448,9 @@ mod tests {
             slot_id: 0,
             requester_context: None,
         };
-        assert_eq!(no_nonce.body_size(), 2);
+        assert_eq!(no_nonce.body_size(), REQ_FIXED);
 
-        // Nonce present but signature bit clear: 35-byte body.
+        // Nonce present but signature bit clear: full signed-form body.
         let stray_nonce = GetMeasurementsReq {
             attributes: 0,
             measurement_operation: MEAS_OP_ALL,
@@ -449,7 +458,7 @@ mod tests {
             slot_id: 0,
             requester_context: None,
         };
-        assert_eq!(stray_nonce.body_size(), 35);
+        assert_eq!(stray_nonce.body_size(), REQ_SIGNED);
     }
 
     #[test]
@@ -461,8 +470,8 @@ mod tests {
             slot_id: 0,
             requester_context: None,
         };
-        // Needs 37 bytes; 36 fails on the SlotID byte.
-        let mut buf = [0u8; 36];
+        // One byte short fails on the SlotID byte.
+        let mut buf = [0u8; HDR + REQ_SIGNED - 1];
         let mut w = WireWriter::new(&mut buf);
         assert!(req.encode_with_header(SpdmVersion::V12, &mut w).is_err());
     }
@@ -483,8 +492,8 @@ mod tests {
             assert_eq!(body.raw_bitstream_requested(), raw);
             assert_eq!(body.measurement_operation, 0xFF);
         }
-        // Fixed prefix is 2 bytes; 1 is too short.
-        assert!(WireReader::new(&[0x01])
+        // One byte short is too short.
+        assert!(WireReader::new(&[0x01; REQ_FIXED - 1])
             .read::<GetMeasurementsReqBody>()
             .is_err());
     }
@@ -525,9 +534,9 @@ mod tests {
 
     #[test]
     fn test_measurements_rsp_signed_roundtrip() {
-        // One digest block: 7-byte header + 48-byte value = 55-byte record.
-        let mut record = [0x77u8; 55];
-        record[..7].copy_from_slice(
+        // One digest block: header + SHA-384 value.
+        let mut record = [0x77u8; MEAS_BLOCK_METADATA_SIZE + SHA384_HASH_SIZE];
+        record[..MEAS_BLOCK_METADATA_SIZE].copy_from_slice(
             DmtfMeasurementBlockHeader::new(1, false, 0x01, 48)
                 .unwrap()
                 .as_bytes(),
@@ -544,21 +553,26 @@ mod tests {
             requester_context: None,
             signature: &SIG,
         };
-        // Body = param1 (1) + param2 (1) + blocks (1) + record len (3) + record (55)
-        //      + nonce (32) + opaque len (2) + signature (96) = 191.
-        assert_eq!(rsp.body_size(), 191);
-        // Wire = 2 + 191 = 193 bytes.
-        let mut buf = [0u8; 193];
+        const BODY: usize =
+            RSP_MIN + MEAS_BLOCK_METADATA_SIZE + SHA384_HASH_SIZE + ECC_P384_SIGNATURE_SIZE;
+        assert_eq!(rsp.body_size(), BODY);
+        let mut buf = [0u8; HDR + BODY];
         let mut w = WireWriter::new(&mut buf);
         rsp.encode_with_header(SpdmVersion::V12, &mut w).unwrap();
 
         // param2 = SlotID[3:0] | ContentChanged[5:4] = 0x03 | (2 << 4) = 0x23.
         // record length 55 = 0x37 as 3 bytes LE.
-        assert_eq!(&buf[..8], &[0x12, 0x60, 0x05, 0x23, 0x01, 0x37, 0x00, 0x00]);
-        assert_eq!(&buf[8..63], &record);
-        assert_eq!(&buf[63..95], &NONCE);
-        assert_eq!(&buf[95..97], &[0x00, 0x00]);
-        assert_eq!(&buf[97..193], &SIG);
+        assert_eq!(
+            &buf[..HDR + RSP_FIXED],
+            &[0x12, 0x60, 0x05, 0x23, 0x01, 0x37, 0x00, 0x00]
+        );
+        let record_end = HDR + RSP_FIXED + record.len();
+        let nonce_end = record_end + SPDM_NONCE_LEN;
+        let sig_start = nonce_end + OPAQUE_DATA_LEN_FIELD_SIZE;
+        assert_eq!(&buf[HDR + RSP_FIXED..record_end], &record);
+        assert_eq!(&buf[record_end..nonce_end], &NONCE);
+        assert_eq!(&buf[nonce_end..sig_start], &[0x00, 0x00]);
+        assert_eq!(&buf[sig_start..], &SIG);
 
         let p = ParsedMeasurementsRsp::parse(&buf[2..], true, false).unwrap();
         assert_eq!(p.total_number_of_measurement, 5);
@@ -566,8 +580,7 @@ mod tests {
         assert_eq!(p.number_of_blocks, 1);
         assert_eq!(p.measurement_record, &record);
         assert_eq!(p.nonce, &NONCE);
-        // no_sig_prefix = 191 - 96 = 95 bytes.
-        assert_eq!(p.no_sig_prefix.len(), 95);
+        assert_eq!(p.no_sig_prefix.len(), BODY - ECC_P384_SIGNATURE_SIZE);
         assert_eq!(p.signature, &SIG);
     }
 
@@ -581,27 +594,34 @@ mod tests {
             number_of_blocks: 0,
             measurement_record: &[],
             nonce: &NONCE,
-            opaque_data: &[1, 2, 3, 4],
+            opaque_data: &OPAQUE,
             requester_context: Some(&CTX),
             signature: &[],
         };
-        // Body = 1 + 1 + 1 + 3 + 0 + 32 + 2 + 4 + 8 + 0 = 52; wire = 2 + 52 = 54.
-        assert_eq!(rsp.body_size(), 52);
-        let mut buf = [0u8; 54];
+        const OPAQUE: [u8; 4] = [1, 2, 3, 4];
+        const BODY: usize = RSP_MIN + OPAQUE.len() + REQUESTER_CONTEXT_LEN;
+        assert_eq!(rsp.body_size(), BODY);
+        let mut buf = [0u8; HDR + BODY];
         let mut w = WireWriter::new(&mut buf);
         rsp.encode_with_header(SpdmVersion::V13, &mut w).unwrap();
 
-        assert_eq!(&buf[..8], &[0x13, 0x60, 0x07, 0x00, 0x00, 0x00, 0x00, 0x00]);
-        assert_eq!(&buf[8..40], &NONCE);
-        assert_eq!(&buf[40..42], &[0x04, 0x00]); // opaque_len = 4
-        assert_eq!(&buf[42..46], &[1, 2, 3, 4]);
-        assert_eq!(&buf[46..54], &CTX);
+        let nonce_end = HDR + RSP_FIXED + SPDM_NONCE_LEN;
+        let opaque_start = nonce_end + OPAQUE_DATA_LEN_FIELD_SIZE;
+        let ctx_start = opaque_start + OPAQUE.len();
+        assert_eq!(
+            &buf[..HDR + RSP_FIXED],
+            &[0x13, 0x60, 0x07, 0x00, 0x00, 0x00, 0x00, 0x00]
+        );
+        assert_eq!(&buf[HDR + RSP_FIXED..nonce_end], &NONCE);
+        assert_eq!(&buf[nonce_end..opaque_start], &[0x04, 0x00]); // opaque_len = 4
+        assert_eq!(&buf[opaque_start..ctx_start], &OPAQUE);
+        assert_eq!(&buf[ctx_start..], &CTX);
 
         let p = ParsedMeasurementsRsp::parse(&buf[2..], false, true).unwrap();
         assert_eq!(p.total_number_of_measurement, 7);
         assert!(p.measurement_record.is_empty());
         assert!(p.signature.is_empty());
-        assert_eq!(p.no_sig_prefix.len(), 52); // whole body when unsigned
+        assert_eq!(p.no_sig_prefix.len(), BODY); // whole body when unsigned
     }
 
     #[test]
@@ -619,7 +639,7 @@ mod tests {
             requester_context: None,
             signature: &[],
         };
-        let mut buf = [0u8; 2 + 40];
+        let mut buf = [0u8; HDR + RSP_MIN];
         let mut w = WireWriter::new(&mut buf);
         rsp.encode_with_header(SpdmVersion::V12, &mut w).unwrap();
         assert_eq!(buf[3], 0x3F);
@@ -627,8 +647,9 @@ mod tests {
 
     #[test]
     fn test_measurements_rsp_record_length_uses_all_three_bytes() {
-        // 65536 = 0x010000 needs the third length byte: 00 00 01.
-        let record = [0xABu8; 0x1_0000];
+        // 0x010000 needs the third length byte: 00 00 01.
+        const RECORD_LEN: usize = 0x1_0000;
+        let record = [0xABu8; RECORD_LEN];
         let rsp = MeasurementsRsp {
             total_number_of_measurement: 1,
             slot_id: 0,
@@ -640,23 +661,23 @@ mod tests {
             requester_context: None,
             signature: &[],
         };
-        // Body = 6 + 65536 + 32 + 2 = 65576; wire = 2 + 65576 = 65578.
-        assert_eq!(rsp.body_size(), 65576);
-        let mut buf = [0u8; 65578];
+        assert_eq!(rsp.body_size(), RSP_MIN + RECORD_LEN);
+        let mut buf = [0u8; HDR + RSP_MIN + RECORD_LEN];
         let mut w = WireWriter::new(&mut buf);
         rsp.encode_with_header(SpdmVersion::V12, &mut w).unwrap();
-        assert_eq!(&buf[5..8], &[0x00, 0x00, 0x01]);
+        assert_eq!(&buf[HDR + 3..HDR + RSP_FIXED], &[0x00, 0x00, 0x01]);
 
         let p = ParsedMeasurementsRsp::parse(&buf[2..], false, false).unwrap();
-        assert_eq!(p.measurement_record.len(), 0x1_0000);
+        assert_eq!(p.measurement_record.len(), RECORD_LEN);
         assert!(p.measurement_record.iter().all(|b| *b == 0xAB));
     }
 
     #[test]
     fn test_measurements_rsp_rejects_oversized_opaque_data() {
-        // OpaqueLength is 16 bits, so 65536 bytes cannot be described. The buffer
-        // is large enough to hold everything, so only the length check can fail.
-        let opaque = [0u8; 0x1_0000];
+        // OpaqueLength is 16 bits, so u16::MAX + 1 bytes cannot be described. The
+        // buffer is large enough to hold everything, so only the length check can fail.
+        const OPAQUE_LEN: usize = u16::MAX as usize + 1;
+        let opaque = [0u8; OPAQUE_LEN];
         let rsp = MeasurementsRsp {
             total_number_of_measurement: 0,
             slot_id: 0,
@@ -668,8 +689,7 @@ mod tests {
             requester_context: None,
             signature: &[],
         };
-        // Needs 2 + 6 + 32 + 2 + 65536 = 65578; give 70000.
-        let mut buf = [0u8; 70_000];
+        let mut buf = [0u8; HDR + RSP_MIN + OPAQUE_LEN];
         let mut w = WireWriter::new(&mut buf);
         assert!(rsp.encode_with_header(SpdmVersion::V12, &mut w).is_err());
     }
@@ -687,65 +707,67 @@ mod tests {
             requester_context: None,
             signature: &SIG,
         };
-        // Needs 2 + (6 + 32 + 2 + 96) = 138 bytes; 137 fails on the signature.
-        let mut buf = [0u8; 137];
+        // One byte short fails on the signature.
+        let mut buf = [0u8; HDR + RSP_MIN + ECC_P384_SIGNATURE_SIZE - 1];
         let mut w = WireWriter::new(&mut buf);
         assert!(rsp.encode_with_header(SpdmVersion::V12, &mut w).is_err());
     }
 
     // ---- ParsedMeasurementsRsp::parse: malformed input -----------------------
 
-    // Smallest valid unsigned body: param1 + param2 + blocks (3) + record len (3)
-    // + nonce (32) + opaque len (2) = 40 bytes.
-    fn minimal_body() -> [u8; 40] {
-        let mut b = [0u8; 40];
-        b[6..38].copy_from_slice(&NONCE);
+    fn minimal_body() -> [u8; RSP_MIN] {
+        let mut b = [0u8; RSP_MIN];
+        b[RSP_FIXED..RSP_FIXED + SPDM_NONCE_LEN].copy_from_slice(&NONCE);
         b
     }
 
     #[test]
     fn test_parse_measurements_rejects_short_bodies() {
-        // Signed needs at least the 96-byte signature, and then the prefix too.
-        assert!(ParsedMeasurementsRsp::parse(&[0u8; 95], true, false).is_err());
-        assert!(ParsedMeasurementsRsp::parse(&[0u8; 96], true, false).is_err());
+        // Signed needs at least the signature, and then the prefix too.
+        assert!(
+            ParsedMeasurementsRsp::parse(&[0u8; ECC_P384_SIGNATURE_SIZE - 1], true, false).is_err()
+        );
+        assert!(
+            ParsedMeasurementsRsp::parse(&[0u8; ECC_P384_SIGNATURE_SIZE], true, false).is_err()
+        );
         // Unsigned: empty body, and a minimal body missing its last byte.
         assert!(ParsedMeasurementsRsp::parse(&[], false, false).is_err());
         let b = minimal_body();
-        assert!(ParsedMeasurementsRsp::parse(&b[..39], false, false).is_err());
+        assert!(ParsedMeasurementsRsp::parse(&b[..RSP_MIN - 1], false, false).is_err());
         assert!(ParsedMeasurementsRsp::parse(&b, false, false).is_ok());
     }
 
     #[test]
     fn test_parse_measurements_rejects_record_length_beyond_body() {
-        // MeasurementRecordLength = 0xFFFFFF (16 MiB) in a 40-byte body.
+        // MeasurementRecordLength = 0xFFFFFF (16 MiB) in a minimal body.
         let mut b = minimal_body();
-        b[3..6].copy_from_slice(&[0xFF, 0xFF, 0xFF]);
+        b[RSP_FIXED - RECORD_LEN_FIELD..RSP_FIXED].copy_from_slice(&[0xFF, 0xFF, 0xFF]);
         assert!(ParsedMeasurementsRsp::parse(&b, false, false).is_err());
     }
 
     #[test]
     fn test_parse_measurements_rejects_oversized_opaque_len() {
         let mut b = minimal_body();
-        b[38] = 0xFF;
-        b[39] = 0xFF; // opaque_len = 65535 with no bytes following
+        let opaque_len_start = RSP_MIN - OPAQUE_DATA_LEN_FIELD_SIZE;
+        b[opaque_len_start..].copy_from_slice(&u16::MAX.to_le_bytes()); // no bytes follow
         assert!(ParsedMeasurementsRsp::parse(&b, false, false).is_err());
     }
 
     #[test]
     fn test_parse_measurements_requires_context_when_expected() {
-        // 40-byte body has no RequesterContext; expecting one overruns by 8.
+        // Minimal body has no RequesterContext; expecting one overruns it.
         let b = minimal_body();
         assert!(ParsedMeasurementsRsp::parse(&b, false, true).is_err());
     }
 
     #[test]
     fn test_parse_measurements_accepts_trailing_bytes() {
-        // Pins leniency: bytes after the expected fields (here 5 extra) are not
-        // rejected, so a wrong `has_requester_context` flag can go unnoticed.
-        let mut b = [0u8; 45];
-        b[..40].copy_from_slice(&minimal_body());
+        // Pins leniency: bytes after the expected fields are not rejected, so a
+        // wrong `has_requester_context` flag can go unnoticed.
+        let mut b = [0u8; RSP_MIN + 5];
+        b[..RSP_MIN].copy_from_slice(&minimal_body());
         let p = ParsedMeasurementsRsp::parse(&b, false, false).unwrap();
-        assert_eq!(p.no_sig_prefix.len(), 45);
+        assert_eq!(p.no_sig_prefix.len(), b.len());
     }
 
     #[test]

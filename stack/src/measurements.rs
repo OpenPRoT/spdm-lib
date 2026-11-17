@@ -756,7 +756,7 @@ mod tests {
         assert_eq!(resp[4], 1);
         assert_eq!(
             &resp[5..8],
-            &(MEAS_BLOCK_METADATA_SIZE as u32 + 4).to_le_bytes()[..3]
+            &((MEAS_BLOCK_METADATA_SIZE + MEASUREMENT_VALUE.len()) as u32).to_le_bytes()[..3]
         );
     }
 }

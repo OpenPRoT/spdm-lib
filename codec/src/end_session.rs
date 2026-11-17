@@ -66,7 +66,12 @@ impl ResponseBody for EndSessionAck {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{SpdmVersion, WireReader};
+    use crate::{SpdmMsgHdrPdu, SpdmVersion, WireReader};
+
+    const HDR: usize = SpdmMsgHdrPdu::SIZE;
+    const REQ: usize = core::mem::size_of::<EndSessionReqBody>();
+    /// Two reserved bytes.
+    const ACK_BODY: usize = 2;
 
     fn parse(bytes: &[u8]) -> EndSessionReqBody {
         let mut r = WireReader::new(bytes);
@@ -112,26 +117,28 @@ mod tests {
 
     #[test]
     fn test_end_session_req_rejects_truncated() {
-        assert!(WireReader::new(&[0x00]).read::<EndSessionReqBody>().is_err());
+        assert!(WireReader::new(&[0x00; REQ - 1])
+            .read::<EndSessionReqBody>()
+            .is_err());
         assert!(WireReader::new(&[]).read::<EndSessionReqBody>().is_err());
     }
 
     #[test]
     fn test_end_session_req_ignores_trailing_bytes() {
-        // Pins current leniency: the reader takes the 2-byte body and leaves any
+        // Pins current leniency: the reader takes the body and leaves any
         // trailing bytes alone; rejecting oversize requests is the caller's job.
-        let mut r = WireReader::new(&[0x01, 0x00, 0xAA, 0xBB]);
+        const TRAILING: [u8; 2] = [0xAA, 0xBB];
+        let mut r = WireReader::new(&[0x01, 0x00, TRAILING[0], TRAILING[1]]);
         let req: &EndSessionReqBody = r.read().unwrap();
         assert!(req.clear_negotiated_state());
-        assert_eq!(r.remaining(), 2);
+        assert_eq!(r.remaining(), TRAILING.len());
     }
 
     #[test]
     fn test_end_session_ack_encode_all_versions() {
         let ack = EndSessionAck;
-        // Body = reserved(1) + reserved(1) = 2; wire = 2-byte header + 2 = 4 bytes.
-        assert_eq!(ack.body_size(), 2);
-        assert_eq!(ack.encoded_size(), 4);
+        assert_eq!(ack.body_size(), ACK_BODY);
+        assert_eq!(ack.encoded_size(), HDR + ACK_BODY);
 
         for v in [
             SpdmVersion::V10,
@@ -140,10 +147,10 @@ mod tests {
             SpdmVersion::V13,
             SpdmVersion::V14,
         ] {
-            let mut buf = [0xFFu8; 4];
+            let mut buf = [0xFFu8; HDR + ACK_BODY];
             let mut w = WireWriter::new(&mut buf);
             ack.encode_with_header(v, &mut w).unwrap();
-            assert_eq!(w.position(), 4);
+            assert_eq!(w.position(), buf.len());
             // header: version, END_SESSION_ACK (0x6C); body: two reserved zero bytes.
             assert_eq!(buf, [v.to_u8(), 0x6C, 0x00, 0x00]);
         }
@@ -151,9 +158,9 @@ mod tests {
 
     #[test]
     fn test_end_session_ack_buffer_too_small() {
-        // Needs 4 bytes; every shorter buffer must fail rather than panic.
-        for len in 0..4 {
-            let mut buf = [0u8; 4];
+        // Every shorter buffer must fail rather than panic.
+        for len in 0..HDR + ACK_BODY {
+            let mut buf = [0u8; HDR + ACK_BODY];
             let mut w = WireWriter::new(&mut buf[..len]);
             assert!(
                 EndSessionAck

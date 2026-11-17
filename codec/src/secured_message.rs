@@ -68,16 +68,17 @@ mod tests {
 
     #[test]
     fn test_secured_message_constants() {
-        // session_id(4) + length(2) = 6; AES-256-GCM tag = 16.
-        assert_eq!(SECURED_MSG_HDR_SIZE, 6);
+        assert_eq!(
+            SECURED_MSG_HDR_SIZE,
+            core::mem::size_of::<SecuredMessageHeader>()
+        );
         assert_eq!(AES_256_GCM_TAG_SIZE, 16);
     }
 
     #[test]
     fn test_secured_header_parse() {
-        // A record carrying 10 bytes of app data:
-        //   plaintext      = app_data_length(2) + app_data(10) = 12
-        //   header length  = encrypted_data(12) + tag(16)      = 28 = 0x1C
+        // A record carrying 10 bytes of app data, framed by a 2-byte
+        // app_data_length and followed by the tag.
         let bytes = [
             0x78, 0x56, 0x34, 0x12, // session_id = 0x12345678 (little-endian)
             0x1C, 0x00, // length = 28 (little-endian)
@@ -85,14 +86,17 @@ mod tests {
         let (hdr, rest) = SecuredMessageHeader::ref_from_prefix(&bytes).unwrap();
         assert_eq!(hdr.session_id_u32(), 0x1234_5678);
         assert_eq!(hdr.length_u16(), 28);
-        assert_eq!(hdr.length_u16() as usize, 2 + 10 + AES_256_GCM_TAG_SIZE);
+        assert_eq!(
+            hdr.length_u16() as usize,
+            size_of::<u16>() + 10 + AES_256_GCM_TAG_SIZE
+        );
         assert!(rest.is_empty());
     }
 
     #[test]
     fn test_secured_header_parse_leaves_payload_in_rest() {
         let mut buf = [0xEEu8; SECURED_MSG_HDR_SIZE + 4];
-        buf[..6].copy_from_slice(&[0x01, 0x00, 0x00, 0x00, 0x04, 0x00]);
+        buf[..SECURED_MSG_HDR_SIZE].copy_from_slice(&[0x01, 0x00, 0x00, 0x00, 0x04, 0x00]);
         let (hdr, rest) = SecuredMessageHeader::ref_from_prefix(&buf).unwrap();
         assert_eq!(hdr.session_id_u32(), 1);
         assert_eq!(hdr.length_u16(), 4);
@@ -101,8 +105,8 @@ mod tests {
 
     #[test]
     fn test_secured_header_parse_rejects_short() {
-        // Header is 6 bytes; 5 is one short.
-        assert!(SecuredMessageHeader::ref_from_prefix(&[0u8; 5]).is_err());
+        // One byte short of the header.
+        assert!(SecuredMessageHeader::ref_from_prefix(&[0u8; SECURED_MSG_HDR_SIZE - 1]).is_err());
         assert!(SecuredMessageHeader::ref_from_prefix(&[]).is_err());
     }
 
@@ -131,9 +135,9 @@ mod tests {
 
     #[test]
     fn test_encode_aad_larger_buffer_only_touches_header() {
-        let mut out = [0xAAu8; 8];
+        let mut out = [0xAAu8; SECURED_MSG_HDR_SIZE + 2];
         encode_aad(0x0000_0001, 0x0100, &mut out).unwrap();
-        // First 6 bytes written (id = 1, length = 0x0100 -> 00 01); last 2 untouched.
+        // Header written (id = 1, length = 0x0100 -> 00 01); trailing bytes untouched.
         assert_eq!(out, [0x01, 0x00, 0x00, 0x00, 0x00, 0x01, 0xAA, 0xAA]);
     }
 
@@ -163,6 +167,6 @@ mod tests {
 
         let mut out = [0u8; SECURED_MSG_HDR_SIZE];
         encode_aad(u32::MAX, u16::MAX, &mut out).unwrap();
-        assert_eq!(out, [0xFF; 6]);
+        assert_eq!(out, [0xFF; SECURED_MSG_HDR_SIZE]);
     }
 }

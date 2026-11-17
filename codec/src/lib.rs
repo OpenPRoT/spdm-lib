@@ -52,8 +52,8 @@ pub use end_session::{EndSessionAck, EndSessionReqBody};
 pub use finish::{FinishReqBody, FinishRsp};
 pub use header::{
     ReqRespCode, SpdmMsgHdrPdu, ECC_P384_SIGNATURE_SIZE, MLDSA87_SIGNATURE_SIZE,
-    REQUESTER_CONTEXT_LEN, SHA384_HASH_SIZE, SPDM_CONTEXT_LEN, SPDM_MSG_HDR_SIZE, SPDM_NONCE_LEN,
-    SPDM_PREFIX_LEN, SPDM_SIGNING_CONTEXT_LEN,
+    OPAQUE_DATA_LEN_FIELD_SIZE, REQUESTER_CONTEXT_LEN, SHA384_HASH_SIZE, SPDM_CONTEXT_LEN,
+    SPDM_MSG_HDR_SIZE, SPDM_NONCE_LEN, SPDM_PREFIX_LEN, SPDM_SIGNING_CONTEXT_LEN,
 };
 pub use key_exchange::{
     HeartBeatPeriod, KeyExchangeReq, KeyExchangeReqBodyFixed, KeyExchangeRsp,

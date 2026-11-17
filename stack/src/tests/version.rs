@@ -211,10 +211,15 @@ fn get_version_clears_transcript_and_chunk_state() {
         let mut sessions = SessionManager::new();
         let request = get_version_request(SpdmVersion::V10.to_u8(), 0, 0);
         let response = dispatch_request(&mut state, &mut sessions, &pal, request.clone()).unwrap();
-        let payload = &response[header_size..header_size + 12];
+        let version_rsp_len = SpdmMsgHdrPdu::SIZE
+            + spdm_codec::VersionRspBody::SIZE
+            + crate::version::SUPPORTED_VERSIONS.len() * spdm_codec::VersionNumberEntry::SIZE;
+        let payload = &response[header_size..header_size + version_rsp_len];
         assert_eq!(response.len() % send_len_alignment, 0);
         assert!(response[..header_size].iter().all(|&byte| byte == 0));
-        assert!(response[header_size + 12..].iter().all(|&byte| byte == 0));
+        assert!(response[header_size + version_rsp_len..]
+            .iter()
+            .all(|&byte| byte == 0));
         assert_eq!(state.phase, Phase::AfterVersion);
         assert_eq!(
             state.transcript.vca.as_ref().unwrap().bytes,

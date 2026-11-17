@@ -434,7 +434,17 @@ impl ParsedAlgorithmsRsp {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::SpdmVersion;
+    use crate::{SpdmMsgHdrPdu, SpdmVersion};
+    use core::mem::offset_of;
+
+    const HDR: usize = SpdmMsgHdrPdu::SIZE;
+    const REQ_FIXED: usize = NegotiateAlgorithmsReqBodyFixed::SIZE;
+    const RSP_FIXED: usize = AlgorithmsRspBodyFixed::SIZE;
+    const ENTRY: usize = AlgStructEntry::SIZE;
+    /// Number of `Some` entries in `three_structs()`.
+    const THREE: usize = 3;
+    const REQ_WIRE: usize = HDR + REQ_FIXED + THREE * ENTRY;
+    const RSP_WIRE: usize = HDR + RSP_FIXED + THREE * ENTRY;
 
     fn three_structs() -> [Option<AlgStructEntry>; MAX_ALG_STRUCT_ENTRIES] {
         // A `None` in the middle checks that empty slots are skipped on the wire.
@@ -457,11 +467,9 @@ mod tests {
             alg_structs: three_structs(),
         };
 
-        // Body = 30-byte fixed prefix + 3 AlgStruct entries * 4 bytes = 42.
-        assert_eq!(req.body_size(), 42);
+        assert_eq!(req.body_size(), REQ_FIXED + THREE * ENTRY);
 
-        // Buffer = 2-byte common header + 42-byte body = 44 bytes (0x2C).
-        let mut buf = [0xFFu8; 44];
+        let mut buf = [0xFFu8; REQ_WIRE];
         let mut w = WireWriter::new(&mut buf);
         req.encode_with_header(SpdmVersion::V12, &mut w).unwrap();
 
@@ -499,8 +507,9 @@ mod tests {
         let mut buf = [0u8; 64];
         let mut w = WireWriter::new(&mut buf);
         req.encode_with_header(SpdmVersion::V14, &mut w).unwrap();
-        // 2-byte header + body offset 14: PqcAsymAlgo, little-endian ML_DSA_87 = 1 << 2.
-        assert_eq!(&buf[16..20], &[0x04, 0, 0, 0]);
+        // PqcAsymAlgo, little-endian ML_DSA_87 = 1 << 2.
+        let pqc = HDR + offset_of!(NegotiateAlgorithmsReqBodyFixed, pqc_asym_algo);
+        assert_eq!(&buf[pqc..pqc + size_of::<PqcAsymAlgos>()], &[0x04, 0, 0, 0]);
     }
 
     #[test]
@@ -513,9 +522,8 @@ mod tests {
             pqc_asym_algo: PqcAsymAlgos::EMPTY,
             alg_structs: [None; MAX_ALG_STRUCT_ENTRIES],
         };
-        // Body = 30 + 0 entries; wire = 2 + 30 = 32 bytes (0x20).
-        assert_eq!(req.body_size(), 30);
-        let mut buf = [0u8; 32];
+        assert_eq!(req.body_size(), REQ_FIXED);
+        let mut buf = [0u8; HDR + REQ_FIXED];
         let mut w = WireWriter::new(&mut buf);
         req.encode_with_header(SpdmVersion::V12, &mut w).unwrap();
         assert_eq!(buf[2], 0); // num_alg_struct
@@ -532,8 +540,8 @@ mod tests {
             pqc_asym_algo: PqcAsymAlgos::EMPTY,
             alg_structs: three_structs(),
         };
-        // Needs 44 bytes; 43 is one short, so the last AlgStruct write fails.
-        let mut buf = [0u8; 43];
+        // One byte short, so the last AlgStruct write fails.
+        let mut buf = [0u8; REQ_WIRE - 1];
         let mut w = WireWriter::new(&mut buf);
         assert!(req.encode_with_header(SpdmVersion::V12, &mut w).is_err());
     }
@@ -554,11 +562,9 @@ mod tests {
     fn test_algorithms_rsp_encode_and_parse() {
         let rsp = rsp_p384_sha384();
 
-        // Body = 34-byte fixed prefix + 3 entries * 4 bytes = 46.
-        assert_eq!(rsp.body_size(), 46);
+        assert_eq!(rsp.body_size(), RSP_FIXED + THREE * ENTRY);
 
-        // Buffer = 2-byte common header + 46-byte body = 48 bytes (0x30).
-        let mut buf = [0xFFu8; 48];
+        let mut buf = [0xFFu8; RSP_WIRE];
         let mut w = WireWriter::new(&mut buf);
         rsp.encode_with_header(SpdmVersion::V12, &mut w).unwrap();
 
@@ -583,7 +589,7 @@ mod tests {
             ]
         );
 
-        let parsed = ParsedAlgorithmsRsp::parse(&buf[2..]).unwrap();
+        let parsed = ParsedAlgorithmsRsp::parse(&buf[HDR..]).unwrap();
         assert_eq!(
             parsed.measurement_spec_sel.into_bits(),
             MeasSpec::DMTF.into_bits()
@@ -621,36 +627,39 @@ mod tests {
             pqc_asym_sel: PqcAsymAlgos::ML_DSA_87,
             ..rsp_p384_sha384()
         };
-        let mut buf = [0u8; 48];
+        let mut buf = [0u8; RSP_WIRE];
         let mut w = WireWriter::new(&mut buf);
         rsp.encode_with_header(SpdmVersion::V14, &mut w).unwrap();
 
-        // Body offsets (buf offset = body offset + 2): base_asym_sel 10..14,
-        // pqc_asym_sel 18..22.
-        assert_eq!(&buf[12..16], &[0x00, 0x00, 0x00, 0x00]);
-        assert_eq!(&buf[20..24], &[0x04, 0x00, 0x00, 0x00]); // ML_DSA_87 = 1 << 2
+        let base = HDR + offset_of!(AlgorithmsRspBodyFixed, base_asym_sel);
+        let pqc = HDR + offset_of!(AlgorithmsRspBodyFixed, pqc_asym_sel);
+        assert_eq!(&buf[base..base + size_of::<AsymAlgos>()], &[0x00; 4]);
+        assert_eq!(
+            &buf[pqc..pqc + size_of::<PqcAsymAlgos>()],
+            &[0x04, 0x00, 0x00, 0x00]
+        ); // ML_DSA_87 = 1 << 2
 
-        let parsed = ParsedAlgorithmsRsp::parse(&buf[2..]).unwrap();
+        let parsed = ParsedAlgorithmsRsp::parse(&buf[HDR..]).unwrap();
         assert!(parsed.base_asym_sel.is_empty());
     }
 
     #[test]
     fn test_parse_algorithms_rejects_short_fixed_prefix() {
-        // Fixed prefix is 34 bytes; 33 is one short.
-        assert!(ParsedAlgorithmsRsp::parse(&[0u8; 33]).is_err());
+        // One byte short of the fixed prefix.
+        assert!(ParsedAlgorithmsRsp::parse(&[0u8; RSP_FIXED - 1]).is_err());
         assert!(ParsedAlgorithmsRsp::parse(&[]).is_err());
     }
 
     #[test]
     fn test_parse_algorithms_rejects_truncated_alg_structs() {
-        // Fixed prefix claims 2 entries (8 bytes) but only 1 (4 bytes) follows.
-        let mut body = [0u8; 34 + 4];
+        // Fixed prefix claims 2 entries but only 1 follows.
+        let mut body = [0u8; RSP_FIXED + ENTRY];
         body[0] = 2;
-        body[34..].copy_from_slice(&[0x02, 0x20, 0x10, 0x00]);
+        body[RSP_FIXED..].copy_from_slice(&[0x02, 0x20, 0x10, 0x00]);
         assert!(ParsedAlgorithmsRsp::parse(&body).is_err());
 
-        // A partial entry (3 of 4 bytes) is also rejected.
-        let mut partial = [0u8; 34 + 3];
+        // A partial entry is also rejected.
+        let mut partial = [0u8; RSP_FIXED + ENTRY - 1];
         partial[0] = 1;
         assert!(ParsedAlgorithmsRsp::parse(&partial).is_err());
     }
@@ -659,9 +668,9 @@ mod tests {
     fn test_parse_algorithms_ignores_unknown_alg_struct_types() {
         // One ReqBaseAsymAlg (0x04) entry: parsed past, but ParsedAlgorithmsRsp
         // has no field for it, so DHE/AEAD/KeySchedule stay empty.
-        let mut body = [0u8; 34 + 4];
+        let mut body = [0u8; RSP_FIXED + ENTRY];
         body[0] = 1;
-        body[34..].copy_from_slice(&[alg_type::REQ_BASE_ASYM, 0x20, 0x80, 0x00]);
+        body[RSP_FIXED..].copy_from_slice(&[alg_type::REQ_BASE_ASYM, 0x20, 0x80, 0x00]);
         let parsed = ParsedAlgorithmsRsp::parse(&body).unwrap();
         assert!(parsed.dhe.is_empty());
         assert!(parsed.aead.is_empty());

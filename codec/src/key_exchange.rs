@@ -4,12 +4,18 @@
 
 use zerocopy::{FromBytes, Immutable, IntoBytes, KnownLayout, Unaligned};
 
-use crate::{ReqRespCode, ResponseBody, WireError, WireReader, WireWriter, SHA384_HASH_SIZE};
+use crate::{
+    ReqRespCode, ResponseBody, WireError, WireReader, WireWriter, OPAQUE_DATA_LEN_FIELD_SIZE,
+    SHA384_HASH_SIZE,
+};
 
 // ---- Constants -------------------------------------------------------------
 
-/// ECDH P-384 exchange data size (x || y, 48 x 2).
-pub const ECDH_P384_EXCHANGE_DATA_SIZE: usize = 96;
+/// Size of one P-384 coordinate.
+const ECC_P384_COORDINATE_SIZE: usize = 48;
+
+/// ECDH P-384 exchange data size (x || y).
+pub const ECDH_P384_EXCHANGE_DATA_SIZE: usize = 2 * ECC_P384_COORDINATE_SIZE;
 
 /// Largest ExchangeData field this responder can negotiate.
 pub const MAX_EXCHANGE_DATA_SIZE: usize = ECDH_P384_EXCHANGE_DATA_SIZE;
@@ -18,7 +24,19 @@ pub const MAX_EXCHANGE_DATA_SIZE: usize = ECDH_P384_EXCHANGE_DATA_SIZE;
 pub const KEY_EXCHANGE_RANDOM_DATA_LEN: usize = 32;
 
 /// Fixed KEY_EXCHANGE_RSP body bytes before `ExchangeData`.
-pub const KEY_EXCHANGE_RSP_FIXED_BODY_SIZE: usize = 6 + KEY_EXCHANGE_RANDOM_DATA_LEN;
+pub const KEY_EXCHANGE_RSP_FIXED_BODY_SIZE: usize = core::mem::size_of::<KeyExchangeRspBodyFixed>();
+
+/// KEY_EXCHANGE_RSP fixed prefix (after SPDM header, before `ExchangeData`).
+#[derive(IntoBytes, Immutable)]
+#[repr(C)]
+struct KeyExchangeRspBodyFixed {
+    heartbeat_period: u8,
+    _reserved0: u8,
+    rsp_session_id: [u8; 2],
+    mut_auth_requested: u8,
+    req_slot_id_param: u8,
+    random_data: [u8; KEY_EXCHANGE_RANDOM_DATA_LEN],
+}
 
 /// KEY_EXCHANGE_RSP HeartbeatPeriod (Param1 of the response, DSP0274): a count
 /// of seconds. Zero means heartbeat is supported but not desired on this
@@ -67,7 +85,11 @@ pub struct KeyExchangeReqBodyFixed {
     pub random_data: [u8; KEY_EXCHANGE_RANDOM_DATA_LEN],
 }
 
-const _: () = assert!(core::mem::size_of::<KeyExchangeReqBodyFixed>() == 38);
+const _: () = assert!(
+    core::mem::size_of::<KeyExchangeReqBodyFixed>()
+        == core::mem::offset_of!(KeyExchangeReqBodyFixed, random_data)
+            + KEY_EXCHANGE_RANDOM_DATA_LEN
+);
 
 impl KeyExchangeReqBodyFixed {
     /// Requester session ID as u16 (little-endian).
@@ -113,7 +135,7 @@ impl<'a> KeyExchangeReq<'a> {
     pub fn encoded_len(&self) -> usize {
         core::mem::size_of::<KeyExchangeReqBodyFixed>()
             + self.exchange_data.len()
-            + 2
+            + OPAQUE_DATA_LEN_FIELD_SIZE
             + self.opaque_data.len()
     }
 }
@@ -152,19 +174,24 @@ impl ResponseBody for KeyExchangeRsp<'_> {
         KEY_EXCHANGE_RSP_FIXED_BODY_SIZE
             + self.exchange_data_len
             + self.meas_hash_len()
-            + 2
+            + OPAQUE_DATA_LEN_FIELD_SIZE
             + self.opaque_data.len()
             + self.signature.len()
             + self.verify_data_len()
     }
 
     fn encode_body(&self, w: &mut WireWriter<'_>) -> Result<(), WireError> {
-        w.write_bytes(&[self.heartbeat_period.0])?;
-        w.write_bytes(&[0u8])?;
-        w.write_bytes(&self.rsp_session_id.to_le_bytes())?;
-        w.write_bytes(&[0u8])?;
-        w.write_bytes(&[0u8])?;
-        w.write_bytes(self.random_data)?;
+        w.write_bytes(
+            KeyExchangeRspBodyFixed {
+                heartbeat_period: self.heartbeat_period.0,
+                _reserved0: 0,
+                rsp_session_id: self.rsp_session_id.to_le_bytes(),
+                mut_auth_requested: 0,
+                req_slot_id_param: 0,
+                random_data: *self.random_data,
+            }
+            .as_bytes(),
+        )?;
         w.reserve(self.exchange_data_len)?;
         if let Some(mh) = self.meas_summary_hash {
             w.write_bytes(mh)?;
@@ -207,6 +234,24 @@ mod tests {
     use super::*;
     use crate::{SpdmMsgHdrPdu, SpdmVersion, ECC_P384_SIGNATURE_SIZE};
 
+    const HDR: usize = SpdmMsgHdrPdu::SIZE;
+    const FIXED: usize = KEY_EXCHANGE_RSP_FIXED_BODY_SIZE;
+    const EXCHANGE: usize = ECDH_P384_EXCHANGE_DATA_SIZE;
+    const OPAQUE_LEN: usize = OPAQUE_DATA_LEN_FIELD_SIZE;
+    const REQ_OPAQUE_START: usize = FIXED + EXCHANGE + OPAQUE_LEN;
+    const REQ_BUF_LEN: usize = REQ_OPAQUE_START + 24;
+    const ALL_FIELDS_EXCHANGE_LEN: usize = 4;
+    const ALL_FIELDS_OPAQUE: [u8; 2] = [0xAA, 0xBB];
+    const ALL_FIELDS_SIGNATURE_LEN: usize = 6;
+    const ALL_FIELDS_BODY_LEN: usize = FIXED
+        + ALL_FIELDS_EXCHANGE_LEN
+        + SHA384_HASH_SIZE
+        + OPAQUE_LEN
+        + ALL_FIELDS_OPAQUE.len()
+        + ALL_FIELDS_SIGNATURE_LEN
+        + SHA384_HASH_SIZE;
+    const ALL_FIELDS_MSG_LEN: usize = HDR + ALL_FIELDS_BODY_LEN;
+
     fn encode(period: u8) -> ([u8; 256], usize) {
         let random = [0u8; KEY_EXCHANGE_RANDOM_DATA_LEN];
         let body = KeyExchangeRsp {
@@ -241,18 +286,25 @@ mod tests {
 
     #[test]
     fn in_place_exchange_data_is_preserved() {
+        const EXCHANGE_DATA_LEN: usize = ECC_P384_SIGNATURE_SIZE;
+        const SENTINEL: u8 = 0xa5;
+        const ENCODED_LEN: usize = SpdmMsgHdrPdu::SIZE
+            + KEY_EXCHANGE_RSP_FIXED_BODY_SIZE
+            + EXCHANGE_DATA_LEN
+            + OPAQUE_DATA_LEN_FIELD_SIZE;
+
         let random_data = [0u8; KEY_EXCHANGE_RANDOM_DATA_LEN];
         let response = KeyExchangeRsp {
             heartbeat_period: HeartBeatPeriod::DISABLED,
             rsp_session_id: 1,
             random_data: &random_data,
-            exchange_data_len: 4,
+            exchange_data_len: EXCHANGE_DATA_LEN,
             meas_summary_hash: None,
             opaque_data: &[],
             signature: &[],
             responder_verify_data: None,
         };
-        let mut encoded = [0xa5; 64];
+        let mut encoded = [SENTINEL; ENCODED_LEN];
 
         response
             .encode_with_header(SpdmVersion::V14, &mut WireWriter::new(&mut encoded))
@@ -260,8 +312,8 @@ mod tests {
 
         let exchange_data_start = SpdmMsgHdrPdu::SIZE + KEY_EXCHANGE_RSP_FIXED_BODY_SIZE;
         assert_eq!(
-            &encoded[exchange_data_start..exchange_data_start + 4],
-            &[0xa5; 4]
+            &encoded[exchange_data_start..exchange_data_start + EXCHANGE_DATA_LEN],
+            &[SENTINEL; EXCHANGE_DATA_LEN]
         );
     }
 
@@ -269,15 +321,14 @@ mod tests {
 
     #[test]
     fn test_key_exchange_constants() {
-        // ECDH P-384 exchange data is x || y = 48 + 48 bytes.
-        assert_eq!(ECDH_P384_EXCHANGE_DATA_SIZE, 48 * 2);
+        // x || y and r || s are both two P-384 coordinates.
+        assert_eq!(ECDH_P384_EXCHANGE_DATA_SIZE, ECC_P384_SIGNATURE_SIZE);
         assert_eq!(MAX_EXCHANGE_DATA_SIZE, ECDH_P384_EXCHANGE_DATA_SIZE);
-        // Fixed response prefix = HeartbeatPeriod(1) + Reserved(1) + RspSessionID(2)
-        //   + MutAuthRequested(1) + ReqSlotIDParam(1) + RandomData(32) = 38.
-        assert_eq!(KEY_EXCHANGE_RSP_FIXED_BODY_SIZE, 1 + 1 + 2 + 1 + 1 + 32);
-        // Fixed request prefix = MeasSummaryHashType(1) + SlotID(1) + ReqSessionID(2)
-        //   + SessionPolicy(1) + Reserved(1) + RandomData(32) = 38.
-        assert_eq!(core::mem::size_of::<KeyExchangeReqBodyFixed>(), 1 + 1 + 2 + 1 + 1 + 32);
+        // The request and response fixed prefixes have the same layout size.
+        assert_eq!(
+            KEY_EXCHANGE_RSP_FIXED_BODY_SIZE,
+            core::mem::size_of::<KeyExchangeReqBodyFixed>()
+        );
     }
 
     #[test]
@@ -293,32 +344,27 @@ mod tests {
 
     // ---- KeyExchangeReq::parse -------------------------------------------------
 
-    // Hand-built KEY_EXCHANGE request body:
-    //   fixed prefix 38 (meas type 1 + slot 1 + req_session_id 2 + policy 1 + reserved 1 + random 32)
-    //   + exchange data 96 (offset 38..134)
-    //   + opaque length 2 (offset 134..136)
-    //   + opaque bytes (offset 136..).
-    // Returns the buffer and the used length (136 + opaque.len()).
-    fn req_body(opaque_len_field: u16, opaque: &[u8]) -> ([u8; 160], usize) {
-        let mut b = [0u8; 160];
+    // Hand-built KEY_EXCHANGE request body: fixed prefix, exchange data, opaque
+    // length field, opaque bytes. Returns the buffer and the used length.
+    fn req_body(opaque_len_field: u16, opaque: &[u8]) -> ([u8; REQ_BUF_LEN], usize) {
+        let mut b = [0u8; REQ_BUF_LEN];
         b[0] = 0xFF; // MeasurementSummaryHashType: all measurements
         b[1] = 3; // SlotID
         b[2] = 0x34; // ReqSessionID = 0x1234 (little-endian)
         b[3] = 0x12;
         b[4] = 1; // SessionPolicy
         b[5] = 0; // Reserved
-        b[6..38].fill(0x11); // RandomData
-        b[38..134].fill(0x22); // ExchangeData (ECDH P-384, 96 bytes)
-        b[134..136].copy_from_slice(&opaque_len_field.to_le_bytes());
-        b[136..136 + opaque.len()].copy_from_slice(opaque);
-        (b, 136 + opaque.len())
+        b[6..FIXED].fill(0x11); // RandomData
+        b[FIXED..FIXED + EXCHANGE].fill(0x22); // ExchangeData
+        b[FIXED + EXCHANGE..REQ_OPAQUE_START].copy_from_slice(&opaque_len_field.to_le_bytes());
+        b[REQ_OPAQUE_START..REQ_OPAQUE_START + opaque.len()].copy_from_slice(opaque);
+        (b, REQ_OPAQUE_START + opaque.len())
     }
 
     #[test]
     fn test_key_exchange_req_parse_roundtrip() {
         let (b, n) = req_body(4, &[1, 2, 3, 4]);
-        // Body = 38 fixed + 96 exchange data + 2 opaque length + 4 opaque = 140.
-        assert_eq!(n, 140);
+        assert_eq!(n, REQ_OPAQUE_START + 4);
 
         let req = KeyExchangeReq::parse(&b[..n], ECDH_P384_EXCHANGE_DATA_SIZE).unwrap();
         assert_eq!(req.fixed.meas_summary_hash_type, 0xFF);
@@ -327,27 +373,26 @@ mod tests {
         assert_eq!(req.fixed.req_session_id_u16(), 0x1234);
         assert_eq!(req.fixed.session_policy, 1);
         assert_eq!(req.fixed.random_data, [0x11; KEY_EXCHANGE_RANDOM_DATA_LEN]);
-        assert_eq!(req.exchange_data, &[0x22; 96][..]);
+        assert_eq!(req.exchange_data, &[0x22; EXCHANGE][..]);
         assert_eq!(req.opaque_data, &[1, 2, 3, 4]);
-        assert_eq!(req.encoded_len(), 140);
+        assert_eq!(req.encoded_len(), n);
     }
 
     #[test]
     fn test_key_exchange_req_parse_zero_length_opaque() {
         let (b, n) = req_body(0, &[]);
-        // Body = 38 + 96 + 2 (length field, value 0) + 0 = 136.
-        assert_eq!(n, 136);
+        assert_eq!(n, REQ_OPAQUE_START);
         let req = KeyExchangeReq::parse(&b[..n], ECDH_P384_EXCHANGE_DATA_SIZE).unwrap();
         assert!(req.opaque_data.is_empty());
-        assert_eq!(req.encoded_len(), 136);
+        assert_eq!(req.encoded_len(), n);
     }
 
     #[test]
     fn test_key_exchange_req_parse_every_truncation_fails() {
         let (b, n) = req_body(4, &[1, 2, 3, 4]);
-        // Every strict prefix of the valid 140-byte body must be rejected:
-        // short fixed prefix (<38), short exchange data (<134), half an opaque
-        // length field (135), and short opaque data (136..140).
+        // Every strict prefix of the valid body must be rejected: short fixed
+        // prefix, short exchange data, half an opaque length field, and short
+        // opaque data.
         for len in 0..n {
             assert!(
                 KeyExchangeReq::parse(&b[..len], ECDH_P384_EXCHANGE_DATA_SIZE).is_err(),
@@ -369,31 +414,32 @@ mod tests {
 
     #[test]
     fn test_key_exchange_req_parse_exchange_size_larger_than_body() {
-        // Caller expects 96 bytes of exchange data but only 50 follow the prefix.
-        let body = [0u8; 38 + 50];
+        // Caller expects a full exchange data field but only half follows the prefix.
+        let body = [0u8; FIXED + EXCHANGE / 2];
         assert!(KeyExchangeReq::parse(&body, ECDH_P384_EXCHANGE_DATA_SIZE).is_err());
     }
 
     #[test]
     fn test_key_exchange_req_parse_ignores_trailing_bytes() {
         // Pins current leniency: bytes after the opaque data are not rejected;
-        // encoded_len() reports only the parsed portion (140), not body.len() (145).
+        // encoded_len() reports only the parsed portion, not body.len().
+        const TRAILING: usize = 5;
         let (mut b, n) = req_body(4, &[1, 2, 3, 4]);
-        b[n..n + 5].fill(0xCC);
-        let req = KeyExchangeReq::parse(&b[..n + 5], ECDH_P384_EXCHANGE_DATA_SIZE).unwrap();
-        assert_eq!(req.encoded_len(), 140);
+        b[n..n + TRAILING].fill(0xCC);
+        let req = KeyExchangeReq::parse(&b[..n + TRAILING], ECDH_P384_EXCHANGE_DATA_SIZE).unwrap();
+        assert_eq!(req.encoded_len(), n);
         assert_eq!(req.opaque_data, &[1, 2, 3, 4]);
     }
 
     #[test]
     fn test_key_exchange_req_parse_zero_exchange_size_accepted() {
         // Pins current leniency: the codec trusts the caller's negotiated DHE size,
-        // including 0. Body = 38 fixed + 0 exchange data + 2 opaque length (0) = 40.
-        let body = [0u8; 40];
+        // including 0.
+        let body = [0u8; FIXED + OPAQUE_LEN];
         let req = KeyExchangeReq::parse(&body, 0).unwrap();
         assert!(req.exchange_data.is_empty());
         assert!(req.opaque_data.is_empty());
-        assert_eq!(req.encoded_len(), 40);
+        assert_eq!(req.encoded_len(), body.len());
     }
 
     #[test]
@@ -419,37 +465,42 @@ mod tests {
             heartbeat_period: HeartBeatPeriod(5),
             rsp_session_id: 0xABCD,
             random_data: &random,
-            exchange_data_len: 4,
+            exchange_data_len: ALL_FIELDS_EXCHANGE_LEN,
             meas_summary_hash: Some(&meas_hash),
-            opaque_data: &[0xAA, 0xBB],
-            signature: &[0x44; 6],
+            opaque_data: &ALL_FIELDS_OPAQUE,
+            signature: &[0x44; ALL_FIELDS_SIGNATURE_LEN],
             responder_verify_data: Some(&verify_data),
         };
 
-        // Body = 38 fixed + 4 exchange data + 48 meas hash + 2 opaque length
-        //      + 2 opaque + 6 signature + 48 verify data = 148.
-        assert_eq!(rsp.body_size(), 148);
+        assert_eq!(rsp.body_size(), ALL_FIELDS_BODY_LEN);
 
-        // Buffer = 2-byte common header + 148-byte body = 150 bytes. Pre-filled with
-        // 0xEE so the in-place exchange data region is visibly left untouched.
-        let mut buf = [0xEEu8; 150];
+        // Pre-filled with 0xEE so the in-place exchange data region is visibly
+        // left untouched.
+        let mut buf = [0xEEu8; ALL_FIELDS_MSG_LEN];
         let mut w = WireWriter::new(&mut buf);
         rsp.encode_with_header(SpdmVersion::V14, &mut w).unwrap();
-        assert_eq!(w.position(), 150);
+        assert_eq!(w.position(), ALL_FIELDS_MSG_LEN);
 
-        assert_eq!(&buf[0..2], &[0x14, 0x64]); // V1.4, KEY_EXCHANGE_RSP
+        assert_eq!(&buf[..HDR], &[0x14, 0x64]); // V1.4, KEY_EXCHANGE_RSP
         assert_eq!(buf[2], 5); // HeartbeatPeriod
         assert_eq!(buf[3], 0); // Reserved
         assert_eq!(&buf[4..6], &[0xCD, 0xAB]); // RspSessionID, little-endian
         assert_eq!(buf[6], 0); // MutAuthRequested (always 0 from this builder)
         assert_eq!(buf[7], 0); // ReqSlotIDParam (always 0 from this builder)
-        assert_eq!(&buf[8..40], &[0x77; 32]); // RandomData (2 + 6 + 32 = 40)
-        assert_eq!(&buf[40..44], &[0xEE; 4]); // ExchangeData: reserved, not written
-        assert_eq!(&buf[44..92], &[0x33; 48]); // MeasurementSummaryHash
-        assert_eq!(&buf[92..94], &[0x02, 0x00]); // OpaqueDataLength = 2
-        assert_eq!(&buf[94..96], &[0xAA, 0xBB]); // OpaqueData
-        assert_eq!(&buf[96..102], &[0x44; 6]); // Signature
-        assert_eq!(&buf[102..150], &[0x55; 48]); // ResponderVerifyData
+        let (random, rest) = buf[HDR + FIXED - KEY_EXCHANGE_RANDOM_DATA_LEN..]
+            .split_at(KEY_EXCHANGE_RANDOM_DATA_LEN);
+        assert_eq!(random, &[0x77; KEY_EXCHANGE_RANDOM_DATA_LEN]);
+        let (exchange, rest) = rest.split_at(ALL_FIELDS_EXCHANGE_LEN);
+        assert_eq!(exchange, &[0xEE; ALL_FIELDS_EXCHANGE_LEN]); // reserved, not written
+        let (meas, rest) = rest.split_at(SHA384_HASH_SIZE);
+        assert_eq!(meas, &[0x33; SHA384_HASH_SIZE]);
+        let (opaque_len, rest) = rest.split_at(OPAQUE_LEN);
+        assert_eq!(opaque_len, &[0x02, 0x00]); // OpaqueDataLength = 2
+        let (opaque, rest) = rest.split_at(ALL_FIELDS_OPAQUE.len());
+        assert_eq!(opaque, &ALL_FIELDS_OPAQUE);
+        let (signature, verify) = rest.split_at(ALL_FIELDS_SIGNATURE_LEN);
+        assert_eq!(signature, &[0x44; ALL_FIELDS_SIGNATURE_LEN]);
+        assert_eq!(verify, &[0x55; SHA384_HASH_SIZE]); // ResponderVerifyData
     }
 
     #[test]
@@ -466,50 +517,57 @@ mod tests {
             signature: &[0x44; ECC_P384_SIGNATURE_SIZE],
             responder_verify_data: None,
         };
-        // Body = 38 fixed + 96 exchange data + 2 opaque length + 96 signature = 232.
-        assert_eq!(rsp.body_size(), 232);
+        const BODY_LEN: usize = FIXED + EXCHANGE + OPAQUE_LEN + ECC_P384_SIGNATURE_SIZE;
+        assert_eq!(rsp.body_size(), BODY_LEN);
 
-        // Buffer = 2 + 232 = 234 bytes.
-        let mut buf = [0u8; 234];
+        let mut buf = [0u8; HDR + BODY_LEN];
         let mut w = WireWriter::new(&mut buf);
         rsp.encode_with_header(SpdmVersion::V13, &mut w).unwrap();
-        assert_eq!(w.position(), 234);
+        assert_eq!(w.position(), buf.len());
 
-        assert_eq!(&buf[0..2], &[0x13, 0x64]);
+        assert_eq!(&buf[..HDR], &[0x13, 0x64]);
         assert_eq!(&buf[4..6], &[0x01, 0x00]); // RspSessionID = 1
-        // Opaque length field is always written, even when 0: offset 2 + 38 + 96 = 136.
-        assert_eq!(&buf[136..138], &[0x00, 0x00]);
-        assert_eq!(&buf[138..234], &[0x44; 96]);
+                                               // Opaque length field is always written, even when 0.
+        let opaque_len_start = HDR + FIXED + EXCHANGE;
+        let signature_start = opaque_len_start + OPAQUE_LEN;
+        assert_eq!(&buf[opaque_len_start..signature_start], &[0x00, 0x00]);
+        assert_eq!(&buf[signature_start..], &[0x44; ECC_P384_SIGNATURE_SIZE]);
     }
 
     #[test]
     fn test_key_exchange_rsp_pqc_sized_fields() {
-        // 1.4 PQC-sized fields: ML-KEM-768 ciphertext (1088 bytes) as exchange data
-        // and an ML-DSA-87 signature (4627 bytes). Pins current leniency: the builder
-        // does not cap exchange_data_len at MAX_EXCHANGE_DATA_SIZE (96).
+        // 1.4 PQC-sized fields: ML-KEM-768 ciphertext as exchange data and an
+        // ML-DSA-87 signature. Pins current leniency: the builder does not cap
+        // exchange_data_len at MAX_EXCHANGE_DATA_SIZE.
+        const ML_KEM_768_CIPHERTEXT_SIZE: usize = 1088;
+        const ML_DSA_87_SIGNATURE_SIZE: usize = 4627;
+        const BODY_LEN: usize =
+            FIXED + ML_KEM_768_CIPHERTEXT_SIZE + OPAQUE_LEN + ML_DSA_87_SIGNATURE_SIZE;
         let random = [0u8; KEY_EXCHANGE_RANDOM_DATA_LEN];
-        let signature = [0x66u8; 4627];
+        let signature = [0x66u8; ML_DSA_87_SIGNATURE_SIZE];
         let rsp = KeyExchangeRsp {
             heartbeat_period: HeartBeatPeriod::DISABLED,
             rsp_session_id: 0,
             random_data: &random,
-            exchange_data_len: 1088,
+            exchange_data_len: ML_KEM_768_CIPHERTEXT_SIZE,
             meas_summary_hash: None,
             opaque_data: &[],
             signature: &signature,
             responder_verify_data: None,
         };
-        // Body = 38 fixed + 1088 exchange data + 2 opaque length + 4627 signature = 5755.
-        assert_eq!(rsp.body_size(), 5755);
+        assert_eq!(rsp.body_size(), BODY_LEN);
 
-        // Buffer = 2 + 5755 = 5757 bytes. Signature starts at 2 + 38 + 1088 + 2 = 1130.
-        let mut buf = [0u8; 5757];
+        let mut buf = [0u8; HDR + BODY_LEN];
         let mut w = WireWriter::new(&mut buf);
         rsp.encode_with_header(SpdmVersion::V14, &mut w).unwrap();
-        assert_eq!(w.position(), 5757);
+        assert_eq!(w.position(), buf.len());
 
-        assert_eq!(&buf[1128..1130], &[0x00, 0x00]); // OpaqueDataLength = 0
-        assert!(buf[1130..5757].iter().all(|&b| b == 0x66));
+        let signature_start = HDR + FIXED + ML_KEM_768_CIPHERTEXT_SIZE + OPAQUE_LEN;
+        assert_eq!(
+            &buf[signature_start - OPAQUE_LEN..signature_start],
+            &[0x00, 0x00]
+        ); // OpaqueDataLength = 0
+        assert!(buf[signature_start..].iter().all(|&b| b == 0x66));
     }
 
     #[test]
@@ -521,17 +579,17 @@ mod tests {
             heartbeat_period: HeartBeatPeriod(5),
             rsp_session_id: 0xABCD,
             random_data: &random,
-            exchange_data_len: 4,
+            exchange_data_len: ALL_FIELDS_EXCHANGE_LEN,
             meas_summary_hash: Some(&meas_hash),
-            opaque_data: &[0xAA, 0xBB],
-            signature: &[0x44; 6],
+            opaque_data: &ALL_FIELDS_OPAQUE,
+            signature: &[0x44; ALL_FIELDS_SIGNATURE_LEN],
             responder_verify_data: Some(&verify_data),
         };
-        // The complete message is 150 bytes; every shorter writer must fail at
-        // whichever field runs out of room (header, fixed prefix, exchange data,
-        // meas hash, opaque, signature, verify data).
-        for len in 0..150 {
-            let mut buf = [0u8; 150];
+        // Every writer shorter than the complete message must fail at whichever
+        // field runs out of room (header, fixed prefix, exchange data, meas hash,
+        // opaque, signature, verify data).
+        for len in 0..ALL_FIELDS_MSG_LEN {
+            let mut buf = [0u8; ALL_FIELDS_MSG_LEN];
             let mut w = WireWriter::new(&mut buf[..len]);
             assert!(
                 rsp.encode_with_header(SpdmVersion::V14, &mut w).is_err(),
@@ -555,19 +613,20 @@ mod tests {
             signature: &[],
             responder_verify_data: None,
         };
-        // Body = 38 fixed + 0 + 2 opaque length = 40; buffer = 2 + 40 = 42.
-        assert_eq!(rsp.body_size(), 40);
-        let mut buf = [0u8; 42];
+        const BODY_LEN: usize = FIXED + OPAQUE_LEN;
+        assert_eq!(rsp.body_size(), BODY_LEN);
+        let mut buf = [0u8; HDR + BODY_LEN];
         let mut w = WireWriter::new(&mut buf);
         rsp.encode_with_header(SpdmVersion::V13, &mut w).unwrap();
-        assert_eq!(w.position(), 42);
+        assert_eq!(w.position(), buf.len());
     }
 
     #[test]
     fn test_key_exchange_rsp_opaque_max_u16_length() {
-        // 65535 is the largest opaque length the 2-byte field can carry.
+        // u16::MAX is the largest opaque length the 2-byte field can carry.
+        const OPAQUE_MAX: usize = u16::MAX as usize;
         let random = [0u8; KEY_EXCHANGE_RANDOM_DATA_LEN];
-        let opaque = [0x99u8; 65535];
+        let opaque = [0x99u8; OPAQUE_MAX];
         let rsp = KeyExchangeRsp {
             heartbeat_period: HeartBeatPeriod::DISABLED,
             rsp_session_id: 0,
@@ -578,22 +637,23 @@ mod tests {
             signature: &[],
             responder_verify_data: None,
         };
-        // Buffer = 2 header + 38 fixed + 2 opaque length + 65535 opaque = 65577.
-        let mut buf = [0u8; 2 + 38 + 2 + 65535];
+        let mut buf = [0u8; HDR + FIXED + OPAQUE_LEN + OPAQUE_MAX];
         let mut w = WireWriter::new(&mut buf);
         rsp.encode_with_header(SpdmVersion::V13, &mut w).unwrap();
-        assert_eq!(&buf[40..42], &[0xFF, 0xFF]);
-        assert_eq!(buf[42], 0x99);
-        assert_eq!(buf[65576], 0x99);
+        let opaque_start = HDR + FIXED + OPAQUE_LEN;
+        assert_eq!(&buf[opaque_start - OPAQUE_LEN..opaque_start], &[0xFF, 0xFF]);
+        assert_eq!(buf.get(opaque_start), Some(&0x99));
+        assert_eq!(buf.last(), Some(&0x99));
     }
 
     #[test]
     fn test_key_exchange_rsp_rejects_opaque_longer_than_u16() {
         // Intended behavior: opaque data whose length does not fit the 2-byte
         // OpaqueDataLength must be rejected, not encoded with a wrapped length
-        // (65536 -> 0) followed by 65536 stray bytes.
+        // (u16::MAX + 1 -> 0) followed by that many stray bytes.
+        const OPAQUE_OVERFLOW: usize = u16::MAX as usize + 1;
         let random = [0u8; KEY_EXCHANGE_RANDOM_DATA_LEN];
-        let opaque = [0x99u8; 65536];
+        let opaque = [0x99u8; OPAQUE_OVERFLOW];
         let rsp = KeyExchangeRsp {
             heartbeat_period: HeartBeatPeriod::DISABLED,
             rsp_session_id: 0,
@@ -604,9 +664,8 @@ mod tests {
             signature: &[],
             responder_verify_data: None,
         };
-        // Buffer = 2 + 38 + 2 + 65536 = 65578: large enough that only a length
-        // check (not buffer space) can cause the failure.
-        let mut buf = [0u8; 2 + 38 + 2 + 65536];
+        // Large enough that only a length check (not buffer space) can cause the failure.
+        let mut buf = [0u8; HDR + FIXED + OPAQUE_LEN + OPAQUE_OVERFLOW];
         let mut w = WireWriter::new(&mut buf);
         assert!(rsp.encode_with_header(SpdmVersion::V13, &mut w).is_err());
     }

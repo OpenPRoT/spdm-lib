@@ -252,6 +252,10 @@ pub fn select_version(offered: &SupportedVersions) -> Result<SmVersion, WireErro
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    const GENERAL_HEADER_LEN: usize = 4;
+    const ALIGNMENT_PADDING_LEN: usize = 3;
+
     // Opaque data with two elements
     const OPAQUE_DATA: &[u8] = &[
         0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x0b, 0x00, 0x01, 0x01, 0x04, 0x00, 0x10, 0x00, 0x11,
@@ -265,6 +269,8 @@ mod tests {
         0, 0x11, // Secured-message version 1.1.
         0, 0, 0, // Alignment padding.
     ];
+
+    const VERSION_LIST_ELEMENT_LEN: usize = VERSION_LIST.len() - GENERAL_HEADER_LEN;
 
     #[test]
     fn parses_exact_supported_version_list() {
@@ -300,7 +306,10 @@ mod tests {
 
     #[test]
     fn rejects_missing_padding() {
-        assert!(parse_supported_versions(&VERSION_LIST[..13]).is_err());
+        assert!(parse_supported_versions(
+            &VERSION_LIST[..VERSION_LIST.len() - ALIGNMENT_PADDING_LEN]
+        )
+        .is_err());
     }
 
     #[test]
@@ -383,8 +392,8 @@ mod tests {
             );
         }
         // Valid data with one trailing byte must also be rejected.
-        let mut data = [0u8; 13];
-        data[..12].copy_from_slice(&VENDOR_ELEMENT);
+        let mut data = [0u8; VENDOR_ELEMENT.len() + 1];
+        data[..VENDOR_ELEMENT.len()].copy_from_slice(&VENDOR_ELEMENT);
         assert!(OpaqueDataReader::new(&data).is_err());
     }
 
@@ -549,8 +558,10 @@ mod tests {
     #[test]
     fn rejects_list_with_only_skipped_elements() {
         // Same data without the trailing supported-version-list element.
-        let mut opaque = [0u8; 32];
-        opaque.copy_from_slice(&VERSION_LIST_NOT_FIRST[..32]);
+        const LAST_ELEMENT_LEN: usize = 12;
+        const KEPT: usize = VERSION_LIST_NOT_FIRST.len() - LAST_ELEMENT_LEN;
+        let mut opaque = [0u8; KEPT];
+        opaque.copy_from_slice(&VERSION_LIST_NOT_FIRST[..KEPT]);
         opaque[0] = 3;
 
         assert!(parse_supported_versions(&opaque).is_err());
@@ -559,11 +570,12 @@ mod tests {
     #[test]
     fn rejects_duplicate_version_list() {
         // VERSION_LIST's element appears twice. Each copy is valid by itself.
-        let element = &VERSION_LIST[4..];
-        let mut opaque = [0u8; 4 + 2 * 12];
+        let element = &VERSION_LIST[GENERAL_HEADER_LEN..];
+        let mut opaque = [0u8; GENERAL_HEADER_LEN + 2 * VERSION_LIST_ELEMENT_LEN];
         opaque[0] = 2; // General header, two elements.
-        opaque[4..16].copy_from_slice(element);
-        opaque[16..].copy_from_slice(element);
+        let (first, second) = opaque[GENERAL_HEADER_LEN..].split_at_mut(VERSION_LIST_ELEMENT_LEN);
+        first.copy_from_slice(element);
+        second.copy_from_slice(element);
 
         assert!(parse_supported_versions(&VERSION_LIST).is_ok());
         assert!(parse_supported_versions(&opaque).is_err());

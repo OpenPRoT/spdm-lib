@@ -1213,6 +1213,11 @@ mod tests {
     const TEST_VENDOR_ID_BYTES: [u8; 2] = [0xEF, 0xBE];
     const TEST_VDM_COMMAND_VERSION: u8 = 1;
     const TEST_VDM_COMMAND: u8 = 0x42;
+    const TEST_VDM_COMMAND_HDR: [u8; 2] = [TEST_VDM_COMMAND_VERSION, TEST_VDM_COMMAND];
+    const CHUNK_DATA_LEN: usize = 53;
+    const MAILBOX_WORD_LEN: usize = size_of::<u32>();
+    const MAILBOX_DATA_LEN: usize = 96;
+    const VDM_FIRST_CHUNK_LEN: usize = 64;
 
     /// Empty session manager for tests that exercise non-KEY_EXCHANGE chunked requests.
     fn test_sessions() -> Sessions<TestPal, 1> {
@@ -1274,8 +1279,8 @@ mod tests {
                 state.transcript.append_vca(&pal, &io, b"VCA").unwrap();
                 let request = key_exchange_request(ECDH_P384_EXCHANGE_DATA_SIZE);
                 let make_chunk = |sequence: usize| {
-                    let start = sequence * 53;
-                    let end = (start + 53).min(request.len());
+                    let start = sequence * CHUNK_DATA_LEN;
+                    let end = (start + CHUNK_DATA_LEN).min(request.len());
                     let mut chunk = chunk_send_request(
                         7,
                         sequence as u16,
@@ -1301,10 +1306,13 @@ mod tests {
                 )
                 .unwrap();
                 assert_eq!(ack[header_size + 1], ReqRespCode::CHUNK_SEND_ACK.0);
-                assert_eq!(state.large_msg_ctx.state.bytes_received, 53);
                 assert_eq!(
-                    &state.large_msg_ctx.get_buffer().unwrap()[..53],
-                    &request[..53]
+                    state.large_msg_ctx.state.bytes_received,
+                    CHUNK_DATA_LEN as u32
+                );
+                assert_eq!(
+                    &state.large_msg_ctx.get_buffer().unwrap()[..CHUNK_DATA_LEN],
+                    &request[..CHUNK_DATA_LEN]
                 );
                 let foreign = handle_chunk_send(
                     &mut state,
@@ -1317,10 +1325,13 @@ mod tests {
                     false,
                 );
                 assert_eq!(foreign.err(), Some(SPDM_UNEXPECTED_REQUEST));
-                assert_eq!(state.large_msg_ctx.state.bytes_received, 53);
                 assert_eq!(
-                    &state.large_msg_ctx.get_buffer().unwrap()[..53],
-                    &request[..53]
+                    state.large_msg_ctx.state.bytes_received,
+                    CHUNK_DATA_LEN as u32
+                );
+                assert_eq!(
+                    &state.large_msg_ctx.get_buffer().unwrap()[..CHUNK_DATA_LEN],
+                    &request[..CHUNK_DATA_LEN]
                 );
                 let mut bad = make_chunk(1);
                 match fault {
@@ -1430,7 +1441,7 @@ mod tests {
         state.peer_data_transfer_size = (SpdmMsgHdrPdu::SIZE
             + KEY_EXCHANGE_RSP_FIXED_BODY_SIZE
             + ECDH_P384_EXCHANGE_DATA_SIZE
-            + 2
+            + spdm_codec::OPAQUE_DATA_LEN_FIELD_SIZE
             + ECC_P384_SIGNATURE_SIZE
             + SHA384_HASH_SIZE) as u32;
         state.peer_max_spdm_msg_size = 8192;
@@ -1505,7 +1516,7 @@ mod tests {
             assert_eq!(first.first().copied(), Some(TEST_VDM_COMMAND_VERSION));
             assert_eq!(first.get(1).copied(), Some(TEST_VDM_COMMAND));
             self.captured_token_payload
-                .replace(Some(first[2..].to_vec()));
+                .replace(Some(first[TEST_VDM_COMMAND_HDR.len()..].to_vec()));
             Ok(true)
         }
 
@@ -1535,8 +1546,9 @@ mod tests {
             Alloc: SpdmPalAlloc,
             Io: SpdmPalIo,
         {
-            rsp.inline[..3].copy_from_slice(&[TEST_VDM_COMMAND_VERSION, TEST_VDM_COMMAND, 0]);
-            Ok(VdmResponse::Inline(3))
+            let rsp_bytes = [TEST_VDM_COMMAND_VERSION, TEST_VDM_COMMAND, 0];
+            rsp.inline[..rsp_bytes.len()].copy_from_slice(&rsp_bytes);
+            Ok(VdmResponse::Inline(rsp_bytes.len()))
         }
 
         fn handle_request<Alloc, Io>(
@@ -1550,9 +1562,11 @@ mod tests {
         {
             assert_eq!(req.first().copied(), Some(TEST_VDM_COMMAND_VERSION));
             assert_eq!(req.get(1).copied(), Some(TEST_VDM_COMMAND));
-            self.captured_token_payload.replace(Some(req[2..].to_vec()));
-            rsp.inline[..3].copy_from_slice(&[TEST_VDM_COMMAND_VERSION, TEST_VDM_COMMAND, 0]);
-            Ok(VdmResponse::Inline(3))
+            self.captured_token_payload
+                .replace(Some(req[TEST_VDM_COMMAND_HDR.len()..].to_vec()));
+            let rsp_bytes = [TEST_VDM_COMMAND_VERSION, TEST_VDM_COMMAND, 0];
+            rsp.inline[..rsp_bytes.len()].copy_from_slice(&rsp_bytes);
+            Ok(VdmResponse::Inline(rsp_bytes.len()))
         }
     }
 
@@ -1634,14 +1648,16 @@ mod tests {
         {
             assert_eq!(req.first().copied(), Some(TEST_VDM_COMMAND_VERSION));
             assert_eq!(req.get(1).copied(), Some(TEST_VDM_COMMAND));
-            self.captured_token_payload.replace(Some(req[2..].to_vec()));
-            rsp.inline[..3].copy_from_slice(&[TEST_VDM_COMMAND_VERSION, TEST_VDM_COMMAND, 0]);
-            Ok(VdmResponse::Inline(3))
+            self.captured_token_payload
+                .replace(Some(req[TEST_VDM_COMMAND_HDR.len()..].to_vec()));
+            let rsp_bytes = [TEST_VDM_COMMAND_VERSION, TEST_VDM_COMMAND, 0];
+            rsp.inline[..rsp_bytes.len()].copy_from_slice(&rsp_bytes);
+            Ok(VdmResponse::Inline(rsp_bytes.len()))
         }
     }
 
     fn vendor_defined_stream_request(token_payload: &[u8]) -> Vec<u8> {
-        let vdm_payload_len = 2 + token_payload.len();
+        let vdm_payload_len = TEST_VDM_COMMAND_HDR.len() + token_payload.len();
         let mut req = vec![
             SpdmVersion::V12.to_u8(),
             ReqRespCode::VENDOR_DEFINED_REQUEST.0,
@@ -1653,8 +1669,7 @@ mod tests {
         ];
         req.extend_from_slice(&TEST_VENDOR_ID_BYTES);
         req.extend_from_slice(&(vdm_payload_len as u16).to_le_bytes());
-        req.push(TEST_VDM_COMMAND_VERSION);
-        req.push(TEST_VDM_COMMAND);
+        req.extend_from_slice(&TEST_VDM_COMMAND_HDR);
         req.extend_from_slice(token_payload);
         req
     }
@@ -1671,13 +1686,16 @@ mod tests {
 
         // The backend receives the vendor payload byte-for-byte: the stack must
         // not strip, rewrite, or prepend anything while streaming it.
-        let mut host_mailbox_payload = vec![0u8; 4 + 96];
-        host_mailbox_payload[..4].copy_from_slice(&0xAABB_CCDDu32.to_le_bytes());
-        for (i, b) in host_mailbox_payload[4..].iter_mut().enumerate() {
+        let mut host_mailbox_payload = vec![0u8; MAILBOX_WORD_LEN + MAILBOX_DATA_LEN];
+        host_mailbox_payload[..MAILBOX_WORD_LEN].copy_from_slice(&0xAABB_CCDDu32.to_le_bytes());
+        for (i, b) in host_mailbox_payload[MAILBOX_WORD_LEN..]
+            .iter_mut()
+            .enumerate()
+        {
             *b = i as u8;
         }
         let large_req = vendor_defined_stream_request(&host_mailbox_payload);
-        let (first, second) = large_req.split_at(64);
+        let (first, second) = large_req.split_at(VDM_FIRST_CHUNK_LEN);
         let first_chunk = chunk_send_request(9, 0, false, Some(large_req.len()), first);
         let second_chunk = chunk_send_request(9, 1, true, None, second);
 
@@ -1762,8 +1780,8 @@ mod tests {
         let mut state = chunking_state();
         let mut sessions = test_sessions();
         let vdm = CaptureVdmBackend::new();
-        let large_req = vendor_defined_stream_request(&[0x5a; 96]);
-        let (first, second) = large_req.split_at(64);
+        let large_req = vendor_defined_stream_request(&[0x5a; MAILBOX_DATA_LEN]);
+        let (first, second) = large_req.split_at(VDM_FIRST_CHUNK_LEN);
         let first_chunk = chunk_send_request(14, 0, false, Some(large_req.len()), first);
         let second_chunk = chunk_send_request(14, 1, true, None, second);
 
@@ -1822,8 +1840,8 @@ mod tests {
         let mut sessions = test_sessions();
         state.peer_data_transfer_size = CapabilitiesBody::MIN_DATA_TRANSFER_SIZE;
         let vdm = OversizedResponseVdmBackend;
-        let large_req = vendor_defined_stream_request(&[0x5a; 96]);
-        let (first, second) = large_req.split_at(64);
+        let large_req = vendor_defined_stream_request(&[0x5a; MAILBOX_DATA_LEN]);
+        let (first, second) = large_req.split_at(VDM_FIRST_CHUNK_LEN);
         let first_chunk = chunk_send_request(15, 0, false, Some(large_req.len()), first);
         let second_chunk = chunk_send_request(15, 1, true, None, second);
 
@@ -1880,11 +1898,17 @@ mod tests {
         state.peer_data_transfer_size = CapabilitiesBody::MIN_DATA_TRANSFER_SIZE;
         let vdm = CaptureVdmBackend::new();
 
-        let host_mailbox_payload = vec![0x5au8; 4 + 96];
+        let host_mailbox_payload = vec![0x5au8; MAILBOX_WORD_LEN + MAILBOX_DATA_LEN];
         let large_req = vendor_defined_stream_request(&host_mailbox_payload);
         assert!(large_req.len() > pal.mtu());
 
-        let first_chunk = chunk_send_request(10, 0, false, Some(large_req.len()), &large_req[..64]);
+        let first_chunk = chunk_send_request(
+            10,
+            0,
+            false,
+            Some(large_req.len()),
+            &large_req[..VDM_FIRST_CHUNK_LEN],
+        );
         assert!(first_chunk.len() > state.peer_data_transfer_size as usize);
         assert!(first_chunk.len() <= pal.mtu());
 
@@ -1916,9 +1940,15 @@ mod tests {
         let mut state = chunking_state();
         let mut sessions = test_sessions();
         let vdm = CaptureVdmBackend::new();
-        let host_mailbox_payload = vec![0x5au8; 4 + 96];
+        let host_mailbox_payload = vec![0x5au8; MAILBOX_WORD_LEN + MAILBOX_DATA_LEN];
         let large_req = vendor_defined_stream_request(&host_mailbox_payload);
-        let first_chunk = chunk_send_request(11, 0, false, Some(large_req.len()), &large_req[..64]);
+        let first_chunk = chunk_send_request(
+            11,
+            0,
+            false,
+            Some(large_req.len()),
+            &large_req[..VDM_FIRST_CHUNK_LEN],
+        );
         assert!(first_chunk.len() > pal.mtu());
 
         let first_io = TestIo::message(first_chunk.clone());
@@ -1948,10 +1978,16 @@ mod tests {
         let mut state = chunking_state();
         let mut sessions = test_sessions();
         let vdm = CaptureVdmBackend::new();
-        let host_mailbox_payload = vec![0x5au8; 4 + 96];
+        let host_mailbox_payload = vec![0x5au8; MAILBOX_WORD_LEN + MAILBOX_DATA_LEN];
         let large_req = vendor_defined_stream_request(&host_mailbox_payload);
         assert!(large_req.len() <= pal.mtu());
-        let first_chunk = chunk_send_request(12, 0, false, Some(large_req.len()), &large_req[..64]);
+        let first_chunk = chunk_send_request(
+            12,
+            0,
+            false,
+            Some(large_req.len()),
+            &large_req[..VDM_FIRST_CHUNK_LEN],
+        );
 
         let first_io = TestIo::message(first_chunk.clone());
         let rsp = handle_chunk_send(
@@ -1981,10 +2017,16 @@ mod tests {
         let mut state = chunking_state();
         let mut sessions = test_sessions();
         let vdm = CaptureVdmBackend::new();
-        let host_mailbox_payload = vec![0x5au8; 4 + 96];
+        let host_mailbox_payload = vec![0x5au8; MAILBOX_WORD_LEN + MAILBOX_DATA_LEN];
         let large_req = vendor_defined_stream_request(&host_mailbox_payload);
         assert!(large_req.len() > pal.max_inbound_spdm_request_size());
-        let first_chunk = chunk_send_request(13, 0, false, Some(large_req.len()), &large_req[..64]);
+        let first_chunk = chunk_send_request(
+            13,
+            0,
+            false,
+            Some(large_req.len()),
+            &large_req[..VDM_FIRST_CHUNK_LEN],
+        );
 
         let first_io = TestIo::message(first_chunk.clone());
         let rsp = handle_chunk_send(
@@ -2015,9 +2057,9 @@ mod tests {
         let mut sessions = test_sessions();
         let vdm = BufferedOnlyVdmBackend::new();
 
-        let host_mailbox_payload = vec![0x5au8; 4 + 96];
+        let host_mailbox_payload = vec![0x5au8; MAILBOX_WORD_LEN + MAILBOX_DATA_LEN];
         let large_req = vendor_defined_stream_request(&host_mailbox_payload);
-        let (first, second) = large_req.split_at(64);
+        let (first, second) = large_req.split_at(VDM_FIRST_CHUNK_LEN);
         let first_chunk = chunk_send_request(10, 0, false, Some(large_req.len()), first);
         let second_chunk = chunk_send_request(10, 1, true, None, second);
 

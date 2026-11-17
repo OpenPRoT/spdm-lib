@@ -78,7 +78,7 @@ impl ResponseBody for SetCertificateRsp {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{ReqRespCode, SpdmVersion, WireReader};
+    use crate::{ReqRespCode, SpdmMsgHdrPdu, SpdmVersion, WireReader};
 
     #[test]
     fn test_set_certificate_attributes_decode() {
@@ -106,8 +106,7 @@ mod tests {
 
     #[test]
     fn test_set_certificate_req_parse_with_chain_tail() {
-        // Body (2) + 4 bytes standing in for the cert chain.
-        // SPDM message = 2-byte header + 2-byte body + 4 = 8 bytes.
+        // Body + 4 bytes standing in for the cert chain.
         let buf = [0x23, 0x04, 0xDE, 0xAD, 0xBE, 0xEF];
         let mut r = WireReader::new(&buf);
         let body: &SetCertificateReqBody = r.read().unwrap();
@@ -120,7 +119,7 @@ mod tests {
 
     #[test]
     fn test_set_certificate_req_erase_has_no_tail() {
-        // Erase request: just the 2-byte body, nothing after it.
+        // Erase request: just the body, nothing after it.
         let mut r = WireReader::new(&[0x82, 0x00]);
         let body: &SetCertificateReqBody = r.read().unwrap();
         assert!(body.erase());
@@ -130,8 +129,12 @@ mod tests {
 
     #[test]
     fn test_set_certificate_req_rejects_truncated() {
-        assert!(WireReader::new(&[0x01]).read::<SetCertificateReqBody>().is_err());
-        assert!(WireReader::new(&[]).read::<SetCertificateReqBody>().is_err());
+        assert!(WireReader::new(&[0x01; SetCertificateReqBody::SIZE - 1])
+            .read::<SetCertificateReqBody>()
+            .is_err());
+        assert!(WireReader::new(&[])
+            .read::<SetCertificateReqBody>()
+            .is_err());
     }
 
     #[test]
@@ -151,12 +154,14 @@ mod tests {
     #[test]
     fn test_set_certificate_rsp_encode_all_versions() {
         let rsp = SetCertificateRsp { slot_id: 3 };
-        // Body = slot_id(1) + param2(1) = 2; wire = 2-byte header + 2 = 4 bytes.
-        assert_eq!(rsp.body_size(), 2);
-        assert_eq!(rsp.encoded_size(), 4);
+        assert_eq!(rsp.body_size(), SetCertificateRspBody::SIZE);
+        assert_eq!(
+            rsp.encoded_size(),
+            SpdmMsgHdrPdu::SIZE + SetCertificateRspBody::SIZE
+        );
 
         for v in [SpdmVersion::V12, SpdmVersion::V13, SpdmVersion::V14] {
-            let mut buf = [0xFFu8; 4];
+            let mut buf = [0xFFu8; SpdmMsgHdrPdu::SIZE + SetCertificateRspBody::SIZE];
             let mut w = WireWriter::new(&mut buf);
             rsp.encode_with_header(v, &mut w).unwrap();
             // header: version, SET_CERTIFICATE_RSP (0x6E); body: slot, param2 = 0.
@@ -170,7 +175,7 @@ mod tests {
         // Pins current leniency: slot_id is written verbatim, even above the
         // 4-bit SlotID range.
         let rsp = SetCertificateRsp { slot_id: 0xFF };
-        let mut buf = [0u8; 4];
+        let mut buf = [0u8; SpdmMsgHdrPdu::SIZE + SetCertificateRspBody::SIZE];
         let mut w = WireWriter::new(&mut buf);
         rsp.encode_with_header(SpdmVersion::V13, &mut w).unwrap();
         assert_eq!(buf, [0x13, 0x6E, 0xFF, 0x00]);
@@ -178,8 +183,8 @@ mod tests {
 
     #[test]
     fn test_set_certificate_rsp_buffer_too_small() {
-        for len in 0..4 {
-            let mut buf = [0u8; 4];
+        for len in 0..SpdmMsgHdrPdu::SIZE + SetCertificateRspBody::SIZE {
+            let mut buf = [0u8; SpdmMsgHdrPdu::SIZE + SetCertificateRspBody::SIZE];
             let mut w = WireWriter::new(&mut buf[..len]);
             assert!(
                 SetCertificateRsp { slot_id: 1 }
@@ -197,7 +202,10 @@ mod tests {
             param2: 0,
         };
         assert_eq!(body.as_bytes(), &[0x02, 0x00]);
-        assert_eq!(SetCertificateRspBody::SIZE, 2);
-        assert_eq!(SetCertificateReqBody::SIZE, 2);
+        assert_eq!(SetCertificateRspBody::SIZE, body.as_bytes().len());
+        assert_eq!(
+            SetCertificateReqBody::SIZE,
+            core::mem::size_of::<SetCertificateReqBody>()
+        );
     }
 }
