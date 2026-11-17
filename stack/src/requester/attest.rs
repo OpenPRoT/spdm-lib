@@ -108,6 +108,12 @@ impl<T: RequesterTransport, H: SpdmPalHash, R: SpdmPalRng, V: PeerVerifier>
             total = end;
             offset = offset.wrapping_add(cert.portion_length);
 
+            // A responder that claims more remains but sends nothing would
+            // otherwise keep this loop spinning.
+            if cert.portion_length == 0 && cert.remainder_length != 0 {
+                return Err(INVARIANT);
+            }
+
             if cert.remainder_length == 0 {
                 break;
             }
@@ -312,5 +318,46 @@ impl<T: RequesterTransport, H: SpdmPalHash, R: SpdmPalRng, V: PeerVerifier>
         self.transcript
             .finalize_l1(&self.hash, &NullIo, &mut l1_hash)?;
         Ok(l1_hash)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    extern crate alloc;
+
+    use alloc::vec::Vec;
+
+    use spdm_codec::{CertificateRsp, ResponseBody, WireWriter};
+
+    use super::*;
+    use crate::requester::test_support::scripted_requester;
+
+    const VERSION: SpdmVersion = SpdmVersion::V13;
+    const SLOT: u8 = 0;
+
+    fn certificate_rsp(portion: &[u8], remainder_length: u16) -> Vec<u8> {
+        let rsp = CertificateRsp {
+            slot_id: SLOT,
+            param2: 0,
+            portion_length: portion.len() as u16,
+            remainder_length,
+            chain_portion: portion,
+        };
+        let mut buf = alloc::vec![0u8; SpdmMsgHdrPdu::SIZE + rsp.body_size()];
+        let mut w = WireWriter::new(&mut buf);
+        rsp.encode_with_header(VERSION, &mut w).unwrap();
+        buf
+    }
+
+    #[test]
+    fn rejects_empty_portion_that_claims_more_remains() {
+        let stall = certificate_rsp(&[], 1);
+        let mut r = scripted_requester(alloc::vec![stall.clone(), stall.clone(), stall], VERSION);
+        // M1 forks from VCA, so the transcript needs one before GET_CERTIFICATE.
+        r.append_vca(&[]).unwrap();
+
+        assert!(r.get_certificate(SLOT).is_err());
+        // Only the first GET_CERTIFICATE goes out; the loop does not re-ask.
+        assert_eq!(r.into_transport().sent.len(), 1);
     }
 }

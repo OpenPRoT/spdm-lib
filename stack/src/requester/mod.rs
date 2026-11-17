@@ -21,6 +21,8 @@ mod algorithms;
 mod attest;
 mod capabilities;
 mod chunk;
+#[cfg(test)]
+mod test_support;
 mod version;
 
 pub use attest::Attestation;
