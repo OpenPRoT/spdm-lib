@@ -123,73 +123,10 @@ impl<T: RequesterTransport, H: SpdmPalHash, R: SpdmPalRng, V: PeerVerifier>
 mod tests {
     extern crate alloc;
 
-    use alloc::collections::VecDeque;
     use alloc::vec::Vec;
 
-    use spdm_traits::SpdmPalIo;
-
     use super::*;
-    use crate::requester::RequesterConfig;
-
-    /// Replays canned responses and records what the requester sent.
-    struct Script {
-        replies: VecDeque<Vec<u8>>,
-        sent: Vec<Vec<u8>>,
-    }
-
-    impl RequesterTransport for Script {
-        fn send(&mut self, msg: &[u8]) -> PalResult<()> {
-            self.sent.push(msg.to_vec());
-            Ok(())
-        }
-        fn recv(&mut self, buf: &mut [u8]) -> PalResult<usize> {
-            let r = self.replies.pop_front().ok_or(INVARIANT)?;
-            buf.get_mut(..r.len()).ok_or(INVARIANT)?.copy_from_slice(&r);
-            Ok(r.len())
-        }
-    }
-
-    // Chunking never touches the transcript, so these are inert.
-    struct NoHash;
-    impl SpdmPalHash for NoHash {
-        type State = ();
-        fn hash_init(
-            &self,
-            _: &impl SpdmPalIo,
-            _: spdm_traits::SpdmPalHashAlgo,
-            _: &[u8],
-        ) -> PalResult<()> {
-            Ok(())
-        }
-        fn hash_update(&self, _: &impl SpdmPalIo, _: &mut (), _: &[u8]) -> PalResult<()> {
-            Ok(())
-        }
-        fn hash_clone(&self, _: &impl SpdmPalIo, _: &()) -> PalResult<()> {
-            Ok(())
-        }
-        fn hash_finish(&self, _: &impl SpdmPalIo, _: &mut (), _: &mut [u8]) -> PalResult<()> {
-            Ok(())
-        }
-    }
-    struct NoRng;
-    impl SpdmPalRng for NoRng {
-        fn fill_random(&self, _: &impl SpdmPalIo, _: &mut [u8]) -> PalResult<()> {
-            Ok(())
-        }
-    }
-    struct NoVerify;
-    impl PeerVerifier for NoVerify {
-        type PubKey = ();
-        fn validate_chain(&self, _: &[u8]) -> PalResult<()> {
-            Ok(())
-        }
-        fn verify_p384(&self, _: &(), _: &[u8; 48], _: &[u8]) -> PalResult<()> {
-            Ok(())
-        }
-        fn verify_mldsa87(&self, _: &(), _: &[u8], _: &[u8], _: &[u8]) -> PalResult<()> {
-            Ok(())
-        }
-    }
+    use crate::requester::test_support::{scripted_requester, NoHash, NoRng, NoVerify, Script};
 
     const VERSION: SpdmVersion = SpdmVersion::V14;
 
@@ -209,14 +146,7 @@ mod tests {
     }
 
     fn requester(replies: Vec<Vec<u8>>) -> SpdmRequester<Script, NoHash, NoRng, NoVerify> {
-        let t = Script {
-            replies: replies.into(),
-            sent: Vec::new(),
-        };
-        let mut r =
-            SpdmRequester::with_config(t, NoHash, NoRng, NoVerify, RequesterConfig::default());
-        r.version = VERSION;
-        r
+        scripted_requester(replies, VERSION)
     }
 
     fn fetch(replies: Vec<Vec<u8>>, cap: usize) -> (PalResult<usize>, Vec<u8>, Vec<Vec<u8>>) {
@@ -296,18 +226,9 @@ mod tests {
 
     #[test]
     fn pre_1_4_uses_the_16_bit_chunk_get() {
-        let t = Script {
-            replies: alloc::vec![{
-                let mut m = chunk(7, 0, true, Some(1), &[9]);
-                m[0] = 0x13;
-                m
-            }]
-            .into(),
-            sent: Vec::new(),
-        };
-        let mut r =
-            SpdmRequester::with_config(t, NoHash, NoRng, NoVerify, RequesterConfig::default());
-        r.version = SpdmVersion::V13;
+        let mut reply = chunk(7, 0, true, Some(1), &[9]);
+        reply[0] = SpdmVersion::V13.to_u8();
+        let mut r = scripted_requester(alloc::vec![reply], SpdmVersion::V13);
         let mut out = [0u8; 4];
         assert_eq!(r.fetch_large_response(7, &mut out), Ok(1));
         assert_eq!(r.into_transport().sent[0], [0x13, 0x86, 0, 7, 0, 0]);
