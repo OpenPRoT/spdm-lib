@@ -27,6 +27,7 @@
 //! * `device_chain.der` — IDevID ‖ LDevID ‖ leaf, concatenated DER.
 //! * `leaf_key.bin` — the leaf's raw 48-byte P-384 private scalar.
 //! * `pq_chain.der` — ML-DSA-87 root ‖ IDevID ‖ LDevID ‖ leaf.
+//! * `pq_root.der` — the ML-DSA-87 root alone (the requester pins it).
 //! * `pq_leaf_seed.bin` — the ML-DSA-87 leaf's 32-byte key seed.
 //!
 //! Cargo re-runs this script after `cargo clean` or when `certs/` or this file
@@ -286,6 +287,7 @@ fn main() -> Result<()> {
             spdm_extension(SPDM_MUTABLE_CERTIFICATE)?,
         ],
     )?;
+    fs::write(out.join("pq_root.der"), &pq_root)?;
     fs::write(
         out.join("pq_chain.der"),
         [pq_root, pq_idevid, pq_ldevid, pq_leaf].concat(),

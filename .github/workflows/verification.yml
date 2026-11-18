@@ -65,5 +65,5 @@ jobs:
         run: |
           cd spdm-lib
           (cd "$GITHUB_WORKSPACE"/spdm-emu/build/bin/; ./spdm_responder_emu --trans NONE --ver ${{ matrix.spdm_version }} --slot_id 0 --slot_count 1 --req_slot_id 0) &
-          (sleep 1; cargo run --example poc-requester -- --port 2323)
+          (sleep 1; cargo run --example poc-requester -- --port 2323 --root "$GITHUB_WORKSPACE"/spdm-emu/build/bin/ecp384/ca.cert.der)
 

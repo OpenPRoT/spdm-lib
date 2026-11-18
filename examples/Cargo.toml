@@ -21,6 +21,8 @@ path = "responder/main.rs"
 [[example]]
 name = "poc-requester"
 path = "requester/main.rs"
+# Run the verifier tests in requester/pal.rs under `cargo test`.
+test = true
 
 [features]
 default = []
