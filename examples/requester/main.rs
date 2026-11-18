@@ -18,7 +18,7 @@ use spdm_codec::SpdmVersion;
 use spdm_errors::{codes::INVARIANT, PalResult};
 use spdm_stack::requester::{RequesterConfig, RequesterTransport, SpdmRequester};
 
-use pal::{HostHash, HostRng, HostVerifier};
+use pal::{demo_trust_anchors, HostHash, HostRng, HostVerifier};
 
 const DEFAULT_PORT: u16 = 2323;
 
@@ -119,7 +119,10 @@ fn spdm_name(msg: &[u8]) -> String {
 }
 
 fn main() {
-    let port = parse_port();
+    let Args {
+        port,
+        trust_anchors,
+    } = parse_args();
     let addr = ("127.0.0.1", port);
 
     let stream = match TcpStream::connect(addr) {
@@ -141,8 +144,13 @@ fn main() {
         versions: SPDM_VERSIONS,
         ..RequesterConfig::default()
     };
-    let mut requester =
-        SpdmRequester::with_config(transport, HostHash, HostRng, HostVerifier, config);
+    let mut requester = SpdmRequester::with_config(
+        transport,
+        HostHash,
+        HostRng,
+        HostVerifier::new(trust_anchors),
+        config,
+    );
     let n = match requester.negotiate() {
         Ok(n) => {
             println!("[req] VCA complete:");
@@ -192,21 +200,39 @@ fn main() {
     }
 }
 
-fn parse_port() -> u16 {
+struct Args {
+    port: u16,
+    /// DER root certificates to trust; the demo roots when none are given.
+    trust_anchors: Vec<Vec<u8>>,
+}
+
+fn parse_args() -> Args {
+    let mut port = DEFAULT_PORT;
+    let mut trust_anchors = Vec::new();
     let mut args = env::args().skip(1);
     while let Some(arg) = args.next() {
         match arg.as_str() {
             "-p" | "--port" => {
-                if let Some(v) = args.next() {
-                    if let Ok(p) = v.parse() {
-                        return p;
-                    }
+                let v = args.next().unwrap_or_default();
+                port = v.parse().unwrap_or_else(|_| {
                     eprintln!("[req] invalid port: {v}");
                     std::process::exit(1);
-                }
+                });
+            }
+            "--root" => {
+                let path = args.next().unwrap_or_default();
+                trust_anchors.push(std::fs::read(&path).unwrap_or_else(|e| {
+                    eprintln!("[req] cannot read root certificate {path}: {e}");
+                    std::process::exit(1);
+                }));
             }
             "-h" | "--help" => {
-                println!("usage: poc-requester [--port <PORT>]  (default {DEFAULT_PORT})");
+                println!(
+                    "usage: poc-requester [--port <PORT>] [--root <ROOT.der>]...\n  \
+                     --port  default {DEFAULT_PORT}\n  \
+                     --root  trust this DER root certificate (repeatable); replaces the\n          \
+                     built-in demo roots, which only the poc-responder uses"
+                );
                 std::process::exit(0);
             }
             other => {
@@ -215,5 +241,11 @@ fn parse_port() -> u16 {
             }
         }
     }
-    DEFAULT_PORT
+    if trust_anchors.is_empty() {
+        trust_anchors = demo_trust_anchors();
+    }
+    Args {
+        port,
+        trust_anchors,
+    }
 }

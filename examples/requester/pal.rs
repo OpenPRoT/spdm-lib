@@ -79,9 +79,38 @@ impl SpdmPalRng for HostRng {
     }
 }
 
-/// Host peer verifier: parses the DER chain, validates it end to end, and
-/// verifies SPDM signatures with the leaf key.
-pub struct HostVerifier;
+/// Host peer verifier: parses the DER chain, checks that its root is one of the
+/// pinned trust anchors, validates it end to end, and verifies SPDM signatures
+/// with the leaf key.
+///
+/// The chain's root is only trusted if it is byte-identical to a trust anchor
+/// passed to [`HostVerifier::new`]. A chain that merely verifies against its own
+/// root proves nothing.
+pub struct HostVerifier {
+    trust_anchors: Vec<Vec<u8>>,
+}
+
+impl HostVerifier {
+    /// Trusts only chains rooted at one of `trust_anchors` (DER certificates).
+    pub fn new(trust_anchors: Vec<Vec<u8>>) -> Self {
+        Self { trust_anchors }
+    }
+}
+
+/// The roots of this repository's own demo hierarchies: the static `DEMO CA`
+/// (ECDSA P-384) and the ML-DSA-87 root `build.rs` generates on every clean
+/// build. Their private keys are public or throwaway, so these anchors are for
+/// host testing only. A real Requester pins its own vendor root instead.
+pub fn demo_trust_anchors() -> Vec<Vec<u8>> {
+    alloc_vecs([
+        include_bytes!("../certs/demo-ca.cert.der").as_slice(),
+        include_bytes!(concat!(env!("OUT_DIR"), "/pq_root.der")).as_slice(),
+    ])
+}
+
+fn alloc_vecs<const N: usize>(roots: [&[u8]; N]) -> Vec<Vec<u8>> {
+    roots.into_iter().map(<[u8]>::to_vec).collect()
+}
 
 /// id-ml-dsa-87 (RFC 9881).
 const ML_DSA_87: ObjectIdentifier = ObjectIdentifier::new_unwrap("2.16.840.1.101.3.4.3.19");
@@ -98,6 +127,7 @@ impl PeerVerifier for HostVerifier {
     fn validate_chain(&self, der_chain: &[u8]) -> PalResult<Self::PubKey> {
         // Split the concatenated DER into individual certificates.
         let mut certs: Vec<Certificate> = Vec::new();
+        let mut root_der: &[u8] = &[];
         let mut rest = der_chain;
         while !rest.is_empty() {
             let cert_len = der_seq_len(rest).ok_or(INVARIANT)?;
@@ -105,10 +135,18 @@ impl PeerVerifier for HostVerifier {
                 return Err(INVARIANT);
             }
             let cert = Certificate::from_der(&rest[..cert_len]).map_err(|_| INVARIANT)?;
+            if certs.is_empty() {
+                root_der = &rest[..cert_len];
+            }
             certs.push(cert);
             rest = &rest[cert_len..];
         }
         if certs.is_empty() {
+            return Err(INVARIANT);
+        }
+
+        // Pin the root: the chain must start at a certificate we already trust.
+        if !self.trust_anchors.iter().any(|a| a == root_der) {
             return Err(INVARIANT);
         }
 
@@ -204,5 +242,36 @@ fn verify_cert_signature(cert: &Certificate, issuer_key: &HostKey) -> PalResult<
                 .then_some(())
                 .ok_or(INVARIANT)
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const DEMO_CA: &[u8] = include_bytes!("../certs/demo-ca.cert.der");
+    const SIGNING: &[u8] = include_bytes!("../certs/signing-demo.cert.der");
+    const IDENTITY_SIGNING: &[u8] = include_bytes!("../certs/identity-signing-demo.cert.der");
+    const DEVICE_CHAIN: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/device_chain.der"));
+    const PQ_CHAIN: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/pq_chain.der"));
+
+    fn p384_chain() -> Vec<u8> {
+        [DEMO_CA, SIGNING, IDENTITY_SIGNING, DEVICE_CHAIN].concat()
+    }
+
+    #[test]
+    fn accepts_chains_rooted_at_the_demo_anchors() {
+        let verifier = HostVerifier::new(demo_trust_anchors());
+        assert!(verifier.validate_chain(&p384_chain()).is_ok());
+        assert!(verifier.validate_chain(PQ_CHAIN).is_ok());
+    }
+
+    #[test]
+    fn rejects_a_correctly_signed_chain_with_an_unpinned_root() {
+        // Self-consistent chain, but its root is not a trust anchor.
+        let verifier = HostVerifier::new(alloc_vecs([SIGNING]));
+        assert!(verifier.validate_chain(&p384_chain()).is_err());
+        let no_anchors = HostVerifier::new(Vec::new());
+        assert!(no_anchors.validate_chain(&p384_chain()).is_err());
     }
 }
