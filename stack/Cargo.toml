@@ -14,6 +14,8 @@ spdm-crypto = { workspace = true }
 spdm-errors = { workspace = true }
 bitfield-struct = { workspace = true }
 zerocopy = { workspace = true }
+subtle = { workspace = true }
+zeroize = { workspace = true }
 spdm-console = { workspace = true, optional = true }
 spdm-transport-sys = { workspace = true, optional = true }
 
