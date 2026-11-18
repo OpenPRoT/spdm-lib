@@ -18,8 +18,9 @@ use crate::error::{
     SPDM_UNEXPECTED_REQUEST, SPDM_UNSPECIFIED,
 };
 use crate::stack::ConnectionState;
+use zeroize::Zeroize;
 
-/// RAII guard that automatically zero-fills its contained buffer on Drop.
+/// RAII guard that automatically zeroizes its contained buffer on Drop.
 /// Used to securely erase sensitive reassembled request or response payload data from RAM.
 pub(crate) struct WipeOnDrop<L: core::ops::DerefMut<Target = [u8]>> {
     pub(crate) buf: Option<L>,
@@ -28,7 +29,7 @@ pub(crate) struct WipeOnDrop<L: core::ops::DerefMut<Target = [u8]>> {
 impl<L: core::ops::DerefMut<Target = [u8]>> Drop for WipeOnDrop<L> {
     fn drop(&mut self) {
         if let Some(mut buf) = self.buf.take() {
-            buf.fill(0);
+            (*buf).zeroize();
         }
     }
 }
@@ -46,7 +47,7 @@ impl<L: core::ops::DerefMut<Target = [u8]>> WipeOnDrop<L> {
     pub(crate) fn zero_slice(&mut self, start: usize, end: usize) -> SpdmResult<()> {
         let buf = self.as_mut()?;
         let dst = buf.get_mut(start..end).ok_or(SPDM_UNSPECIFIED)?;
-        dst.fill(0);
+        dst.zeroize();
         Ok(())
     }
 
@@ -243,7 +244,7 @@ impl<L: core::ops::DerefMut<Target = [u8]>> LargeMessageCtx<L> {
         self.state.reset();
         self.mode = LargeMessageMode::Idle;
         if let Some(mut backing) = self.buf.take() {
-            backing.fill(0);
+            (*backing).zeroize();
         }
     }
 
@@ -546,6 +547,43 @@ mod tests {
 
     use super::*;
     use crate::build::encode_error_response;
+
+    const SECRET: u8 = 0xA5;
+    const SECRET_LEN: usize = 8;
+
+    #[test]
+    fn wipe_on_drop_zeroizes_the_buffer() {
+        let mut data = [SECRET; SECRET_LEN];
+        drop(WipeOnDrop {
+            buf: Some(data.as_mut_slice()),
+        });
+        assert_eq!(data, [0; SECRET_LEN]);
+    }
+
+    #[test]
+    fn zero_slice_clears_only_the_requested_range() {
+        let mut data = [SECRET; SECRET_LEN];
+        let (start, end) = (SECRET_LEN / 4, SECRET_LEN / 2);
+        let mut guard = WipeOnDrop {
+            buf: Some(data.as_mut_slice()),
+        };
+        guard.zero_slice(start, end).unwrap();
+        let held = guard.as_ref().unwrap();
+        assert!(held[start..end].iter().all(|&b| b == 0));
+        assert!(held[..start]
+            .iter()
+            .chain(&held[end..])
+            .all(|&b| b == SECRET));
+    }
+
+    #[test]
+    fn large_message_reset_zeroizes_the_backing_buffer() {
+        let mut data = [SECRET; SECRET_LEN];
+        let mut ctx = LargeMessageCtx::new();
+        ctx.set_buffer(data.as_mut_slice());
+        ctx.reset();
+        assert_eq!(data, [0; SECRET_LEN]);
+    }
 
     #[test]
     fn buffered_response_distinguishes_peer_and_local_limits() {

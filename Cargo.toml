@@ -39,6 +39,8 @@ type_complexity = { level = "allow", priority = 1 }
 bitfield = "0.14.0"
 bitfield-struct = "0.13.0"
 zerocopy = { version = "0.8.17", features = ["derive"] }
+subtle = { version = "2.6", default-features = false }
+zeroize = { version = "1.8", default-features = false }
 
 # Platform-independent placeholders (replacing caliptra-mcu deps)
 spdm-crypto = { path = "placeholders/spdm-crypto" }

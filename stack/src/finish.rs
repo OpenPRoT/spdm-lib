@@ -19,7 +19,9 @@ use spdm_codec::{
     SHA384_HASH_SIZE,
 };
 use spdm_traits::*;
+use subtle::ConstantTimeEq;
 use zerocopy::FromBytes;
+use zeroize::Zeroizing;
 
 use crate::error::{SpdmResult, SPDM_DECRYPT_ERROR, SPDM_INVALID_REQUEST, SPDM_UNSPECIFIED};
 use crate::key_schedule::SessionKeyType;
@@ -76,29 +78,25 @@ pub(crate) fn handle_finish<Pal: SpdmPal>(
     session.transcript.append(pal, io, finish_prefix)?;
 
     // ── Verify requester HMAC ───────────────────────────────────────
-    let mut th_hash = [0u8; SHA384_HASH_SIZE];
+    let mut th_hash = Zeroizing::new([0u8; SHA384_HASH_SIZE]);
     session
         .transcript
-        .clone_and_finalize(pal, io, &mut th_hash)?;
+        .clone_and_finalize(pal, io, &mut *th_hash)?;
 
-    let mut expected_vd = [0u8; SHA384_HASH_SIZE];
+    // Wiped on every exit, including the early returns below.
+    let mut expected_vd = Zeroizing::new([0u8; SHA384_HASH_SIZE]);
     let vd_len = session.key_schedule.hmac_finished(
         pal,
         io,
         SessionKeyType::RequestFinishedKey,
-        &th_hash,
-        &mut expected_vd,
+        &*th_hash,
+        &mut *expected_vd,
     )??;
     if vd_len != SHA384_HASH_SIZE {
         return Err(SPDM_UNSPECIFIED);
     }
 
-    // Constant-time comparison.
-    let mut diff = 0u8;
-    for (a, b) in req_verify_data.iter().zip(expected_vd.iter()) {
-        diff |= a ^ b;
-    }
-    if diff != 0 {
+    if !bool::from(req_verify_data.ct_eq(expected_vd.as_slice())) {
         return Err(SPDM_DECRYPT_ERROR);
     }
 
