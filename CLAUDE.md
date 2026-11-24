@@ -51,9 +51,6 @@ directories excluded from the build.
       (`cargo run --example poc-responder` / `cargo run --example poc-requester`). `responder/`
       wires the Responder to host crypto; `requester/` drives the Requester. Useful as integration
       examples.
-- `legacy/`
-    - The preserved host-crypto reference monolith. Excluded from the workspace build. Reference
-      only; do not modify unless explicitly instructed.
 - `mcu-pal/`
     - `spdm-mcu-pal`. The Caliptra-MCU-specific implementation of the `SpdmPal` trait family — DPE,
       Caliptra Core cert chains, mailbox crypto, Tock syscalls. Excluded from the workspace build

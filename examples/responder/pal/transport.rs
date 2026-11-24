@@ -14,8 +14,7 @@
 
 //! spdm-emu TCP socket transport (SOCKET_TRANSPORT_TYPE_NONE).
 //!
-//! Ported from the legacy `socket_transport.rs` example, adapted to the new
-//! `SpdmPalIoTransport` / `SpdmPalIo` traits.
+//! Implements the `SpdmPalIoTransport` / `SpdmPalIo` traits.
 //!
 //! Wire framing (DMTF spdm-emu common protocol): every message is a 12-byte
 //! big-endian header `{ command:u32, transport_type:u32, payload_size:u32 }`
