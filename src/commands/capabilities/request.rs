@@ -395,10 +395,7 @@ fn check_flags_v13(flags: &CapabilityFlags) -> bool {
             return false;
         }
     }
-    if flags.multi_key_cap() == 1 && flags.get_key_pair_info_cap() == 0 {
-        return false;
-    }
-    true
+    !(flags.multi_key_cap() == 1 && flags.get_key_pair_info_cap() == 0)
 }
 
 #[cfg(test)]
